@@ -54,6 +54,8 @@ DATA = Path(os.environ.get('STACK_UI_DATA') or '/data')
 SELF = os.environ.get('STACK_UI_SELF') or os.environ.get('HOSTNAME', '')
 PROTECTED = {x.strip() for x in os.environ.get('STACK_UI_PROTECTED', '').split(',') if x.strip()}
 PROTECTED_NETWORKS = {x.strip() for x in os.environ.get('STACK_UI_PROTECTED_NETWORKS', 'podman').split(',') if x.strip()}
+# the page's own password secret (and STACK_UI_PROTECTED_SECRETS) is never removed from the Secrets page
+PROTECTED_SECRETS = {'stack-ui-password'} | {x.strip() for x in os.environ.get('STACK_UI_PROTECTED_SECRETS', '').split(',') if x.strip()}
 DEPLOY_LOCK = threading.Lock()   # one change (deploy, start, stop, delete, restart, pull, ...) at a time
 FILES_LOCK = threading.Lock()    # one save or upload at a time
 MAX_BODY = 1024 * 1024
@@ -125,6 +127,12 @@ def hash_password(password: str, iterations: int = HASH_ITERATIONS) -> str:
     return f'pbkdf2_sha256${iterations}${base64.b64encode(salt).decode()}${base64.b64encode(digest).decode()}'
 
 
+def read_password_hash(path: Path) -> str:
+    """The last pbkdf2_sha256$ line of the file (prompts or CRs around it are ignored); '' when there is none."""
+    lines = [x.strip() for x in path.read_text(encoding='utf-8', errors='replace').splitlines()]
+    return next((x for x in reversed(lines) if x.startswith('pbkdf2_sha256$')), '')
+
+
 def check_password(password: str, stored: str) -> bool:
     try:
         algo, iterations, salt, digest = stored.strip().split('$')
@@ -164,6 +172,18 @@ def deployed(name: str, snap: dict) -> bool:
     return snap['containers'] is not None and name in st.projects(snap['containers'])
 
 
+def stack_protected(name: str) -> bool:
+    """This page's own compose project, or a stack named in STACK_UI_PROTECTED: no stop, delete or redeploy here
+    (podman-compose would remove the very container it runs in)."""
+    return name in PROTECTED or name in self_projects()
+
+
+def refuse_protected(name: str) -> None:
+    if stack_protected(name):
+        raise ValueError(f'"{name}" is protected (this page itself, or STACK_UI_PROTECTED): it is not stopped, '
+                         'deleted or redeployed from here')
+
+
 def require_podman_state() -> dict:
     snap = snapshot()
     if snap['podmanError']:
@@ -175,6 +195,7 @@ def overview() -> dict:
     """Every stack with its containers, and whether Podman could be read."""
     snap = snapshot()
     containers = snap['containers'] or []
+    own = self_projects()
     rows = []
     for folder, compose_file, env_file in st.discover():
         name = folder.name
@@ -185,6 +206,7 @@ def overview() -> dict:
             running = any(c.get('State') == 'running' for c in st.project_containers(name, containers))
             stack = {'status': 1 if running else 2}
         rows.append({'name': name, 'compose': compose_file, 'env': env_file, 'stack': stack,
+                     'protected': name in PROTECTED or name in own,
                      'containers': [{'name': st.cname(c), 'state': c.get('State'), 'status': c.get('Status'),
                                      'image': c.get('Image')} for c in mine]})
     return {'stacks': rows, 'podmanError': snap['podmanError'], 'source': SOURCE}
@@ -450,7 +472,7 @@ def updates(check: bool) -> dict:
     return {'checkedAt': CHECKED_AT, 'stacks': out}
 
 
-# ---------- images: what is on the Pi, and removing the untagged leftovers of pulls ----------
+# ---------- images: what is on this host, and removing the untagged leftovers of pulls ----------
 
 def short_id(image_id: str) -> str:
     return str(image_id or '').split(':', 1)[-1]
@@ -721,7 +743,7 @@ def network_create(data: dict) -> dict:
 
 
 def network_delete(data: dict) -> dict:
-    """Only an unused network that is not podman's default or the proxy network."""
+    """Only an unused network that is not protected (STACK_UI_PROTECTED_NETWORKS)."""
     name = str(data.get('name') or '')
     with DEPLOY_LOCK:
         row = next((r for r in network_list()['networks'] if r['name'] == name), None)
@@ -787,7 +809,7 @@ def secret_list() -> dict:
     have = sorted(pa.secrets(), key=lambda s: s['name'])
     names = {s['name'] for s in have}
     return {'secrets': [{'name': s['name'], 'created': s['created'], 'updated': s['updated'],
-                         'usedBy': refs.get(s['name'], [])} for s in have],
+                         'usedBy': refs.get(s['name'], []), 'protected': s['name'] in PROTECTED_SECRETS} for s in have],
             'missing': sorted(set(refs) - names)}
 
 
@@ -807,6 +829,8 @@ def secret_save(data: dict) -> dict:
 def secret_delete(data: dict) -> dict:
     require_podman()
     name = str(data.get('name') or '')
+    if name in PROTECTED_SECRETS:
+        raise ValueError(f'"{name}" is protected: this page needs it (STACK_UI_PROTECTED_SECRETS)')
     used = secret_refs().get(name)
     if used:
         raise ValueError(f'"{name}" is used by {", ".join(used)}: remove it from their compose files first')
@@ -840,7 +864,7 @@ def history(name: str) -> list[dict]:
     module, compose_file, env_file = find_module(name)
     folder = module / '.history'
     found = []
-    for fname in (compose_file, env_file):
+    for fname in filter(None, (compose_file, env_file)):
         pattern = re.compile(re.escape(fname) + r'\.(\d{8}T\d{6}Z)(?:-(\d+))?')
         for p in folder.iterdir() if folder.is_dir() else []:
             m = pattern.fullmatch(p.name)
@@ -908,12 +932,13 @@ def run_deploy(name: str, pull: bool, remove: list[str], only_update: bool = Fal
 
     with DEPLOY_LOCK:
         try:
+            refuse_protected(name)
             snap = require_podman_state()
             if only_update and not deployed(name, snap):
                 return {'ok': False, 'log': ['not deployed yet: skipped']}
             st.deploy(folder, compose_file, env_file, pull=pull, recreate=recreate, approve=approve, log=log.append)
             return {'ok': True, 'log': log}
-        except (st.StackError, pa.PodmanError) as exc:
+        except (st.StackError, pa.PodmanError, ValueError) as exc:
             return {'ok': False, 'log': log + [f'ERROR: {exc}']}
 
 
@@ -922,6 +947,7 @@ def stack_action(name: str, action: str, data: dict) -> dict:
     folder, compose_file, env_file = find_module(name)
     if action == 'delete' and data.get('confirm') != name:
         raise ValueError(f'type the stack name "{name}" to delete it')
+    refuse_protected(name)
     with DEPLOY_LOCK:
         if not deployed(name, require_podman_state()):
             raise NotDeployed(name)
@@ -950,9 +976,9 @@ class Config:
     local_token = secrets.token_urlsafe(24)
 
 
-SOURCE = 'repository'  # how the diff names this side; 'Pi' in the container
+SOURCE = 'host'  # how the diff names this side (--source-name)
 SESSIONS: dict[str, tuple[float, str]] = {}   # session id -> (expires, page token)
-# Cookies belong to the host, not the port: another service on the Pi (any port, also HTTPS) may keep its own
+# Cookies belong to the host, not the port: another service on this host (any port, also HTTPS) may keep its own
 # "sid", and a Secure cookie of that name makes the browser drop a plain-HTTP "sid". Hence a name of our own.
 COOKIE = 'stack_ui_session'
 COOKIE_RE = re.compile(r'(?:^|;\s*)' + COOKIE + r'=([A-Za-z0-9_-]+)')
@@ -1174,11 +1200,14 @@ class Handler(BaseHTTPRequestHandler):
         except NotDeployed as exc:
             return self.json(404, {'error': f'the stack "{exc}" is not deployed'})
         except LookupError as exc:
-            return self.json(404, {'error': f'no module {exc}'})
+            return self.json(404, {'error': f'no stack {exc}'})
         except (st.StackError, pa.PodmanError) as exc:
             return self.json(502, {'error': str(exc)})
         except (ValueError, json.JSONDecodeError) as exc:
             return self.json(400, {'error': str(exc)})
+        except Exception as exc:  # noqa: BLE001 - an answer, not a dropped connection
+            self.log_message('error: %s', repr(exc))
+            return self.json(500, {'error': f'unexpected error: {type(exc).__name__}: {exc}'})
 
     def do_GET(self):
         self.dispatch('GET')
@@ -1210,8 +1239,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--hash-password', action='store_true', help='ask for a password and print its hash line')
     args = parser.parse_args(argv)
     if args.hash_password:
-        first = getpass.getpass('New password: ')
-        if len(first) < 10 or first != getpass.getpass('Again: '):
+        if sys.stdin.isatty():
+            first = getpass.getpass('New password: ', stream=sys.stderr)
+            again = getpass.getpass('Again: ', stream=sys.stderr)
+        else:  # from a pipe (podman run -i): one line, no prompt in the output
+            first = again = sys.stdin.readline().rstrip('\r\n')
+        if len(first) < 10 or first != again:
             print('ERROR: the two entries differ or the password is shorter than 10 characters', file=sys.stderr)
             return 1
         print(hash_password(first))
@@ -1221,8 +1254,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f'ERROR: STACKS_DIR must name an existing directory (now: {st.STACKS_DIR})', file=sys.stderr)
         return 1
     if args.password_file:
-        Config.password_hash = Path(args.password_file).read_text(encoding='utf-8').strip()
-        if not Config.password_hash.startswith('pbkdf2_sha256$'):
+        Config.password_hash = read_password_hash(Path(args.password_file))
+        if not Config.password_hash:
             print(f'ERROR: {args.password_file} does not hold a hash from --hash-password', file=sys.stderr)
             return 1
     elif not loopback(args.bind):

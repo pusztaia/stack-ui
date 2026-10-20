@@ -1,7 +1,7 @@
 """Podman's own REST API (libpod) on the host's socket: containers, images, networks, volumes, secrets, logs.
 
 Used by stack-ui in its container (the host's rootful socket, /run/podman/podman.sock, is mounted in) and by
-podman_stack.py. Standard library only; no stack logic here. PODMAN_SOCKET names the socket; PODMAN_API_URL
+stacks.py. Standard library only; no stack logic here. PODMAN_SOCKET names the socket; PODMAN_API_URL
 (http://host:port) replaces it with plain TCP (the tests' mock server). Errors are PodmanError, with the HTTP
 status in .code (0 when the socket cannot be reached). A secret's value only goes in, never comes back.
 """
@@ -82,7 +82,7 @@ def request(method: str, path: str, *, query: dict | None = None, body=None, dat
         finally:
             conn.close()
     except (OSError, http.client.HTTPException) as exc:
-        raise PodmanError(f'the Podman API ({API_URL or SOCKET}) cannot be reached: {exc}. On the Pi: '
+        raise PodmanError(f'the Podman API ({API_URL or SOCKET}) cannot be reached: {exc}. On the host: '
                           'sudo systemctl enable --now podman.socket, then restart stack-ui') from None
     if resp.status >= 400:
         raise PodmanError(f'Podman {method} {path}: HTTP {resp.status} {_message(raw)[:300]}', resp.status)

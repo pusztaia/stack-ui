@@ -35,8 +35,10 @@ On the Podman host:
 ```bash
 # 1. the Podman socket (rootful)
 sudo systemctl enable --now podman.socket
-# 2. the page's password: only its hash goes into a Podman secret
-sudo podman run --rm -it ghcr.io/pusztaia/stack-ui:1 --hash-password | sudo podman secret create stack-ui-password -
+# 2. the page's password (at least 10 characters): only its hash goes into a Podman secret
+read -rs -p 'Stack UI password: ' PW; echo
+printf '%s\n' "$PW" | sudo podman run --rm -i ghcr.io/pusztaia/stack-ui:1 --hash-password | sudo podman secret create stack-ui-password -
+unset PW
 # 3. the example compose file
 curl -LO https://raw.githubusercontent.com/pusztaia/stack-ui/main/compose.example.yaml
 # 4. where your stacks are, and how you open the page
@@ -79,7 +81,8 @@ devices or ports below 1024 — and then remember that this page is as powerful 
   `*API_KEY` variable is refused. Give a stack a secret as a Podman secret: in its compose file
   `secrets: {my_secret: {external: true}}` (and under the service), created on the *Secrets* page.
 - The page's own container (`STACK_UI_SELF`) and its compose project, and `STACK_UI_PROTECTED`, are never stopped,
-  restarted or removed from the page.
+  restarted, redeployed or removed from the page; the `stack-ui-password` secret (and `STACK_UI_PROTECTED_SECRETS`)
+  is never removed.
 - Running as root (rootful), files the page writes into `STACKS_DIR` get the owner of their folder, so the stacks
   stay editable by their owner.
 
@@ -93,6 +96,7 @@ devices or ports below 1024 — and then remember that this page is as powerful 
 | `STACK_UI_SELF` | the container's `HOSTNAME` | this page's container name (protected) |
 | `STACK_UI_PROTECTED` | — | more containers or compose projects that are never stopped or removed |
 | `STACK_UI_PROTECTED_NETWORKS` | `podman` | networks that are never removed |
+| `STACK_UI_PROTECTED_SECRETS` | — | Podman secrets that are never removed (besides `stack-ui-password`) |
 | `STACK_UI_IGNORE` | — | folders of `STACKS_DIR` that are not stacks |
 | `STACK_UI_DATA` | `/data` | where the settings (the API token's hash) are kept |
 | `PODMAN_SOCKET` | `/run/podman/podman.sock` | the Podman socket inside the container |

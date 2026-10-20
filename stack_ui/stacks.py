@@ -76,9 +76,12 @@ def discover() -> list[tuple[Path, str, str | None]]:
     for folder in sorted(p for p in STACKS_DIR.iterdir() if p.is_dir()):
         if folder.name in IGNORE or not STACK_NAME.match(folder.name):
             continue
-        files = stack_files(folder)
-        if files and (files[1] is None or (folder / files[1]).is_file()):
-            found.append((folder, *files))
+        try:
+            files = stack_files(folder)
+            if files and (files[1] is None or (folder / files[1]).is_file()):
+                found.append((folder, *files))
+        except OSError:  # an unreadable folder (e.g. another user's 0700) is not a stack; the others still are
+            continue
     return found
 
 
@@ -138,7 +141,7 @@ def _is_root() -> bool:
 
 def match_owner(*paths: Path) -> None:
     """Running as root (a rootful container), what is written into STACKS_DIR gets the owner of its parent
-    directory, so the stacks stay editable by their owner (e.g. over SMB)."""
+    directory, so the stacks stay editable by their owner."""
     if not _is_root():
         return
     for path in paths:

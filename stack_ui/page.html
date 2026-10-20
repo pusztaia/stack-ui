@@ -410,7 +410,7 @@ function moreItems(name) {
     { label: 'History', run: () => go(`#/stacks/${enc(name)}/history`) },
     { label: 'Compare with deployed', disabled: !s?.stack, run: () => go(`#/stacks/${enc(name)}/diff`) },
   ];
-  if (s?.stack) items.push({ sep: true }, { label: 'Delete stack…', danger: true, run: () => showDelete(name) });
+  if (s?.stack && !s.protected) items.push({ sep: true }, { label: 'Delete stack…', danger: true, run: () => showDelete(name) });
   return items;
 }
 
@@ -573,6 +573,7 @@ function imageCell(name) {
 function rowActions(s) {
   const n = esc(s.name);
   const st = s.stack;
+  if (s.protected) return `<span class="tag t-idle" title="This page itself, or STACK_UI_PROTECTED: not stopped, updated or deleted from here">Protected</span><button class="icon-btn" data-act="more" data-name="${n}" title="More" aria-label="More actions for ${n}" aria-haspopup="menu">${icon('more', 'fill')}</button>`;
   const main = st
     ? `<button class="icon-btn" data-act="${st.status === 1 ? 'stop' : 'start'}" data-name="${n}" title="${st.status === 1 ? 'Stop' : 'Start'}" aria-label="${st.status === 1 ? 'Stop' : 'Start'} ${n}">${icon(st.status === 1 ? 'stop' : 'play', 'fill')}</button>
        <button class="icon-btn" data-act="deploy" data-name="${n}" title="Update" aria-label="Update ${n}">${icon('update')}</button>`
@@ -587,7 +588,7 @@ function stackRow(s) {
       + (!s.stack ? '<span class="small">not deployed: Create asks to replace it</span>' : '')
     : '<span class="muted small">No container</span>';
   return `<div class="tr${SELECTED.has(s.name) ? ' selected' : ''}" data-row="${n}">
-    <span class="c-sel">${s.stack ? `<input type="checkbox" data-sel="${n}" aria-label="Select ${n}" ${SELECTED.has(s.name) ? 'checked' : ''}>` : ''}</span>
+    <span class="c-sel">${s.stack && !s.protected ? `<input type="checkbox" data-sel="${n}" aria-label="Select ${n}" ${SELECTED.has(s.name) ? 'checked' : ''}>` : ''}</span>
     <span class="c-state"><span class="state s-${state}" title="${STATE_LABEL[state]}">${icon('stacks')}</span></span>
     <span class="c-name"><a class="name" href="#/stacks/${n}/summary">${n}</a><span class="files">${esc(s.compose)}</span></span>
     <span class="c-cont">${conts}</span>
@@ -665,7 +666,7 @@ function viewDetail() {
   const s = stackOf(name);
   if (!s) {
     $('view').innerHTML = `<a class="back" href="#/stacks">${icon('back')}Stacks</a>`
-      + (STACKS.length || LOAD_ERROR ? `<div class="empty"><p>There is no stack module “${esc(name)}”.</p></div>` : '<p class="muted pad">Loading…</p>');
+      + (STACKS.length || LOAD_ERROR ? `<div class="empty"><p>There is no stack “${esc(name)}”.</p></div>` : '<p class="muted pad">Loading…</p>');
     return;
   }
   $('view').innerHTML = `
@@ -688,8 +689,8 @@ function renderDetailHead() {
     <div class="title-row"><span class="state big s-${state}">${icon('stacks')}</span>
       <div><h1>${n}</h1><p class="sub">${STATE_LABEL[state]}</p></div></div>
     <div class="head-actions">
-      ${st ? `<button data-act="${st.status === 1 ? 'stop' : 'start'}" data-name="${n}">${icon(st.status === 1 ? 'stop' : 'play', 'fill')}<span>${st.status === 1 ? 'Stop' : 'Start'}</span></button>` : ''}
-      <button class="primary" data-act="deploy" data-name="${n}">${icon('update')}<span>${st ? 'Update' : 'Create'}</span></button>
+      ${s.protected ? '<span class="tag t-idle">Protected: not stopped, updated or deleted from here</span>' : `${st ? `<button data-act="${st.status === 1 ? 'stop' : 'start'}" data-name="${n}">${icon(st.status === 1 ? 'stop' : 'play', 'fill')}<span>${st.status === 1 ? 'Stop' : 'Start'}</span></button>` : ''}
+      <button class="primary" data-act="deploy" data-name="${n}">${icon('update')}<span>${st ? 'Update' : 'Create'}</span></button>`}
       <button class="icon-btn" data-act="more" data-name="${n}" title="More" aria-label="More actions" aria-haspopup="menu">${icon('more', 'fill')}</button>
     </div>`;
 }
@@ -739,7 +740,7 @@ async function tabFiles(name) {
   if (!onTab(name, 'files')) return;
   FILES = { name, ...f };
   DIRTY = false;
-  const others = f.others.length ? `<p class="muted small">Also in the module: ${f.others.map(esc).join(', ')}</p>` : '';
+  const others = f.others.length ? `<p class="muted small">Also in the folder: ${f.others.map(esc).join(', ')}</p>` : '';
   $('tab').innerHTML = `
     <div class="editor-bar">
       <span id="dirty" class="dirty" hidden>Unsaved changes</span>
@@ -927,7 +928,7 @@ function showDelete(name) {
   openDialog(`Delete ${name}`,
     `<div id="dlg-err"></div>
      <p>${what}
-        The module's files and the data on the host stay; <i>Create</i> brings the stack back.</p>
+        The stack's files and the data on the host stay; <i>Create</i> brings the stack back.</p>
      <label class="field"><span>Type <b>${esc(name)}</b> to confirm</span><input type="text" id="del-name" autocomplete="off" spellcheck="false"></label>`,
     '<button data-close>Cancel</button><button class="danger" id="do-delete" disabled>Delete stack</button>');
   $('del-name').addEventListener('input', () => { $('do-delete').disabled = $('del-name').value !== name; });
@@ -1030,7 +1031,7 @@ function updateSelected(names) {
 function showAdd() {
   openDialog('Add stack',
     `<div id="dlg-err"></div>
-     <p>Upload a stack package as a new module, e.g. the <code>podman/</code> folder of an app: its compose file (<code>.yaml</code>),
+     <p>Upload a stack as a new folder of STACKS_DIR: its compose file (<code>.yaml</code>),
         its env file (<code>.env</code>) and, if it has them, its prepare script and README. Other files (a deploy script) are skipped.
         A locally built image must already be on this host.</p>
      <label class="field"><span>Stack name (also the podman-compose project name)</span><input type="text" id="add-name" placeholder="e.g. my-app" autocomplete="off"></label>
@@ -1146,7 +1147,7 @@ async function viewContainers() {
     };
     if (act === 'remove' || act === 'stop') {
       openDialog(`${act === 'remove' ? 'Remove' : 'Stop'} ${name}`, `<div id="dlg-err"></div><p>${act === 'remove'
-        ? `Removes the container <b>${esc(name)}</b> (also when it runs). It is not part of a stack module.`
+        ? `Removes the container <b>${esc(name)}</b> (also when it runs). It is not part of a stack.`
         : `Stops the container <b>${esc(name)}</b> (waiting up to 30 seconds).`}</p>`,
       `<button data-close>Cancel</button><button class="${act === 'remove' ? 'danger' : 'primary'}" id="c-go">${act === 'remove' ? 'Remove' : 'Stop'}</button>`);
       $('c-go').addEventListener('click', () => { $('c-go').disabled = true; run(); });
@@ -1234,7 +1235,7 @@ function confirmRemove(what, name, path, body, reload) {
 }
 
 async function viewNetworks() {
-  resPage('Networks', 'Podman networks. <code>podman</code> and the proxy network are protected; a network in use cannot be removed.', 'Create network');
+  resPage('Networks', 'Podman networks. Protected networks (<code>podman</code> and STACK_UI_PROTECTED_NETWORKS) and networks in use cannot be removed.', 'Create network');
   $('res-add').addEventListener('click', () => {
     openDialog('Create network', `<div id="dlg-err"></div>
       <label class="field"><span>Name</span><input type="text" id="nw-name" autocomplete="off" spellcheck="false"></label>
@@ -1347,7 +1348,7 @@ async function viewSecrets() {
     d.secrets.map((s) => `<div class="tr"><span><b>${esc(s.name)}</b></span>
       <span class="small muted">${esc(new Date(s.updated || s.created).toLocaleString())}</span>
       <span class="small">${s.usedBy.length ? s.usedBy.map((u) => `<a href="#/stacks/${enc(u)}/summary">${esc(u)}</a>`).join(', ') : '<span class="tag t-idle">Unused</span>'}</span>
-      <span class="r"><button class="small" data-rep="${esc(s.name)}">Replace</button>${s.usedBy.length ? ''
+      <span class="r"><button class="small" data-rep="${esc(s.name)}">Replace</button>${s.usedBy.length || s.protected ? ''
         : `<button class="small danger" data-rm="${esc(s.name)}">${icon('trash')}Remove</button>`}</span></div>`).join('')
     || '<div class="empty">No secret yet.</div>'}</div>`;
   $('res-body').querySelectorAll('[data-rep]').forEach((b) => b.addEventListener('click', () =>

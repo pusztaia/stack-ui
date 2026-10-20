@@ -1,7 +1,6 @@
 # Stack UI - copy this file, set STACKS_DIR (and STACK_UI_ALLOWED_HOSTS), then:
 #   sudo podman-compose -f compose.example.yaml up -d      (rootful; rootless: without sudo, see the socket below)
-# The page's password: its hash is a Podman secret (see README):
-#   sudo podman run --rm -it ghcr.io/pusztaia/stack-ui:1 --hash-password | sudo podman secret create stack-ui-password -
+# The page's password: its hash is a Podman secret (see README, Install, step 2).
 services:
   stack-ui:
     image: ghcr.io/pusztaia/stack-ui:1
