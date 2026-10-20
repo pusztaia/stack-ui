@@ -1,0 +1,45 @@
+# Stack UI - copy this file, set STACKS_DIR (and STACK_UI_ALLOWED_HOSTS), then:
+#   sudo podman-compose -f compose.example.yaml up -d      (rootful; rootless: without sudo, see the socket below)
+# The page's password: its hash is a Podman secret (see README):
+#   sudo podman run --rm -it ghcr.io/pusztaia/stack-ui:1 --hash-password | sudo podman secret create stack-ui-password -
+services:
+  stack-ui:
+    image: ghcr.io/pusztaia/stack-ui:1
+    container_name: stack-ui
+    restart: always
+    ports:
+      # loopback only; to open it on the LAN use your host's address (e.g. 192.168.1.10:8770:8770),
+      # better behind a reverse proxy with HTTPS
+      - "127.0.0.1:${STACK_UI_PORT:-8770}:8770/tcp"
+    environment:
+      STACKS_DIR: ${STACKS_DIR:?set STACKS_DIR to your stacks folder}
+      # the host names / addresses the page is opened as (comma separated)
+      STACK_UI_ALLOWED_HOSTS: ${STACK_UI_ALLOWED_HOSTS:-127.0.0.1,localhost}
+      STACK_UI_SELF: stack-ui
+      TZ: ${TZ:-UTC}
+    volumes:
+      # the stacks, at the same path as on the host: podman-compose resolves ./paths there
+      - ${STACKS_DIR}:${STACKS_DIR}
+      - stack-ui-data:/data
+      # rootful Podman (sudo systemctl enable --now podman.socket):
+      - /run/podman/podman.sock:/run/podman/podman.sock
+      # rootless Podman instead (systemctl --user enable --now podman.socket; your UID from `id -u`):
+      # - /run/user/1000/podman/podman.sock:/run/podman/podman.sock
+    secrets:
+      - stack-ui-password
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 192m
+    cpus: 0.5
+    pids_limit: 256
+    logging:
+      driver: k8s-file
+      options:
+        max-size: 5m
+
+volumes:
+  stack-ui-data:
+
+secrets:
+  stack-ui-password:
+    external: true
