@@ -31,9 +31,9 @@ def make_stack(base: Path, name: str, compose: str, env: str | None = 'TZ=Europe
                compose_name: str = 'compose.yaml', env_name: str = '.env') -> Path:
     folder = base / name
     folder.mkdir(parents=True)
-    (folder / compose_name).write_text(compose, encoding='utf-8', newline='\n')
+    (folder / compose_name).write_bytes(compose.encode('utf-8'))
     if env is not None:
-        (folder / env_name).write_text(env, encoding='utf-8', newline='\n')
+        (folder / env_name).write_bytes(env.encode('utf-8'))
     return folder
 
 

@@ -280,7 +280,7 @@ def write_file(path: Path, text: str) -> None:
         backup.write_bytes(path.read_bytes())
         st.match_owner(backup)
     tmp = path.with_name(f'.{path.name}.tmp')
-    tmp.write_text(text, encoding='utf-8', newline='\n')
+    st.write_lf(tmp, text)
     st.match_owner(tmp)
     os.replace(tmp, path)
 
@@ -347,7 +347,7 @@ def upload(data: dict) -> dict:
         tmp.mkdir(parents=True)
         st.match_owner(tmp)
         for fname, text in pkg.items():
-            (tmp / fname).write_text(text, encoding='utf-8', newline='\n')
+            st.write_lf(tmp / fname, text)
             if fname.endswith('.sh'):
                 os.chmod(tmp / fname, 0o755)
         (tmp / st.MANIFEST).write_text(json.dumps({'compose': compose, 'env': env}, indent=2) + '\n', encoding='utf-8')
