@@ -1,0 +1,32 @@
+name: test
+on:
+  push: {}
+  pull_request: {}
+  workflow_call: {}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install pyyaml==6.0.2
+      - run: python -m unittest discover -s tests -v
+      - run: python -c "import yaml; yaml.safe_load(open('compose.example.yaml'))"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: page script syntax
+        run: |
+          python - <<'EOF'
+          import re, pathlib
+          html = pathlib.Path('stack_ui/page.html').read_text(encoding='utf-8')
+          js = re.search(r'<script>(.*)</script>', html, re.S).group(1)
+          js = js.replace("'__UI_TOKEN__'", "''").replace('__AUTH__', 'false').replace("'__SOURCE__'", "''")
+          pathlib.Path('page.js').write_text(js, encoding='utf-8')
+          EOF
+          node --check page.js
