@@ -1,0 +1,1648 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portainer Stacks</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<style>
+  /* Podman Desktop-like: charcoal layers, one purple accent, status colours only where they mean something */
+  :root {
+    --nav: #1c1c21; --bg: #26262c; --panel: #2f2f37; --hover: #3a3a43; --line: #3d3d47; --line-soft: #34343c;
+    --text: #ececf1; --muted: #a1a1ad; --faint: #7a7a86;
+    --accent: #8b5cf6; --accent-strong: #7c3aed; --accent-soft: rgba(139, 92, 246, .16); --accent-text: #ffffff;
+    --ok: #34d399; --ok-soft: rgba(52, 211, 153, .14); --warn: #fbbf24; --warn-soft: rgba(251, 191, 36, .14);
+    --bad: #f87171; --bad-soft: rgba(248, 113, 113, .14); --idle: #9a9aa6; --idle-soft: rgba(113, 113, 122, .2);
+    --code: #1f1f24; --add: #86efac; --add-bg: rgba(52, 211, 153, .12); --del: #fca5a5; --del-bg: rgba(248, 113, 113, .12);
+    --hunk: #c4b5fd; --shadow: 0 12px 32px rgba(0, 0, 0, .45);
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --nav: #f4f4f7; --bg: #ffffff; --panel: #fafafc; --hover: #f1effa; --line: #e3e3ea; --line-soft: #ececf2;
+    --text: #1f1f26; --muted: #5f5f6b; --faint: #8a8a96;
+    --accent: #7c3aed; --accent-strong: #6d28d9; --accent-soft: rgba(124, 58, 237, .1); --accent-text: #ffffff;
+    --ok: #047857; --ok-soft: rgba(5, 150, 105, .1); --warn: #b45309; --warn-soft: rgba(180, 83, 9, .1);
+    --bad: #dc2626; --bad-soft: rgba(220, 38, 38, .09); --idle: #63636e; --idle-soft: rgba(113, 113, 122, .12);
+    --code: #f6f6f9; --add: #166534; --add-bg: #dcfce7; --del: #991b1b; --del-bg: #fee2e2;
+    --hunk: #6d28d9; --shadow: 0 12px 32px rgba(20, 20, 40, .16);
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; }
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  svg.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8;
+           stroke-linecap: round; stroke-linejoin: round; }
+  svg.ic.fill { fill: currentColor; stroke: none; }
+
+  /* layout */
+  .app { display: grid; grid-template-columns: 76px minmax(0, 1fr); min-height: 100vh; }
+  .side { background: var(--nav); border-right: 1px solid var(--line); display: flex; flex-direction: column;
+          gap: 4px; padding: 12px 8px; position: sticky; top: 0; height: 100vh; }
+  .brand { display: grid; place-items: center; height: 40px; margin-bottom: 10px; color: var(--accent); }
+  .brand img { width: 34px; height: 34px; display: block; }
+  .nav-a { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 9px 4px; border-radius: 8px;
+           color: var(--muted); text-decoration: none; font-size: 11px; position: relative; }
+  .nav-a svg.ic { width: 20px; height: 20px; }
+  .nav-a:hover { background: var(--hover); color: var(--text); }
+  .nav-a[aria-current="page"] { color: var(--text); background: var(--accent-soft); }
+  .nav-a[aria-current="page"]::before { content: ""; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 3px;
+                                        border-radius: 0 3px 3px 0; background: var(--accent); }
+  .side .grow { flex: 1; }
+  .side button.nav-a { border: 0; background: transparent; font: inherit; font-size: 11px; cursor: pointer; width: 100%; }
+  main { padding: 22px 28px 96px; min-width: 0; }
+  .content { max-width: 1240px; margin: 0 auto; }
+
+  /* page head */
+  .page-head { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+  h1 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -.01em; }
+  .sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; max-width: 72ch; }
+  .head-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .title-row { display: flex; gap: 12px; align-items: center; }
+  .back { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); text-decoration: none; font-size: 13px; margin-bottom: 10px; }
+  .back:hover { color: var(--text); }
+
+  /* controls */
+  button { font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line);
+           background: var(--panel); color: var(--text); padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--accent-text); }
+  button.primary:hover { background: var(--accent); border-color: var(--accent); }
+  button.danger { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
+  button.small { padding: 3px 10px; }
+  button.icon-btn { padding: 5px; background: transparent; border-color: transparent; color: var(--muted); }
+  button.icon-btn:hover { background: var(--hover); color: var(--text); border-color: transparent; }
+  button:disabled, button:disabled:hover { opacity: .5; cursor: default; border-color: var(--line); }
+  .search { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--code);
+            border-radius: 6px; padding: 0 10px; min-width: 250px; color: var(--muted); }
+  .search:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .search input { border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; padding: 7px 0; width: 100%; outline: none; }
+  input[type="text"], input[type="password"], input[type="url"], select, textarea {
+    font: inherit; width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--code); color: var(--text); }
+  input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+  .field { display: block; margin: 12px 0; } .field > span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  label.check { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0; }
+
+  /* filter chips: the summary of the list, and its filter */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  button.chip { border-radius: 99px; padding: 4px 12px; background: transparent; color: var(--muted); }
+  button.chip b { color: var(--text); font-weight: 600; }
+  button.chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+  button.chip.c-warn b { color: var(--warn); }
+
+  /* tables */
+  .table { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+  .tr { display: grid; grid-template-columns: 36px 34px minmax(150px, 1.3fr) minmax(170px, 1.7fr) 104px 140px 124px;
+        gap: 10px; align-items: center; padding: 9px 12px; border-top: 1px solid var(--line-soft); }
+  .tr:first-child { border-top: 0; }
+  .tr.th { font-size: 12px; font-weight: 600; color: var(--muted); padding-top: 8px; padding-bottom: 8px; }
+  .tr[data-row] { cursor: pointer; }
+  .tr[data-row]:hover { background: var(--hover); }
+  .tr.selected { background: var(--accent-soft); }
+  .images .tr { grid-template-columns: minmax(220px, 2fr) 84px 110px minmax(150px, 1.4fr) 130px 44px; }
+  .conts .tr { grid-template-columns: minmax(130px, 1fr) minmax(170px, 1.6fr) minmax(110px, .9fr) 130px 170px; }
+  .c-name { display: flex; flex-direction: column; min-width: 0; }
+  .name { color: var(--text); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+  a.name:hover { color: var(--accent); }
+  .files { color: var(--faint); font-size: 12px; overflow-wrap: anywhere; }
+  .c-cont { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--muted); }
+  .c-act { display: flex; gap: 2px; justify-content: flex-end; }
+  .r { text-align: right; }
+  .ct { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .d-ok { background: var(--ok); } .d-bad { background: var(--bad); } .d-idle { background: var(--idle); }
+  .state { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; }
+  .state.big { width: 38px; height: 38px; border-radius: 9px; } .state.big svg.ic { width: 21px; height: 21px; }
+  .s-run { background: var(--ok-soft); color: var(--ok); }
+  .s-part { background: var(--warn-soft); color: var(--warn); }
+  .s-stop { background: var(--idle-soft); color: var(--idle); }
+  .s-none { border: 1px dashed var(--line); color: var(--faint); }
+  .tag { display: inline-block; font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 5px; border: 0; white-space: nowrap; }
+  button.tag { cursor: pointer; } button.tag:hover { text-decoration: underline; border: 0; }
+  .t-ok { background: var(--ok-soft); color: var(--ok); }
+  .t-warn { background: var(--warn-soft); color: var(--warn); }
+  .t-bad { background: var(--bad-soft); color: var(--bad); }
+  .t-idle { background: var(--idle-soft); color: var(--idle); }
+  .muted { color: var(--muted); } .small { font-size: 12.5px; } .pad { padding: 18px 2px; }
+  .empty { padding: 28px 18px; text-align: center; color: var(--muted); }
+
+  /* selection bar */
+  .selbar { position: sticky; bottom: 18px; display: flex; gap: 10px; align-items: center; width: fit-content;
+            margin: 14px auto 0; padding: 8px 10px 8px 16px; background: var(--panel); border: 1px solid var(--accent);
+            border-radius: 10px; box-shadow: var(--shadow); }
+
+  /* detail */
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 6px 0 16px; overflow-x: auto; }
+  .tabs a { padding: 8px 14px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .tabs a:hover { color: var(--text); }
+  .tabs a.on { color: var(--text); border-bottom-color: var(--accent); }
+  .tabs a.mod::after { content: " •"; color: var(--warn); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  .panel h2 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+  .panel > .table { margin: 0 -1px -1px; border-radius: 0 0 10px 10px; }
+  dl.kv { display: grid; grid-template-columns: 170px 1fr; gap: 8px 14px; margin: 0; font-size: 13.5px; }
+  dl.kv dt { color: var(--muted); } dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+  .editor-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 12px; }
+  .editor-bar .grow { flex: 1; }
+  .dirty { color: var(--warn); font-weight: 600; font-size: 13px; }
+  .editor { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-bottom: 14px; background: var(--code); }
+  .ed-head { padding: 7px 12px; font-size: 12.5px; color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--line); }
+  textarea { display: block; width: 100%; min-height: 46vh; resize: vertical; background: var(--code); color: var(--text); border: 0;
+             padding: 12px; tab-size: 2; font: 12.5px/1.55 ui-monospace, "Cascadia Code", Consolas, monospace; }
+  textarea.short { min-height: 24vh; }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .hist { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 14px; align-items: start; }
+  .hist-list { display: grid; gap: 4px; max-height: 64vh; overflow: auto; }
+  .hist-list button { display: block; text-align: left; width: 100%; }
+  .hist-list button.sel { border-color: var(--accent); background: var(--accent-soft); }
+  .hist-list .file { display: block; color: var(--faint); font-size: 12px; overflow-wrap: anywhere; }
+
+  /* code and diffs */
+  pre { margin: 0; background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow: auto;
+        max-height: 52vh; font: 12.5px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; }
+  pre .ln { display: block; }
+  pre .add { color: var(--add); background: var(--add-bg); }
+  pre .del { color: var(--del); background: var(--del-bg); }
+  pre .hunk { color: var(--hunk); }
+  code { font: 12.5px ui-monospace, "Cascadia Code", Consolas, monospace; }
+  h4 { margin: 14px 0 6px; font-size: 13.5px; }
+  ul.plain { margin: 6px 0; padding-left: 20px; }
+  .banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; background: var(--bad-soft); color: var(--bad); }
+  .ok-note { padding: 8px 12px; border-radius: 8px; background: var(--ok-soft); color: var(--ok); margin-bottom: 10px; }
+  .bad-note { padding: 8px 12px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); margin-bottom: 10px; }
+
+  /* dialog, menu, toasts */
+  dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 1px solid var(--line);
+           border-radius: 12px; padding: 0; background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+  dialog::backdrop { background: rgba(0, 0, 0, .5); }
+  .dlg-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px;
+              border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 1; }
+  .dlg-head h3 { margin: 0; font-size: 15px; }
+  .dlg-body { padding: 14px 16px; }
+  .dlg-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line);
+              position: sticky; bottom: 0; background: var(--panel); }
+  .menu { position: fixed; z-index: 30; min-width: 200px; background: var(--panel); border: 1px solid var(--line);
+          border-radius: 8px; box-shadow: var(--shadow); padding: 4px; }
+  .menu button { display: flex; width: 100%; text-align: left; border: 0; background: transparent; padding: 7px 10px; border-radius: 5px; }
+  .menu button:hover { background: var(--hover); border: 0; }
+  .menu button.danger-text { color: var(--bad); }
+  .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+  .toasts { position: fixed; right: 18px; bottom: 18px; z-index: 40; display: grid; gap: 8px; max-width: min(420px, calc(100vw - 32px)); }
+  .toast { padding: 10px 14px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line);
+           border-left: 3px solid var(--ok); box-shadow: var(--shadow); font-size: 13.5px; transition: opacity .25s, transform .25s; }
+  .toast.bad { border-left-color: var(--bad); }
+  .toast.out { opacity: 0; transform: translateY(6px); }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+
+  /* logs, networks, volumes, secrets */
+  .head-actions select { width: auto; }
+  pre.logs { max-height: 70vh; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 12.5px; }
+  .res .tr { grid-template-columns: minmax(160px, 1.2fr) minmax(120px, 1fr) minmax(160px, 1.4fr) 170px; }
+  .bk { margin-left: 6px; vertical-align: 1px; }
+  .ctab .tr { grid-template-columns: minmax(150px, 1.2fr) minmax(170px, 1.4fr) 110px minmax(120px, 1fr) 330px; }
+  .ctab .r button { margin-left: 4px; }
+  .ports a { margin-right: 6px; }
+  pre.json { max-height: 60vh; overflow: auto; font-size: 12px; }
+
+  @media (max-width: 760px) {
+    .app { grid-template-columns: minmax(0, 1fr); }
+    .side { min-width: 0; flex-direction: row; align-items: center; height: auto; z-index: 10; padding: 6px 8px; border-right: 0;
+            border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .brand { margin: 0 4px 0 2px; height: auto; }
+    .brand img { width: 28px; height: 28px; }
+    .nav-a, .side button.nav-a { flex-direction: row; font-size: 12.5px; padding: 7px 10px; width: auto; white-space: nowrap; }
+    .nav-a[aria-current="page"]::before { display: none; }
+    main { padding: 16px 16px 96px; }
+    .search { min-width: 0; flex: 1 1 100%; }
+    .head-actions { width: 100%; }
+    .table .th { display: none; }
+    .stacks .tr { grid-template-columns: 22px 30px minmax(0, 1fr) auto;
+                  grid-template-areas: "sel state name act" "sel state cont cont" "sel state drift img"; gap: 6px 10px; }
+    .c-sel { grid-area: sel; } .c-state { grid-area: state; } .c-name { grid-area: name; } .c-cont { grid-area: cont; }
+    .c-drift { grid-area: drift; } .c-img { grid-area: img; justify-self: start; } .c-act { grid-area: act; }
+    .c-drift > .muted, .c-img > .muted { display: none; }
+    .images .tr { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "iname iupd iact" "iused iused iused" "isize icreated icreated"; gap: 4px 10px; }
+    .i-act { grid-area: iact; }
+    .i-name { grid-area: iname; } .i-upd { grid-area: iupd; } .i-used { grid-area: iused; } .i-size { grid-area: isize; }
+    .i-created { grid-area: icreated; justify-self: end; }
+    .conts .tr { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "kname kact" "kimg kimg" "kstat kupd"; gap: 4px 10px; }
+    .k-name { grid-area: kname; } .k-img { grid-area: kimg; } .k-stat { grid-area: kstat; } .k-upd { grid-area: kupd; } .k-act { grid-area: kact; }
+    .hist { grid-template-columns: 1fr; }
+    .res .tr { grid-template-columns: minmax(0, 1fr) auto; }
+    .ctab .tr { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+    dl.kv { grid-template-columns: 1fr; gap: 2px; } dl.kv dd { margin-bottom: 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="side" aria-label="Main">
+    <div class="brand" title="Portainer Stacks"><img src="/icon.svg" alt=""></div>
+    <a class="nav-a" href="#/stacks" data-nav="stacks"></a>
+    <a class="nav-a" href="#/containers" data-nav="containers"></a>
+    <a class="nav-a" href="#/images" data-nav="images"></a>
+    <a class="nav-a" href="#/logs" data-nav="logs"></a>
+    <a class="nav-a" href="#/networks" data-nav="networks"></a>
+    <a class="nav-a" href="#/volumes" data-nav="volumes"></a>
+    <a class="nav-a" href="#/secrets" data-nav="secrets"></a>
+    <a class="nav-a" href="#/settings" data-nav="settings"></a>
+    <div class="grow"></div>
+    <button class="nav-a" id="theme" title="Switch light / dark"></button>
+    <button class="nav-a" id="logout" hidden></button>
+  </nav>
+  <main><div class="content">
+    <div id="banner"></div>
+    <div id="view"></div>
+  </div></main>
+</div>
+<div class="menu" id="menu" role="menu" hidden></div>
+<div class="toasts" id="toasts"></div>
+
+<dialog id="dlg">
+  <div class="dlg-head"><h3 id="dlg-title"></h3><button class="icon-btn" id="dlg-x" aria-label="Close">✕</button></div>
+  <div class="dlg-body" id="dlg-body"></div>
+  <div class="dlg-foot" id="dlg-foot"></div>
+</dialog>
+
+<script>
+const TOKEN = '__UI_TOKEN__';
+const AUTH = __AUTH__;
+const SOURCE = '__SOURCE__';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const enc = encodeURIComponent;
+
+const ICON = {
+  stacks: '<path d="M12 3 3 7.5l9 4.5 9-4.5L12 3Z"/><path d="m3 12 9 4.5 9-4.5"/><path d="m3 16.5 9 4.5 9-4.5"/>',
+  images: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="15.5" cy="8.5" r="1.5"/>',
+  settings: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+  play: '<path d="M7 4.6v14.8c0 .8.9 1.3 1.6.8l11-7.4a1 1 0 0 0 0-1.6l-11-7.4c-.7-.5-1.6 0-1.6.8Z"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  update: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4.5h-4.5"/>',
+  more: '<circle cx="5.5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18.5" cy="12" r="1.6"/>',
+  theme: '<path d="M20.5 13.5A8.5 8.5 0 1 1 10.5 3.5a6.6 6.6 0 0 0 10 10Z"/>',
+  logout: '<path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5v-13A1.5 1.5 0 0 1 5.5 4H9"/><path d="m15 16 4-4-4-4"/><path d="M19 12H9"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
+  back: '<path d="m14.5 18-6-6 6-6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  trash: '<path d="M4 7h16"/><path d="M9 7V4.5h6V7"/><path d="m6 7 1 13h10l1-13"/>',
+  refresh: '<path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5"/><path d="M20 4v4.5h-4.5"/><path d="M20 12a8 8 0 0 1-13.7 5.6L4 15.5"/><path d="M4 20v-4.5h4.5"/>',
+  logs: '<path d="M5 6h14M5 10h14M5 14h9M5 18h11"/>',
+  containers: '<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M7 7V5h10v2M7 11v4M11 11v4M15 11v4"/>',
+  networks: '<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5m0 0-6 5m6-5 6 5"/>',
+  volumes: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/>',
+  secrets: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+};
+const icon = (name, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[name]}</svg>`;
+
+// ---------- state ----------
+let STACKS = [];                                 // /api/stacks
+let INFO = { source: SOURCE, portainer: '', podman: false, defaultBackend: 'podman', portainerError: '', podmanError: '' };
+let LOAD_ERROR = '';
+let DRIFT = {}; let DRIFT_LOADED = false;        // name -> same | differs | unknown
+let UPDATES = { checkedAt: '', stacks: {} };     // the last image-update check
+let IMAGES = null;                               // /api/images
+let FILTER = 'all'; let QUERY = '';
+const SELECTED = new Set();
+let ROUTE = { view: 'stacks' };
+let FILES = null;                                // the files open on the Files tab
+let DIRTY = false; let lastHash = ''; let suppressHash = false;
+
+async function api(path, options = {}) {
+  const res = await fetch(path, { ...options, headers: { 'X-UI-Token': TOKEN, 'Content-Type': 'application/json' } });
+  let data = {};
+  try { data = await res.json(); } catch { /* empty */ }
+  if (res.status === 401 && AUTH) { location.replace('/'); throw new Error('signed out'); }
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+const stackOf = (name) => STACKS.find((s) => s.name === name);
+const errBox = (msg) => `<div class="banner">${esc(msg)}</div>`;
+const onTab = (name, tab) => ROUTE.view === 'detail' && ROUTE.name === name && ROUTE.tab === tab;
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+function stackState(s) {
+  if (!s.stack) return 'none';
+  if (s.stack.status !== 1) return 'stop';
+  return s.containers.length && s.containers.every((c) => c.state === 'running') ? 'run' : 'part';
+}
+const STATE_LABEL = { run: 'Running', part: 'Not every container runs', stop: 'Stopped', none: 'Not deployed' };
+const BACKEND_LABEL = { podman: 'Podman', portainer: 'Portainer' };
+const backendTag = (s) => (s.backend ? `<span class="tag t-idle bk">${BACKEND_LABEL[s.backend]}</span>` : '');
+const dotClass = (state) => (state === 'running' ? 'd-ok' : state === 'exited' || state === 'dead' ? 'd-bad' : 'd-idle');
+
+function fmtBytes(n) {
+  if (!n) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n < 10 && i ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
+}
+function ago(sec) {
+  if (!sec) return '';
+  const d = Date.now() / 1000 - sec;
+  if (d < 3600) return `${Math.max(1, Math.round(d / 60))} min ago`;
+  if (d < 86400) return `${Math.round(d / 3600)} h ago`;
+  const days = Math.round(d / 86400);
+  return days < 60 ? `${days} days ago` : new Date(sec * 1000).toLocaleDateString();
+}
+
+function diffHtml(text) {
+  if (!text) return '<pre class="muted">No difference.</pre>';
+  return '<pre>' + text.split('\n').map((l) => {
+    const cls = l.startsWith('+++') || l.startsWith('---') ? '' : l.startsWith('+') ? 'add' : l.startsWith('-') ? 'del' : l.startsWith('@@') ? 'hunk' : '';
+    return `<span class="ln ${cls}">${esc(l) || ' '}</span>`;
+  }).join('') + '</pre>';
+}
+
+function toast(msg, kind = 'ok') {
+  const t = document.createElement('div');
+  t.className = `toast ${kind}`;
+  t.setAttribute('role', kind === 'bad' ? 'alert' : 'status');
+  t.textContent = msg;
+  $('toasts').append(t);
+  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, kind === 'bad' ? 7000 : 3500);
+}
+
+// ---------- dialog and menu ----------
+function openDialog(title, body, foot = '') {
+  $('dlg-title').textContent = title;
+  $('dlg-body').innerHTML = body;
+  $('dlg-foot').innerHTML = foot || '<button data-close>Close</button>';
+  if (!$('dlg').open) $('dlg').showModal();
+}
+const closeDialog = () => { if ($('dlg').open) $('dlg').close(); };
+$('dlg').addEventListener('click', (ev) => { if (ev.target.closest('[data-close]')) closeDialog(); });
+$('dlg-x').addEventListener('click', closeDialog);
+
+function openMenu(anchor, items) {
+  const m = $('menu');
+  m.innerHTML = items.map((it, i) => it.sep ? '<hr>'
+    : `<button role="menuitem" data-i="${i}" class="${it.danger ? 'danger-text' : ''}" ${it.disabled ? 'disabled' : ''}>${esc(it.label)}</button>`).join('');
+  m.hidden = false;
+  m.dataset.for = anchor.dataset.name || '';
+  const r = anchor.getBoundingClientRect();
+  const w = m.offsetWidth; const h = m.offsetHeight;
+  m.style.left = `${Math.max(8, Math.min(r.right - w, innerWidth - w - 8))}px`;
+  m.style.top = `${r.bottom + 4 + h > innerHeight ? Math.max(8, r.top - h - 4) : r.bottom + 4}px`;
+  m.onclick = (e) => {
+    const b = e.target.closest('button[data-i]');
+    if (!b) return;
+    closeMenu();
+    items[+b.dataset.i].run();
+  };
+  m.querySelector('button:not(:disabled)')?.focus();
+}
+const closeMenu = () => { $('menu').hidden = true; };
+document.addEventListener('click', (e) => {
+  if (!$('menu').hidden && !e.target.closest('#menu') && !e.target.closest('[data-act="more"], [data-im]')) closeMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+window.addEventListener('resize', closeMenu);
+window.addEventListener('scroll', closeMenu, true);
+
+function moreItems(name) {
+  const s = stackOf(name);
+  const items = [
+    { label: 'Edit files', run: () => go(`#/stacks/${enc(name)}/files`) },
+    { label: 'History', run: () => go(`#/stacks/${enc(name)}/history`) },
+    { label: 'Compare with deployed', disabled: !s?.stack, run: () => go(`#/stacks/${enc(name)}/diff`) },
+  ];
+  if (s?.backend === 'portainer' && INFO.podman) items.push({ label: 'Move to Podman…', run: () => showMigrate(name) });
+  if (s?.stack) items.push({ sep: true }, { label: 'Delete stack…', danger: true, run: () => showDelete(name) });
+  return items;
+}
+
+// ---------- routing ----------
+const TABS = { summary: 'Summary', files: 'Files', history: 'History', diff: 'Compare with deployed' };
+
+function parseHash() {
+  const p = location.hash.replace(/^#\/?/, '').split('/').map((x) => { try { return decodeURIComponent(x); } catch { return x; } });
+  if (p[0] === 'images') return { view: 'images' };
+  if (p[0] === 'settings') return { view: 'settings' };
+  if (p[0] === 'containers') return { view: 'containers' };
+  if (p[0] === 'logs') return { view: 'logs', container: p[1] || '' };
+  if (['networks', 'volumes', 'secrets'].includes(p[0])) return { view: p[0] };
+  if (p[0] === 'stacks' && p[1]) return { view: 'detail', name: p[1], tab: TABS[p[2]] ? p[2] : 'summary' };
+  return { view: 'stacks' };
+}
+function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
+window.addEventListener('hashchange', () => {
+  if (suppressHash) { suppressHash = false; return; }
+  if (DIRTY && !confirm('The files have unsaved changes. Leave without saving them?')) {
+    suppressHash = true;
+    location.hash = lastHash;
+    return;
+  }
+  DIRTY = false;
+  render();
+});
+window.addEventListener('beforeunload', (e) => { if (DIRTY) { e.preventDefault(); e.returnValue = ''; } });
+
+function render() {
+  const previous = ROUTE.view;
+  lastHash = location.hash || '#/stacks';
+  ROUTE = parseHash();
+  closeMenu();
+  document.querySelectorAll('[data-nav]').forEach((a) => {
+    const on = a.dataset.nav === (ROUTE.view === 'detail' ? 'stacks' : ROUTE.view);
+    if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
+  renderBanner();
+  ({ stacks: viewStacks, detail: viewDetail, images: viewImages, settings: viewSettings, containers: viewContainers, logs: viewLogs,
+     networks: viewNetworks, volumes: viewVolumes, secrets: viewSecrets })[ROUTE.view]();
+  if (previous !== ROUTE.view) window.scrollTo(0, 0);
+}
+
+function renderBanner() {
+  const errs = [];
+  if (LOAD_ERROR) errs.push(`The stacks could not be read: ${esc(LOAD_ERROR)}`);
+  if (INFO.portainerError) errs.push(`Portainer could not be read: ${esc(INFO.portainerError)} · <a href="#/settings">Settings</a>`);
+  if (INFO.podmanError) errs.push(`Podman could not be read: ${esc(INFO.podmanError)}`);
+  $('banner').innerHTML = ROUTE.view === 'settings' ? '' : errs.map((e) => `<div class="banner">${e}</div>`).join('');
+}
+
+/** After new data: redraw what is on screen, without touching an open editor. */
+function refreshViews() {
+  renderBanner();
+  if (ROUTE.view === 'stacks') renderTable();
+  if (ROUTE.view === 'detail') {
+    if (!$('detail-head')) return viewDetail();
+    renderDetailHead();
+    if (ROUTE.tab === 'summary') tabSummary(ROUTE.name);
+  }
+  if (ROUTE.view === 'images') renderImages();
+}
+
+// ---------- data ----------
+async function load() {
+  try {
+    const data = await api('/api/stacks');
+    STACKS = data.stacks;
+    INFO = { source: data.source, portainer: data.portainer, podman: data.podman, defaultBackend: data.defaultBackend,
+             portainerError: data.portainerError, podmanError: data.podmanError };
+    LOAD_ERROR = '';
+    for (const n of [...SELECTED]) if (!stackOf(n)?.stack) SELECTED.delete(n);
+  } catch (e) {
+    LOAD_ERROR = e.message;
+  }
+  refreshViews();
+  loadDrift();
+  loadUpdates();
+}
+async function loadDrift() {
+  try { DRIFT = await api('/api/drift'); } catch { DRIFT = {}; }
+  DRIFT_LOADED = true;
+  refreshViews();
+}
+async function loadUpdates() {   // no registry call: the last check against what runs now
+  try { UPDATES = await api('/api/updates'); } catch { /* keep the last answer */ }
+  refreshViews();
+}
+async function checkUpdates(btn) {
+  const label = btn.querySelector('span');
+  const old = label.textContent;
+  btn.disabled = true; label.textContent = 'Checking…';
+  try {
+    UPDATES = await api('/api/updates', { method: 'POST', body: '{}' });
+    const n = Object.values(UPDATES.stacks).filter((u) => u.status === 'update').length;
+    const failed = Object.values(UPDATES.stacks).filter((u) => u.status === 'unknown').length;
+    toast(n ? `${plural(n, 'stack')} can be updated to a newer image` : 'Every image is up to date');
+    if (failed) toast(`The registry could not be asked for ${plural(failed, 'stack')}; hover its badge for the reason`, 'bad');
+    if (n && ROUTE.view === 'stacks') FILTER = 'updates';
+  } catch (e) {
+    toast(`Update check failed: ${e.message}`, 'bad');
+  }
+  btn.disabled = false; label.textContent = old;
+  refreshViews();
+}
+
+// ---------- stacks list ----------
+const FILTERS = [
+  ['all', 'All', () => true],
+  ['running', 'Running', (s) => stackState(s) === 'run'],
+  ['partly', 'Not every container runs', (s) => stackState(s) === 'part'],
+  ['stopped', 'Stopped', (s) => stackState(s) === 'stop'],
+  ['differs', 'Differs from deployed', (s) => DRIFT[s.name] === 'differs'],
+  ['updates', 'Image updates', (s) => UPDATES.stacks[s.name]?.status === 'update'],
+  ['portainer', 'On Portainer', (s) => s.backend === 'portainer'],
+  ['outside', 'Not deployed', (s) => !s.stack],
+];
+function visibleStacks() {
+  const f = (FILTERS.find((x) => x[0] === FILTER) || FILTERS[0])[2];
+  const q = QUERY.trim().toLowerCase();
+  return STACKS.filter((s) => f(s) && (!q || s.name.includes(q) || s.containers.some((c) => c.name.toLowerCase().includes(q))));
+}
+
+function viewStacks() {
+  $('view').innerHTML = `
+    <div class="page-head">
+      <div><h1>Stacks</h1><p class="sub" id="stacks-sub">Loading…</p></div>
+      <div class="head-actions">
+        <label class="search">${icon('search')}<input id="q" type="search" placeholder="Search stacks and containers" value="${esc(QUERY)}" autocomplete="off" aria-label="Search"></label>
+        <button class="icon-btn" id="reload" title="Reload the list" aria-label="Reload the list">${icon('refresh')}</button>
+        <button id="add">${icon('plus')}<span>Add stack</span></button>
+        <button class="primary" id="check-updates">${icon('update')}<span>Check for updates</span></button>
+      </div>
+    </div>
+    <div class="chips" id="chips" role="toolbar" aria-label="Show"></div>
+    <div class="table stacks" id="table"></div>
+    <div id="selbar"></div>`;
+  $('q').addEventListener('input', (e) => { QUERY = e.target.value; renderTable(); });
+  $('reload').addEventListener('click', load);
+  $('add').addEventListener('click', showAdd);
+  $('check-updates').addEventListener('click', () => checkUpdates($('check-updates')));
+  renderTable();
+}
+
+function driftCell(s) {
+  if (!s.stack) return '<span class="muted small">—</span>';
+  const d = DRIFT[s.name];
+  if (d === 'same') return '<span class="tag t-ok">Matches</span>';
+  if (d === 'differs') return `<button class="tag t-warn" data-act="diff" data-name="${esc(s.name)}" title="Show what differs">Differs</button>`;
+  if (d === 'unknown') return '<span class="tag t-idle" title="Not known: Portainer could not be read, or no record of the last deploy (the next Update makes one)">Unknown</span>';
+  return `<span class="muted small">${DRIFT_LOADED ? '—' : '…'}</span>`;
+}
+function imageCell(name) {
+  const u = UPDATES.stacks[name];
+  if (!u || u.status === 'none') return '<span class="muted small">—</span>';
+  const title = esc(u.images.map((i) => `${i.container}: ${i.image} – ${i.message}`).join('\n'));
+  if (u.status === 'update') return `<button class="tag t-warn" data-act="deploy" data-name="${esc(name)}" title="${title}">Update available</button>`;
+  if (u.status === 'current') return `<span class="tag t-ok" title="${title}">Up to date</span>`;
+  if (u.status === 'local') return `<span class="tag t-idle" title="${title}">Built here</span>`;
+  return `<span class="tag t-idle" title="${title}">Check failed</span>`;
+}
+function rowActions(s) {
+  const n = esc(s.name);
+  const st = s.stack;
+  const main = st
+    ? `<button class="icon-btn" data-act="${st.status === 1 ? 'stop' : 'start'}" data-name="${n}" title="${st.status === 1 ? 'Stop' : 'Start'}" aria-label="${st.status === 1 ? 'Stop' : 'Start'} ${n}">${icon(st.status === 1 ? 'stop' : 'play', 'fill')}</button>
+       <button class="icon-btn" data-act="deploy" data-name="${n}" title="Update" aria-label="Update ${n}">${icon('update')}</button>`
+    : `<button class="small primary" data-act="deploy" data-name="${n}">Create</button>`;
+  return `${main}<button class="icon-btn" data-act="more" data-name="${n}" title="More" aria-label="More actions for ${n}" aria-haspopup="menu">${icon('more', 'fill')}</button>`;
+}
+function stackRow(s) {
+  const n = esc(s.name);
+  const state = stackState(s);
+  const conts = s.containers.length
+    ? s.containers.map((c) => `<span class="ct" title="${esc(c.image)} – ${esc(c.status)}"><i class="dot ${dotClass(c.state)}"></i>${esc(c.name)}</span>`).join('')
+      + (!s.stack ? '<span class="small">not deployed: Create asks to replace it</span>' : '')
+    : '<span class="muted small">No container</span>';
+  return `<div class="tr${SELECTED.has(s.name) ? ' selected' : ''}" data-row="${n}">
+    <span class="c-sel">${s.stack ? `<input type="checkbox" data-sel="${n}" aria-label="Select ${n}" ${SELECTED.has(s.name) ? 'checked' : ''}>` : ''}</span>
+    <span class="c-state"><span class="state s-${state}" title="${STATE_LABEL[state]}">${icon('stacks')}</span></span>
+    <span class="c-name"><a class="name" href="#/stacks/${n}/summary">${n}</a>${backendTag(s)}<span class="files">${esc(s.compose)}</span></span>
+    <span class="c-cont">${conts}</span>
+    <span class="c-drift">${driftCell(s)}</span>
+    <span class="c-img">${imageCell(s.name)}</span>
+    <span class="c-act">${rowActions(s)}</span>
+  </div>`;
+}
+
+function renderTable() {
+  if (ROUTE.view !== 'stacks' || !$('table')) return;
+  const where = [INFO.podman ? 'Podman (podman-compose)' : '', INFO.portainer ? `Portainer at ${INFO.portainer}` : ''].filter(Boolean).join(' and ');
+  $('stacks-sub').textContent = where
+    ? `Stack modules stored on the ${INFO.source}, deployed with ${where}. An update sends these files.`
+    : LOAD_ERROR ? 'The stacks could not be read.' : 'Loading…';
+  $('chips').innerHTML = FILTERS.map(([k, label, f]) => {
+    const n = STACKS.filter(f).length;
+    if (k !== 'all' && !n && FILTER !== k) return '';
+    const warn = k === 'updates' || k === 'differs' || k === 'partly';
+    return `<button class="chip${FILTER === k ? ' on' : ''}${warn ? ' c-warn' : ''}" data-filter="${k}" aria-pressed="${FILTER === k}">${label} <b>${n}</b></button>`;
+  }).join('');
+  const rows = visibleStacks();
+  const eligible = rows.filter((s) => s.stack);
+  const all = eligible.length && eligible.every((s) => SELECTED.has(s.name));
+  const head = `<div class="tr th">
+    <span><input type="checkbox" data-sel-all aria-label="Select every stack shown" ${all ? 'checked' : ''} ${eligible.length ? '' : 'disabled'}></span>
+    <span></span><span>Name</span><span>Containers</span><span>Deployed</span><span>Image</span><span class="r">Actions</span></div>`;
+  const empty = !STACKS.length
+    ? `<div class="empty">${LOAD_ERROR ? 'No stack to show.' : INFO.portainer || INFO.podman ? 'No stack module yet. <i>Add stack</i> uploads one.' : 'Loading…'}</div>`
+    : '<div class="empty">No stack matches. <button data-filter="all">Show all</button></div>';
+  $('table').innerHTML = head + (rows.length ? rows.map(stackRow).join('') : empty);
+  if ($('q') && QUERY && !rows.length) $('table').querySelector('.empty button')?.addEventListener('click', () => { QUERY = ''; $('q').value = ''; });
+  const k = [...SELECTED].length;
+  $('selbar').innerHTML = k ? `<div class="selbar" role="region" aria-label="Selection"><span><b>${k}</b> selected</span>
+      <button data-act="sel-clear">Clear</button>
+      <button class="primary" data-act="sel-update">${icon('update')}<span>Update ${k === 1 ? 'it' : `these ${k}`}</span></button></div>` : '';
+}
+
+// one set of listeners for every view
+$('view').addEventListener('click', (ev) => {
+  const chip = ev.target.closest('[data-filter]');
+  if (chip) { FILTER = chip.dataset.filter; renderTable(); return; }
+  const b = ev.target.closest('[data-act]');
+  if (b) { act(b.dataset.act, b.dataset.name, b); return; }
+  if (ev.target.closest('input, a, button, label, textarea, select')) return;
+  const row = ev.target.closest('[data-row]');
+  if (row) go(`#/stacks/${enc(row.dataset.row)}/summary`);
+});
+$('view').addEventListener('change', (ev) => {
+  const t = ev.target;
+  if (t.matches('[data-sel-all]')) {
+    visibleStacks().filter((s) => s.stack).forEach((s) => (t.checked ? SELECTED.add(s.name) : SELECTED.delete(s.name)));
+    renderTable();
+  } else if (t.dataset.sel) {
+    if (t.checked) SELECTED.add(t.dataset.sel); else SELECTED.delete(t.dataset.sel);
+    renderTable();
+  }
+});
+
+function act(a, name, btn) {
+  if (a === 'deploy') return startDeploy(name);
+  if (a === 'start' || a === 'stop') return confirmPower(name, a);
+  if (a === 'diff') return go(`#/stacks/${enc(name)}/diff`);
+  if (a === 'more') return !$('menu').hidden && $('menu').dataset.for === btn.dataset.name ? closeMenu() : openMenu(btn, moreItems(name));
+  if (a === 'sel-clear') { SELECTED.clear(); return renderTable(); }
+  if (a === 'sel-update') return updateSelected([...SELECTED]);
+  if (a === 'restart') return confirmRestart(name, btn.dataset.container);
+  if (a === 'logs') return go(`#/logs/${enc(btn.dataset.container)}`);
+  if (a === 'save') return saveFlow(name, false);
+  if (a === 'save-update') return saveFlow(name, true);
+  return undefined;
+}
+
+// ---------- stack detail ----------
+function viewDetail() {
+  const { name, tab } = ROUTE;
+  const s = stackOf(name);
+  if (!s) {
+    $('view').innerHTML = `<a class="back" href="#/stacks">${icon('back')}Stacks</a>`
+      + (STACKS.length || LOAD_ERROR ? `<div class="empty"><p>There is no stack module “${esc(name)}”.</p></div>` : '<p class="muted pad">Loading…</p>');
+    return;
+  }
+  $('view').innerHTML = `
+    <a class="back" href="#/stacks">${icon('back')}Stacks</a>
+    <div class="page-head" id="detail-head"></div>
+    <nav class="tabs" aria-label="Stack">${Object.entries(TABS).map(([t, label]) =>
+      `<a href="#/stacks/${enc(name)}/${t}" class="${t === tab ? 'on' : ''}" ${t === tab ? 'aria-current="page"' : ''} data-tab="${t}">${label}</a>`).join('')}</nav>
+    <div id="tab"></div>`;
+  renderDetailHead();
+  ({ summary: tabSummary, files: tabFiles, history: tabHistory, diff: tabDiff })[tab](name);
+}
+
+function renderDetailHead() {
+  const s = stackOf(ROUTE.name);
+  if (!s || !$('detail-head')) return;
+  const st = s.stack;
+  const state = stackState(s);
+  const n = esc(s.name);
+  $('detail-head').innerHTML = `
+    <div class="title-row"><span class="state big s-${state}">${icon('stacks')}</span>
+      <div><h1>${n}</h1><p class="sub">${STATE_LABEL[state]}${st ? (st.backend === 'portainer' ? `, Portainer stack #${st.id}` : ', Podman (podman-compose)') : ''}</p></div></div>
+    <div class="head-actions">
+      ${st ? `<button data-act="${st.status === 1 ? 'stop' : 'start'}" data-name="${n}">${icon(st.status === 1 ? 'stop' : 'play', 'fill')}<span>${st.status === 1 ? 'Stop' : 'Start'}</span></button>` : ''}
+      <button class="primary" data-act="deploy" data-name="${n}">${icon('update')}<span>${st ? 'Update' : 'Create'}</span></button>
+      <button class="icon-btn" data-act="more" data-name="${n}" title="More" aria-label="More actions" aria-haspopup="menu">${icon('more', 'fill')}</button>
+    </div>`;
+}
+
+function tabSummary(name) {
+  const s = stackOf(name);
+  if (!s || !$('tab')) return;
+  const st = s.stack;
+  const u = UPDATES.stacks[name];
+  const updTag = (cname) => {
+    const i = u?.images.find((x) => x.container === cname);
+    if (!i) return '<span class="muted small">—</span>';
+    const cls = i.status === 'update' ? 't-warn' : i.status === 'current' ? 't-ok' : 't-idle';
+    const text = { update: 'Update available', current: 'Up to date', local: 'Built here', unknown: 'Check failed' }[i.status] || '—';
+    return `<span class="tag ${cls}" title="${esc(i.message)}">${text}</span>`;
+  };
+  const rows = s.containers.map((c) => `<div class="tr">
+      <span class="k-name ct"><i class="dot ${dotClass(c.state)}"></i><b>${esc(c.name)}</b></span>
+      <span class="k-img files">${esc(c.image)}</span>
+      <span class="k-stat small muted">${esc(c.status || c.state)}</span>
+      <span class="k-upd">${updTag(c.name)}</span>
+      <span class="k-act r">${INFO.podman ? `<button class="small" data-act="logs" data-container="${esc(c.name)}">${icon('logs')}Logs</button>` : ''}<button class="small" data-act="restart" data-name="${esc(name)}" data-container="${esc(c.name)}">${icon('refresh')}Restart</button></span>
+    </div>`).join('');
+  const none = st ? 'The stack has no container. <i>Update</i> starts them again.'
+    : 'The stack is not deployed yet: <i>Create</i> starts it.';
+  $('tab').innerHTML = `
+    <section class="panel"><h2>Containers</h2>
+      ${s.containers.length ? `<div class="table conts"><div class="tr th"><span>Name</span><span>Image</span><span>Status</span><span>Image update</span><span></span></div>${rows}</div>`
+        : `<p class="muted">${none}</p>`}
+    </section>
+    <section class="panel"><h2>Details</h2>
+      <dl class="kv">
+        <dt>Runs with</dt><dd>${!st ? `Not deployed yet; <i>Create</i> uses ${BACKEND_LABEL[INFO.defaultBackend]}`
+          : st.backend === 'portainer' ? `Portainer: stack #${st.id} in environment ${esc(st.endpoint)}, ${st.status === 1 ? 'active' : 'inactive'}`
+          : `Podman: podman-compose project ${esc(name)}`}</dd>
+        <dt>Compared with deployed</dt><dd>${driftCell(s)}</dd>
+        <dt>Compose file</dt><dd><code>${esc(s.compose)}</code></dd>
+        <dt>Env file</dt><dd><code>${esc(s.env)}</code></dd>
+        <dt>Last image check</dt><dd>${UPDATES.checkedAt ? esc(new Date(UPDATES.checkedAt).toLocaleString()) : 'Not checked yet'}</dd>
+      </dl>
+    </section>`;
+}
+
+async function tabFiles(name) {
+  $('tab').innerHTML = '<p class="muted pad">Loading…</p>';
+  let f;
+  try { f = await api(`/api/stacks/${enc(name)}/files`); }
+  catch (e) { if (onTab(name, 'files')) $('tab').innerHTML = errBox(e.message); return; }
+  if (!onTab(name, 'files')) return;
+  FILES = { name, ...f };
+  DIRTY = false;
+  const others = f.others.length ? `<p class="muted small">Also in the module: ${f.others.map(esc).join(', ')}</p>` : '';
+  $('tab').innerHTML = `
+    <div class="editor-bar">
+      <span id="dirty" class="dirty" hidden>Unsaved changes</span>
+      <span class="muted small">Ctrl+S saves. Each save keeps the previous file in the history.</span>
+      <span class="grow"></span>
+      <button data-act="save" data-name="${esc(name)}">Save</button>
+      <button class="primary" data-act="save-update" data-name="${esc(name)}">Save and update</button>
+    </div>
+    <div id="save-err"></div>
+    <section class="editor"><div class="ed-head">${esc(f.compose)}</div><textarea id="compose-text" spellcheck="false" aria-label="${esc(f.compose)}">${esc(f.composeText)}</textarea></section>
+    <section class="editor"><div class="ed-head">${esc(f.env)}</div><textarea id="env-text" class="short" spellcheck="false" aria-label="${esc(f.env)}">${esc(f.envText)}</textarea></section>
+    <p class="muted small">A save checks the compose file and the variables (no secrets in the env file). The running stack gets the change with the next update.</p>
+    ${others}`;
+  const mark = () => {
+    DIRTY = $('compose-text').value !== FILES.composeText || $('env-text').value !== FILES.envText;
+    $('dirty').hidden = !DIRTY;
+    document.querySelector('.tabs a[data-tab="files"]')?.classList.toggle('mod', DIRTY);
+  };
+  $('compose-text').addEventListener('input', mark);
+  $('env-text').addEventListener('input', mark);
+}
+
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && ROUTE.view === 'detail' && ROUTE.tab === 'files' && FILES) {
+    e.preventDefault();
+    if (!$('dlg').open) saveFlow(ROUTE.name, false);
+  }
+});
+
+async function saveFlow(name, andUpdate) {
+  if (!FILES || FILES.name !== name || !$('compose-text')) return;
+  const body = JSON.stringify({ composeText: $('compose-text').value, envText: $('env-text').value });
+  $('save-err').innerHTML = '';
+  let p;
+  try { p = await api(`/api/stacks/${enc(name)}/files/preview`, { method: 'POST', body }); }
+  catch (e) { $('save-err').innerHTML = errBox(e.message); return; }
+  if (!p.compose && !p.env) {
+    if (andUpdate) return updateAfterSave(name);
+    return toast('Nothing to save: the files are unchanged');
+  }
+  const label = andUpdate ? 'Save and update' : 'Save';
+  openDialog(`Save ${name}`,
+    `<p class="muted">− is the file now, + is what will be saved.</p>
+     ${p.compose ? `<h4>${esc(FILES.compose)}</h4>${diffHtml(p.compose)}` : ''}
+     ${p.env ? `<h4>${esc(FILES.env)}</h4>${diffHtml(p.env)}` : ''}<div id="dlg-err"></div>`,
+    `<button data-close>Keep editing</button><button class="primary" id="do-save">${label}</button>`);
+  $('do-save').addEventListener('click', async () => {
+    $('do-save').disabled = true;
+    try {
+      const r = await api(`/api/stacks/${enc(name)}/files`, { method: 'POST', body });
+      DIRTY = false;
+      closeDialog();
+      toast(r.saved.length ? `Saved ${r.saved.join(' and ')}` : 'Nothing to save: the files are unchanged');
+      if (onTab(name, 'files')) tabFiles(name);
+      loadDrift();
+      if (andUpdate) updateAfterSave(name);
+    } catch (e) {
+      $('dlg-err').innerHTML = errBox(e.message);
+      $('do-save').disabled = false;
+    }
+  });
+}
+
+async function updateAfterSave(name) {
+  let p;
+  try { p = await api(`/api/stacks/${enc(name)}/plan`); }
+  catch (e) { return openDialog(`Update ${name}`, errBox(e.message)); }
+  // a new stack, a container in the way or a missing secret: the usual dialog, which asks or explains
+  if (p.action !== 'update' || p.blocking.length || p.missingSecrets?.length) return startDeploy(name);
+  openDialog(`Updating ${name}`, `<p class="muted">Deploying the saved files${p.backend === 'portainer' ? ' to Portainer' : ' with podman-compose'}…</p>`, '<button disabled>Working…</button>');
+  try {
+    const r = await api(`/api/stacks/${enc(name)}/deploy`, { method: 'POST', body: JSON.stringify({ pull: false, remove: [] }) });
+    if (r.ok) { closeDialog(); toast(`Updated ${name}`); }
+    else openDialog(`Update ${name} failed`, `${errBox('The update did not finish.')}<pre>${esc(r.log.join('\n') || '(no output)')}</pre>`);
+  } catch (e) {
+    openDialog(`Update ${name} failed`, errBox(e.message));
+  }
+  load();
+}
+
+async function tabHistory(name, note = '') {
+  $('tab').innerHTML = '<p class="muted pad">Loading…</p>';
+  let h;
+  try { h = await api(`/api/stacks/${enc(name)}/history`); }
+  catch (e) { if (onTab(name, 'history')) $('tab').innerHTML = errBox(e.message); return; }
+  if (!onTab(name, 'history')) return;
+  const head = note ? `<div class="ok-note">${esc(note)}</div>` : '';
+  if (!h.versions.length) {
+    $('tab').innerHTML = `${head}<section class="panel"><p class="muted">No saved version yet. Every save on the Files tab keeps the previous file here.</p></section>`;
+    return;
+  }
+  $('tab').innerHTML = `${head}<div class="hist">
+      <div class="hist-list" aria-label="Saved versions">${h.versions.map((v) =>
+        `<button data-version="${esc(v.version)}">${esc(new Date(v.time).toLocaleString())}<span class="file">${esc(v.file)}</span></button>`).join('')}</div>
+      <section class="panel" id="hist-view"><p class="muted">Choose a version to see what restoring it would bring back.</p></section>
+    </div>`;
+  const view = async (btn) => {
+    document.querySelectorAll('.hist-list button').forEach((b) => b.classList.toggle('sel', b === btn));
+    const version = btn.dataset.version;
+    $('hist-view').innerHTML = '<p class="muted">Loading…</p>';
+    let d;
+    try { d = await api(`/api/stacks/${enc(name)}/history?version=${enc(version)}`); }
+    catch (e) { $('hist-view').innerHTML = errBox(e.message); return; }
+    $('hist-view').innerHTML = `<div id="hist-err"></div>
+      <p class="muted small"><b>${esc(d.file)}</b> as it was before the save of ${esc(new Date(d.time).toLocaleString())}.
+        − is the file now, + is what restoring brings back.</p>
+      ${diffHtml(d.diff)}
+      <div class="head-actions" style="margin-top:12px;justify-content:flex-end">
+        <button class="primary" id="hist-restore" ${d.diff ? '' : 'disabled title="Same as the file now"'}>Restore this version</button></div>`;
+    $('hist-restore').addEventListener('click', async () => {
+      $('hist-restore').disabled = true;
+      try {
+        const r = await api(`/api/stacks/${enc(name)}/restore`, { method: 'POST', body: JSON.stringify({ version }) });
+        toast(`Restored ${r.restored}`);
+        tabHistory(name, `Restored ${r.restored}; the file it replaced is in the history too. The running stack gets it with the next update.`);
+        load();
+      } catch (e) { $('hist-err').innerHTML = errBox(e.message); $('hist-restore').disabled = false; }
+    });
+  };
+  document.querySelectorAll('.hist-list button').forEach((b) => b.addEventListener('click', () => view(b)));
+}
+
+async function tabDiff(name) {
+  const s = stackOf(name);
+  if (!s.stack) {
+    $('tab').innerHTML = '<section class="panel"><p class="muted">The stack is not deployed yet, so there is nothing to compare. <i>Create</i> it first.</p></section>';
+    return;
+  }
+  $('tab').innerHTML = '<p class="muted pad">Loading…</p>';
+  let d;
+  try { d = await api(`/api/stacks/${enc(name)}/diff`); }
+  catch (e) { if (onTab(name, 'diff')) $('tab').innerHTML = errBox(e.message); return; }
+  if (!onTab(name, 'diff')) return;
+  if (!d.exists) {
+    $('tab').innerHTML = '<section class="panel"><p class="muted">There is no record of what was deployed: the stack was started before stack-ui kept one. The next <i>Update</i> records it.</p></section>';
+    return;
+  }
+  const was = d.backend === 'podman' ? 'was deployed last' : 'Portainer has now';
+  $('tab').innerHTML = `<section class="panel">
+      <p class="muted">− is what ${was}; + is what an update sends from the ${esc(SOURCE)}.</p>
+      <h4>Compose file</h4>${diffHtml(d.compose)}<h4>Variables</h4>${diffHtml(d.env)}</section>`;
+}
+
+// ---------- actions with a confirmation ----------
+function confirmPower(name, action) {
+  const label = action === 'stop' ? 'Stop' : 'Start';
+  const text = action === 'stop'
+    ? `Stops every container of <b>${esc(name)}</b>. They stay, and <i>Start</i> brings them back.`
+    : `Starts the containers of <b>${esc(name)}</b> again.`;
+  openDialog(`${label} ${name}`, `<p>${text}</p><div id="dlg-err"></div>`,
+    `<button data-close>Cancel</button><button class="primary" id="do-power">${label}</button>`);
+  $('do-power').addEventListener('click', async () => {
+    $('do-power').disabled = true; $('do-power').textContent = action === 'stop' ? 'Stopping…' : 'Starting…';
+    try {
+      await api(`/api/stacks/${enc(name)}/${action}`, { method: 'POST', body: '{}' });
+      closeDialog();
+      toast(`${action === 'stop' ? 'Stopped' : 'Started'} ${name}`);
+    } catch (e) {
+      $('dlg-err').innerHTML = errBox(e.message); $('do-power').textContent = label; $('do-power').disabled = false;
+    }
+    load();
+  });
+}
+
+function confirmRestart(name, container) {
+  openDialog(`Restart ${container}`,
+    `<p>Stops the container <b>${esc(container)}</b> of ${esc(name)} (waiting up to 30 seconds) and starts it again.</p><div id="dlg-err"></div>`,
+    '<button data-close>Cancel</button><button class="primary" id="do-restart">Restart</button>');
+  $('do-restart').addEventListener('click', async () => {
+    $('do-restart').disabled = true; $('do-restart').textContent = 'Restarting…';
+    try {
+      await api(`/api/stacks/${enc(name)}/restart`, { method: 'POST', body: JSON.stringify({ container }) });
+      closeDialog();
+      toast(`Restarted ${container}`);
+    } catch (e) {
+      $('dlg-err').innerHTML = errBox(e.message); $('do-restart').textContent = 'Restart'; $('do-restart').disabled = false;
+    }
+    load();
+  });
+}
+
+function showDelete(name) {
+  const s = stackOf(name);
+  const what = s?.backend === 'portainer'
+    ? `Deletes the Portainer stack <b>${esc(name)}</b> and removes its containers.`
+    : `Stops and removes the containers of <b>${esc(name)}</b> (podman-compose down).`;
+  openDialog(`Delete ${name}`,
+    `<div id="dlg-err"></div>
+     <p>${what}
+        The module's files and the data on the host stay; <i>Create</i> brings the stack back.</p>
+     <label class="field"><span>Type <b>${esc(name)}</b> to confirm</span><input type="text" id="del-name" autocomplete="off" spellcheck="false"></label>`,
+    '<button data-close>Cancel</button><button class="danger" id="do-delete" disabled>Delete stack</button>');
+  $('del-name').addEventListener('input', () => { $('do-delete').disabled = $('del-name').value !== name; });
+  $('del-name').focus();
+  $('do-delete').addEventListener('click', async () => {
+    $('do-delete').disabled = true; $('do-delete').textContent = 'Deleting…';
+    try {
+      await api(`/api/stacks/${enc(name)}/delete`, { method: 'POST', body: JSON.stringify({ confirm: $('del-name').value }) });
+      closeDialog();
+      SELECTED.delete(name);
+      toast(`Deleted ${name}`);
+    } catch (e) {
+      $('dlg-err').innerHTML = errBox(e.message); $('do-delete').textContent = 'Delete stack'; $('do-delete').disabled = false;
+    }
+    load();
+  });
+}
+
+function showMigrate(name) {
+  openDialog(`Move ${name} to Podman`,
+    `<div id="dlg-err"></div>
+     <p>Deletes the Portainer stack <b>${esc(name)}</b> (its containers stop and are removed; the data on the host stays),
+        then starts it with podman-compose from the files stored here. The stack is down for a short while.</p>
+     <label class="field"><span>Type <b>${esc(name)}</b> to confirm</span><input type="text" id="mv-name" autocomplete="off" spellcheck="false"></label>
+     <pre id="mv-log" hidden></pre>`,
+    '<button data-close>Cancel</button><button class="primary" id="do-move" disabled>Move to Podman</button>');
+  $('mv-name').addEventListener('input', () => { $('do-move').disabled = $('mv-name').value !== name; });
+  $('mv-name').focus();
+  $('do-move').addEventListener('click', async () => {
+    $('do-move').disabled = true; $('do-move').textContent = 'Moving…';
+    try {
+      const r = await api(`/api/stacks/${enc(name)}/migrate`, { method: 'POST', body: JSON.stringify({ confirm: $('mv-name').value }) });
+      $('mv-log').hidden = false;
+      $('mv-log').textContent = r.log.join('\n');
+      if (r.ok) toast(`${name} runs with Podman now`);
+      else $('dlg-err').innerHTML = errBox('The move did not finish: see the log.');
+      $('dlg-foot').innerHTML = '<button data-close>Close</button>';
+    } catch (e) {
+      $('dlg-err').innerHTML = errBox(e.message); $('do-move').disabled = false; $('do-move').textContent = 'Move to Podman';
+    }
+    load();
+  });
+}
+
+async function startDeploy(name) {
+  openDialog(`Update ${name}`, '<p class="muted">Checking…</p>');
+  let p;
+  try { p = await api(`/api/stacks/${enc(name)}/plan`); }
+  catch (e) { return openDialog(`Update ${name}`, errBox(e.message)); }
+  const create = p.action !== 'update';
+  const title = `${create ? 'Create' : 'Update'} ${name}`;
+  if (p.missingSecrets?.length) {
+    return openDialog(title, `${errBox(`These Podman secrets do not exist yet: ${p.missingSecrets.join(', ')}.`)}
+      <p>Create them under <a href="#/secrets">Secrets</a>, then try again.</p>`);
+  }
+  const where = p.backend === 'podman' ? 'with podman-compose'
+    : create ? `as a Portainer stack in environment ${esc(p.endpoint)}` : `in Portainer (#${p.stackId})`;
+  let body = create
+    ? `<p>Creates <b>${esc(name)}</b> ${where} from the compose file and variables stored here.
+         The host directories must exist: run the module's <code>prepare-${esc(name)}.sh</code> on the Pi once.</p>`
+    : `<p>Updates <b>${esc(name)}</b> ${where} with the compose file and variables stored here.${
+        p.backend === 'portainer' ? ' Edits made in Portainer are overwritten (see <i>Compare with deployed</i>).' : ''}</p>
+       <label class="check"><input type="checkbox" id="pull" checked> <span>Pull the newest images first</span></label>`;
+  if (p.blocking.length) {
+    body += `<p><b>In the way</b> (containers of the same name that are not part of this stack):</p><ul class="plain">${
+      p.blocking.map((c) => `<li>${esc(c.name)}, ${esc(c.state)} · <span class="muted">${esc(c.image)}</span></li>`).join('')}</ul>
+      <label class="check"><input type="checkbox" id="remove"> <span>Stop and remove ${p.blocking.length > 1 ? 'these containers' : 'this container'};
+      its data on the host stays</span></label>`;
+  }
+  openDialog(title, body, `<button data-close>Cancel</button><button class="primary" id="go">${create ? 'Create' : 'Update'}</button>`);
+  const goBtn = $('go');
+  const remove = $('remove');
+  if (remove) { goBtn.disabled = true; remove.addEventListener('change', () => { goBtn.disabled = !remove.checked; }); }
+  goBtn.addEventListener('click', async () => {
+    goBtn.disabled = true;
+    goBtn.textContent = create ? 'Creating…' : 'Updating…';
+    const payload = { pull: $('pull') ? $('pull').checked : true, remove: remove && remove.checked ? p.blocking.map((c) => c.name) : [] };
+    try {
+      const r = await api(`/api/stacks/${enc(name)}/deploy`, { method: 'POST', body: JSON.stringify(payload) });
+      if (r.ok) { closeDialog(); toast(`${create ? 'Created' : 'Updated'} ${name}`); }
+      else openDialog(`${title} failed`, `${errBox('It did not finish.')}<pre>${esc(r.log.join('\n') || '(no output)')}</pre>`);
+    } catch (e) {
+      openDialog(`${title} failed`, errBox(e.message));
+    }
+    load();
+  });
+}
+
+function updateSelected(names) {
+  const list = names.filter((n) => stackOf(n)?.stack);
+  if (!list.length) return;
+  openDialog(`Update ${plural(list.length, 'stack')}`,
+    `<p>Pulls the newest images and updates these stacks one after the other. Like <i>Update</i>, it sends the files
+        stored here (edits made in Portainer are overwritten).</p>
+     <ul class="plain">${list.map((n) => `<li>${esc(n)} ${imageCell(n).replace('data-act="deploy"', 'disabled')}</li>`).join('')}</ul>
+     <pre id="upd-log" hidden></pre>`,
+    `<button data-close>Cancel</button><button class="primary" id="upd-go">Update ${plural(list.length, 'stack')}</button>`);
+  $('upd-go').addEventListener('click', async () => {
+    $('upd-go').disabled = true; $('upd-go').textContent = 'Updating…';
+    const out = $('upd-log');
+    out.hidden = false;
+    const add = (line) => { out.textContent += `${line}\n`; out.scrollTop = out.scrollHeight; };
+    let ok = 0;
+    for (const name of list) {
+      add(`${name}: updating…`);
+      try {
+        const r = await api(`/api/stacks/${enc(name)}/deploy`, {
+          method: 'POST', body: JSON.stringify({ pull: true, onlyUpdate: true, remove: [] }) });
+        add(`${name}: ${r.ok ? 'updated' : 'failed'}`);
+        r.log.forEach((l) => add(`  ${l}`));
+        if (r.ok) ok++;
+      } catch (e) { add(`${name}: failed\n  ${e.message}`); }
+    }
+    add(`Done: ${ok} of ${list.length} updated.`);
+    SELECTED.clear();
+    await load();
+    let foot = '<button data-close>Close</button>';
+    try {
+      const im = await api('/api/images');
+      if (im.reclaimable) foot = `<button data-close>Close</button><button id="upd-clean">${icon('trash')}<span>Clean up old images (${fmtBytes(im.reclaimable)})</span></button>`;
+    } catch { /* the cleanup offer is optional */ }
+    $('dlg-foot').innerHTML = foot;
+    $('upd-clean')?.addEventListener('click', showCleanup);
+    toast(`Updated ${ok} of ${plural(list.length, 'stack')}`, ok === list.length ? 'ok' : 'bad');
+  });
+}
+
+function showAdd() {
+  openDialog('Add stack',
+    `<div id="dlg-err"></div>
+     <p>Upload a stack package as a new module, e.g. the <code>podman/</code> folder of an app: its compose file (<code>.yaml</code>),
+        its env file (<code>.env</code>) and, if it has them, its prepare script and README. Other files (a deploy script) are skipped.
+        The image of a locally built app must already be on the Pi (its own deploy script builds it).</p>
+     <label class="field"><span>Stack name (also the Portainer stack's name)</span><input type="text" id="add-name" placeholder="e.g. tools-for-gaggimate" autocomplete="off"></label>
+     <label class="field"><span>Files</span><input type="file" id="add-files" multiple></label>
+     <div id="add-pick"></div>`,
+    '<button data-close>Cancel</button><button class="primary" id="add-go" disabled>Add stack</button>');
+  let pkg = {};
+  const pick = (label, id, list) => (list.length > 1
+    ? `<label class="field"><span>${label}</span><select id="${id}">${list.map((f) => `<option>${esc(f)}</option>`).join('')}</select></label>` : '');
+  $('add-files').addEventListener('change', async () => {
+    pkg = {};
+    const skipped = [];
+    for (const file of $('add-files').files) {
+      if (/\.(ya?ml|env|sh|md|txt)$/i.test(file.name) && file.size < 512 * 1024) pkg[file.name] = await file.text();
+      else skipped.push(file.name);
+    }
+    const yamls = Object.keys(pkg).filter((f) => /\.ya?ml$/i.test(f));
+    const envs = Object.keys(pkg).filter((f) => /\.env$/i.test(f));
+    if (!$('add-name').value) {
+      const base = (yamls[0] || '').replace(/(\.compose)?\.ya?ml$/i, '').replace(/^\d+-/, '').toLowerCase();
+      if (/^[a-z0-9][a-z0-9_-]*$/.test(base)) $('add-name').value = base;
+    }
+    $('add-pick').innerHTML = `<p class="muted small">${Object.keys(pkg).map(esc).join(', ') || 'No usable file'}${
+      skipped.length ? `; skipped: ${skipped.map(esc).join(', ')}` : ''}</p>${pick('Compose file', 'add-compose', yamls)}${pick('Env file', 'add-env', envs)}`;
+    $('add-go').disabled = !(yamls.length && envs.length);
+  });
+  $('add-go').addEventListener('click', async () => {
+    $('add-go').disabled = true;
+    const body = { name: $('add-name').value.trim(), files: pkg };
+    if ($('add-compose')) body.compose = $('add-compose').value;
+    if ($('add-env')) body.env = $('add-env').value;
+    try {
+      const r = await api('/api/stacks', { method: 'POST', body: JSON.stringify(body) });
+      closeDialog();
+      await load();
+      toast(`Added ${r.name}. Check its files, run its prepare script on the Pi if it has one, then create it.`);
+      go(`#/stacks/${enc(r.name)}/files`);
+    } catch (e) {
+      $('dlg-err').innerHTML = errBox(e.message); $('add-go').disabled = false;
+    }
+  });
+}
+
+// ---------- containers ----------
+let CFILTER = 'all'; let CQUERY = '';
+const CFILTERS = [['all', 'All', () => true], ['running', 'Running', (c) => c.state === 'running'],
+  ['stopped', 'Stopped', (c) => c.state !== 'running'], ['outside', 'Outside stacks', (c) => !c.inStack]];
+function portLinks(c) {
+  return c.ports.map((p) => (p.protocol === 'tcp'
+    ? `<a href="http://${esc(p.host && p.host !== '0.0.0.0' ? p.host : location.hostname)}:${p.port}/" target="_blank" rel="noopener">${p.port}</a>`
+    : `<span class="muted">${p.port}/${esc(p.protocol)}</span>`)).join('') || '<span class="muted small">—</span>';
+}
+async function viewContainers() {
+  $('view').innerHTML = `
+    <div class="page-head">
+      <div><h1>Containers</h1><p class="sub">Every container on the Pi. A container of a stack is removed with its stack; stack-ui and Portainer are protected.</p></div>
+      <div class="head-actions">
+        <label class="search">${icon('search')}<input id="cq" type="search" placeholder="Search containers and images" value="${esc(CQUERY)}" autocomplete="off" aria-label="Search"></label>
+        <button class="icon-btn" id="c-reload" title="Reload" aria-label="Reload">${icon('refresh')}</button>
+      </div>
+    </div>
+    <div class="chips" id="c-chips" role="toolbar" aria-label="Show"></div>
+    <div id="c-body"><p class="muted pad">Loading…</p></div>`;
+  let list = [];
+  const draw = () => {
+    const f = (CFILTERS.find((x) => x[0] === CFILTER) || CFILTERS[0])[2];
+    const q = CQUERY.trim().toLowerCase();
+    const rows = list.filter((c) => f(c) && (!q || c.name.toLowerCase().includes(q) || String(c.image).toLowerCase().includes(q)));
+    $('c-chips').innerHTML = CFILTERS.map(([k, label, fn]) => `<button class="chip${CFILTER === k ? ' on' : ''}" data-cf="${k}" aria-pressed="${CFILTER === k}">${label} <b>${list.filter(fn).length}</b></button>`).join('');
+    $('c-body').innerHTML = `<div class="table ctab"><div class="tr th"><span>Name</span><span>Image</span><span>State</span><span>Ports</span><span class="r">Actions</span></div>${
+      rows.map((c) => {
+        const n = esc(c.name);
+        const run = c.state === 'running';
+        const btn = (act, label, ok = true, cls = 'small') => `<button class="${cls}" data-ca="${act}" data-c="${n}" ${ok ? '' : 'disabled'}>${label}</button>`;
+        const stackTag = !c.stack ? '' : c.inStack ? ` <a class="tag t-idle bk" href="#/stacks/${enc(c.stack)}/summary">${esc(c.stack)}</a>` : ` <span class="tag t-idle bk">${esc(c.stack)}</span>`;
+        return `<div class="tr">
+          <span class="c-name"><b>${n}</b>${stackTag}${c.protected ? ' <span class="tag t-idle bk">Protected</span>' : ''}<span class="files">${esc(ago(c.created))}</span></span>
+          <span class="files">${esc(c.image)}</span>
+          <span class="ct"><i class="dot ${dotClass(c.state)}"></i>${esc(c.status || c.state)}</span>
+          <span class="ports small">${portLinks(c)}</span>
+          <span class="r">${run ? btn('stop', 'Stop', !c.protected) : btn('start', 'Start')}${btn('restart', 'Restart', run && !c.protected)}${btn('logs', 'Logs')}${btn('details', 'Details')}${btn('remove', 'Remove', !c.inStack && !c.protected, 'small danger')}</span></div>`;
+      }).join('') || '<div class="empty">No container matches.</div>'}</div>`;
+  };
+  const reload = async () => {
+    try { list = (await api('/api/containers')).containers; }
+    catch (e) { if (ROUTE.view === 'containers') $('c-body').innerHTML = errBox(e.message); return; }
+    if (ROUTE.view === 'containers') draw();
+  };
+  $('cq').addEventListener('input', (e) => { CQUERY = e.target.value; draw(); });
+  $('c-reload').addEventListener('click', reload);
+  $('c-chips').addEventListener('click', (e) => { const b = e.target.closest('[data-cf]'); if (b) { CFILTER = b.dataset.cf; draw(); } });
+  $('c-body').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-ca]');
+    if (!b) return;
+    const name = b.dataset.c;
+    const act = b.dataset.ca;
+    if (act === 'logs') { go(`#/logs/${enc(name)}`); return; }
+    if (act === 'details') {
+      openDialog(`Details: ${name}`, '<p class="muted">Loading…</p>');
+      try {
+        const info = await api(`/api/containers/${enc(name)}/inspect`);
+        openDialog(`Details: ${name}`, `<p class="muted small">Secret-looking variables are shown as ••••.</p><pre class="json">${esc(JSON.stringify(info, null, 2))}</pre>`);
+      } catch (err) { openDialog(`Details: ${name}`, errBox(err.message)); }
+      return;
+    }
+    const run = async () => {
+      try {
+        await api('/api/containers/action', { method: 'POST', body: JSON.stringify({ name, action: act }) });
+        closeDialog();
+        toast(`${act[0].toUpperCase()}${act.slice(1)}: ${name}`);
+      } catch (err) { if ($('dlg').open && $('dlg-err')) $('dlg-err').innerHTML = errBox(err.message); else toast(err.message, 'bad'); }
+      reload();
+    };
+    if (act === 'remove' || act === 'stop') {
+      openDialog(`${act === 'remove' ? 'Remove' : 'Stop'} ${name}`, `<div id="dlg-err"></div><p>${act === 'remove'
+        ? `Removes the container <b>${esc(name)}</b> (also when it runs). It is not part of a stack module.`
+        : `Stops the container <b>${esc(name)}</b> (waiting up to 30 seconds).`}</p>`,
+      `<button data-close>Cancel</button><button class="${act === 'remove' ? 'danger' : 'primary'}" id="c-go">${act === 'remove' ? 'Remove' : 'Stop'}</button>`);
+      $('c-go').addEventListener('click', () => { $('c-go').disabled = true; run(); });
+      return;
+    }
+    b.disabled = true;
+    run();
+  });
+  reload();
+}
+
+// ---------- logs ----------
+let LOG_TIMER = null;
+async function viewLogs() {
+  clearInterval(LOG_TIMER);
+  const current = ROUTE.container;
+  $('view').innerHTML = `
+    <div class="page-head">
+      <div><h1>Logs</h1><p class="sub">The last lines a container wrote (stdout and stderr), with their time.</p></div>
+      <div class="head-actions">
+        <select id="lg-c" aria-label="Container"><option>Loading…</option></select>
+        <select id="lg-n" aria-label="Lines">${[200, 500, 2000].map((n) => `<option value="${n}">${n} lines</option>`).join('')}</select>
+        <label class="search">${icon('search')}<input id="lg-q" type="search" placeholder="Filter lines" autocomplete="off" aria-label="Filter lines"></label>
+        <label class="check"><input type="checkbox" id="lg-auto"> <span>Every 5 s</span></label>
+        <button class="icon-btn" id="lg-r" title="Refresh" aria-label="Refresh">${icon('refresh')}</button>
+      </div>
+    </div>
+    <div id="lg-body"><p class="muted pad">Loading…</p></div>`;
+  let lines = [];
+  const show = () => {
+    const q = $('lg-q').value.toLowerCase();
+    const shown = q ? lines.filter((l) => l.toLowerCase().includes(q)) : lines;
+    $('lg-body').innerHTML = shown.length ? `<pre class="logs">${esc(shown.join('\n'))}</pre>` : '<div class="empty">No line.</div>';
+    const pre = $('lg-body').querySelector('pre');
+    if (pre) pre.scrollTop = pre.scrollHeight;
+  };
+  const fetchLogs = async () => {
+    if (ROUTE.view !== 'logs' || !$('lg-c').value) return;
+    try { lines = (await api(`/api/containers/${enc($('lg-c').value)}/logs?tail=${$('lg-n').value}`)).lines; show(); }
+    catch (e) { $('lg-body').innerHTML = errBox(e.message); }
+  };
+  let list;
+  try { list = (await api('/api/containers')).containers; }
+  catch (e) { if (ROUTE.view === 'logs') $('lg-body').innerHTML = errBox(e.message); return; }
+  if (ROUTE.view !== 'logs') return;
+  if (!list.length) { $('lg-c').innerHTML = ''; $('lg-body').innerHTML = '<div class="empty">No container.</div>'; return; }
+  $('lg-c').innerHTML = list.map((c) => `<option value="${esc(c.name)}" ${c.name === current ? 'selected' : ''}>${
+    esc(c.stack ? `${c.stack} / ${c.name}` : c.name)}${c.state !== 'running' ? ` (${esc(c.state)})` : ''}</option>`).join('');
+  $('lg-c').addEventListener('change', () => { history.replaceState(null, '', `#/logs/${enc($('lg-c').value)}`); fetchLogs(); });
+  $('lg-n').addEventListener('change', fetchLogs);
+  $('lg-q').addEventListener('input', show);
+  $('lg-r').addEventListener('click', fetchLogs);
+  $('lg-auto').addEventListener('change', () => {
+    clearInterval(LOG_TIMER);
+    if ($('lg-auto').checked) LOG_TIMER = setInterval(() => (ROUTE.view === 'logs' ? fetchLogs() : clearInterval(LOG_TIMER)), 5000);
+  });
+  fetchLogs();
+}
+
+// ---------- networks, volumes, secrets ----------
+const usedCell = (users) => (users.length ? esc(users.join(', ')) : '<span class="tag t-idle">Unused</span>');
+function resPage(title, sub, addLabel) {
+  $('view').innerHTML = `
+    <div class="page-head">
+      <div><h1>${title}</h1><p class="sub">${sub}</p></div>
+      <div class="head-actions"><button class="primary" id="res-add">${icon('plus')}<span>${addLabel}</span></button></div>
+    </div>
+    <div id="res-body"><p class="muted pad">Loading…</p></div>`;
+}
+async function resLoad(view, path) {
+  try { const d = await api(path); return ROUTE.view === view ? d : null; }
+  catch (e) { if (ROUTE.view === view) $('res-body').innerHTML = errBox(e.message); return null; }
+}
+async function resPost(path, body, okMsg, reload) {
+  try { await api(path, { method: 'POST', body: JSON.stringify(body) }); closeDialog(); toast(okMsg); reload(); return true; }
+  catch (e) { if ($('dlg').open && $('dlg-err')) $('dlg-err').innerHTML = errBox(e.message); else toast(e.message, 'bad'); return false; }
+}
+function confirmRemove(what, name, path, body, reload) {
+  openDialog(`Remove ${name}`, `<div id="dlg-err"></div><p>Removes the ${what} <b>${esc(name)}</b>.</p>`,
+    '<button data-close>Cancel</button><button class="danger" id="res-rm">Remove</button>');
+  $('res-rm').addEventListener('click', () => {
+    $('res-rm').disabled = true;
+    resPost(path, body, `Removed ${name}`, reload).then((ok) => { if (!ok) $('res-rm').disabled = false; });
+  });
+}
+
+async function viewNetworks() {
+  resPage('Networks', 'Podman networks. <code>podman</code> and the proxy network are protected; a network in use cannot be removed.', 'Create network');
+  $('res-add').addEventListener('click', () => {
+    openDialog('Create network', `<div id="dlg-err"></div>
+      <label class="field"><span>Name</span><input type="text" id="nw-name" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Subnet (optional, e.g. 10.89.5.0/24)</span><input type="text" id="nw-sub" autocomplete="off"></label>
+      <label class="field"><span>Gateway (optional)</span><input type="text" id="nw-gw" autocomplete="off"></label>`,
+      '<button data-close>Cancel</button><button class="primary" id="nw-go">Create</button>');
+    $('nw-go').addEventListener('click', () => resPost('/api/networks',
+      { name: $('nw-name').value.trim(), subnet: $('nw-sub').value.trim(), gateway: $('nw-gw').value.trim() }, 'Network created', viewNetworks));
+  });
+  const d = await resLoad('networks', '/api/networks');
+  if (!d) return;
+  $('res-body').innerHTML = `<div class="table res"><div class="tr th"><span>Name</span><span>Subnet</span><span>Used by</span><span></span></div>${
+    d.networks.map((n) => `<div class="tr"><span><b>${esc(n.name)}</b> <span class="muted small">${esc(n.driver)}</span></span>
+      <span class="small">${esc(n.subnets.join(', ')) || '—'}</span><span class="small">${usedCell(n.usedBy)}</span>
+      <span class="r">${n.protected ? '<span class="tag t-idle">Protected</span>'
+        : n.usedBy.length ? '' : `<button class="small danger" data-rm="${esc(n.name)}">${icon('trash')}Remove</button>`}</span></div>`).join('')
+    || '<div class="empty">No network.</div>'}</div>`;
+  $('res-body').querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () =>
+    confirmRemove('network', b.dataset.rm, '/api/networks/delete', { name: b.dataset.rm }, viewNetworks)));
+}
+
+async function viewVolumes() {
+  resPage('Volumes', 'Podman volumes (most stacks here use host directories instead). A volume in use cannot be removed.', 'Create volume');
+  $('res-add').addEventListener('click', () => {
+    openDialog('Create volume', `<div id="dlg-err"></div>
+      <label class="field"><span>Name</span><input type="text" id="vl-name" autocomplete="off" spellcheck="false"></label>`,
+      '<button data-close>Cancel</button><button class="primary" id="vl-go">Create</button>');
+    $('vl-go').addEventListener('click', () => resPost('/api/volumes', { name: $('vl-name').value.trim() }, 'Volume created', viewVolumes));
+  });
+  const d = await resLoad('volumes', '/api/volumes');
+  if (!d) return;
+  const unused = d.volumes.filter((v) => !v.usedBy.length).map((v) => v.name);
+  $('res-body').innerHTML = `${unused.length ? `<p><button id="vl-prune">${icon('trash')}<span>Remove ${plural(unused.length, 'unused volume')}…</span></button></p>` : ''}
+    <div class="table res"><div class="tr th"><span>Name</span><span>Driver</span><span>Used by</span><span></span></div>${
+    d.volumes.map((v) => `<div class="tr"><span><b>${esc(v.name)}</b><span class="files">${esc(v.mountpoint)}</span></span>
+      <span class="small">${esc(v.driver)}</span><span class="small">${usedCell(v.usedBy)}</span>
+      <span class="r">${v.usedBy.length ? '' : `<button class="small danger" data-rm="${esc(v.name)}">${icon('trash')}Remove</button>`}</span></div>`).join('')
+    || '<div class="empty">No volume.</div>'}</div>`;
+  $('res-body').querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () =>
+    confirmRemove('volume (and its data)', b.dataset.rm, '/api/volumes/delete', { names: [b.dataset.rm] }, viewVolumes)));
+  $('vl-prune')?.addEventListener('click', () => {
+    openDialog('Remove unused volumes', `<div id="dlg-err"></div><p>Removes these volumes and their data. No container, running or stopped, uses them:</p>
+      <ul class="plain">${unused.map((n) => `<li><code>${esc(n)}</code></li>`).join('')}</ul>`,
+      `<button data-close>Cancel</button><button class="danger" id="vl-pgo">Remove ${plural(unused.length, 'volume')}</button>`);
+    $('vl-pgo').addEventListener('click', async () => {
+      $('vl-pgo').disabled = true;
+      try {
+        const r = await api('/api/volumes/delete', { method: 'POST', body: JSON.stringify({ names: unused }) });
+        closeDialog();
+        toast(`Removed ${plural(r.removed.length, 'volume')}`);
+        if (r.errors.length) toast(`Not removed: ${r.errors.join('; ')}`, 'bad');
+      } catch (e) { $('dlg-err').innerHTML = errBox(e.message); $('vl-pgo').disabled = false; return; }
+      viewVolumes();
+    });
+  });
+}
+
+function secretDialog(name = '', usedBy = []) {
+  const replace = Boolean(name);
+  openDialog(replace ? `Replace ${name}` : 'Create secret', `<div id="dlg-err"></div>
+    ${replace ? '' : '<label class="field"><span>Name (as in the compose file\'s <code>secrets:</code>)</span><input type="text" id="sc-name" autocomplete="off" spellcheck="false"></label>'}
+    <label class="field"><span>Value</span><textarea id="sc-val" rows="4" autocomplete="off" spellcheck="false"></textarea></label>
+    <label class="field"><span>…or read it from a file (at most 64 KB)</span><input type="file" id="sc-file"></label>
+    <p class="muted small">The value goes to Podman and is never shown again.</p>`,
+    `<button data-close>Cancel</button><button class="primary" id="sc-go">${replace ? 'Replace' : 'Create'}</button>`);
+  $('sc-file').addEventListener('change', async () => {
+    const f = $('sc-file').files[0];
+    if (!f) return;
+    if (f.size > 64 * 1024) { $('dlg-err').innerHTML = errBox('The file is larger than 64 KB.'); return; }
+    $('sc-val').value = await f.text();
+  });
+  $('sc-go').addEventListener('click', async () => {
+    $('sc-go').disabled = true;
+    const body = { name: replace ? name : $('sc-name').value.trim(), value: $('sc-val').value, replace };
+    let r;
+    try { r = await api('/api/secrets', { method: 'POST', body: JSON.stringify(body) }); }
+    catch (e) { $('dlg-err').innerHTML = errBox(e.message); $('sc-go').disabled = false; return; }
+    $('sc-val').value = '';
+    toast(`${replace ? 'Replaced' : 'Created'} ${body.name}`);
+    const users = r.usedBy.length ? r.usedBy : usedBy;
+    if (!replace || !users.length) { closeDialog(); viewSecrets(); return; }
+    openDialog(`Replaced ${body.name}`,
+      `<p>Running containers still see the old value. Recreate the stacks that use it?</p><ul class="plain">${
+        users.map((u) => `<li>${esc(u)}</li>`).join('')}</ul><pre id="sc-log" hidden></pre>`,
+      `<button data-close>Later</button><button class="primary" id="sc-re">Recreate ${plural(users.length, 'stack')}</button>`);
+    $('sc-re').addEventListener('click', async () => {
+      $('sc-re').disabled = true;
+      const out = $('sc-log');
+      out.hidden = false;
+      for (const s of users) {
+        try {
+          const d = await api(`/api/stacks/${enc(s)}/deploy`, { method: 'POST', body: JSON.stringify({ pull: false, recreate: true, onlyUpdate: true, remove: [] }) });
+          out.textContent += `${s}: ${d.ok ? 'recreated' : 'failed'}\n${d.ok ? '' : `${d.log.join('\n')}\n`}`;
+        } catch (e) { out.textContent += `${s}: failed\n  ${e.message}\n`; }
+      }
+      $('dlg-foot').innerHTML = '<button data-close>Close</button>';
+      load();
+    });
+    viewSecrets();
+  });
+}
+
+async function viewSecrets() {
+  resPage('Secrets', 'Podman secrets. A compose file uses one with <code>secrets: {name: {external: true}}</code>; the container reads it under <code>/run/secrets/</code>. Values are never shown.', 'Create secret');
+  $('res-add').addEventListener('click', () => secretDialog());
+  const d = await resLoad('secrets', '/api/secrets');
+  if (!d) return;
+  $('res-body').innerHTML = `${d.missing.length ? errBox(`Named in a compose file but not created yet: ${d.missing.join(', ')}`) : ''}
+    <div class="table res"><div class="tr th"><span>Name</span><span>Changed</span><span>Used by</span><span></span></div>${
+    d.secrets.map((s) => `<div class="tr"><span><b>${esc(s.name)}</b></span>
+      <span class="small muted">${esc(new Date(s.updated || s.created).toLocaleString())}</span>
+      <span class="small">${s.usedBy.length ? s.usedBy.map((u) => `<a href="#/stacks/${enc(u)}/summary">${esc(u)}</a>`).join(', ') : '<span class="tag t-idle">Unused</span>'}</span>
+      <span class="r"><button class="small" data-rep="${esc(s.name)}">Replace</button>${s.usedBy.length ? ''
+        : `<button class="small danger" data-rm="${esc(s.name)}">${icon('trash')}Remove</button>`}</span></div>`).join('')
+    || '<div class="empty">No secret yet.</div>'}</div>`;
+  $('res-body').querySelectorAll('[data-rep]').forEach((b) => b.addEventListener('click', () =>
+    secretDialog(b.dataset.rep, d.secrets.find((s) => s.name === b.dataset.rep).usedBy)));
+  $('res-body').querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () =>
+    confirmRemove('secret', b.dataset.rm, '/api/secrets/delete', { name: b.dataset.rm }, viewSecrets)));
+}
+
+// ---------- images ----------
+function viewImages() {
+  $('view').innerHTML = `
+    <div class="page-head">
+      <div><h1>Images</h1><p class="sub">The images on the Pi. <i>Clean up</i> removes only untagged images that no container uses:
+        the old images that pulls leave behind.</p></div>
+      <div class="head-actions">
+        <button id="img-pull" ${INFO.podman ? '' : 'hidden'}>${icon('plus')}<span>Pull image</span></button>
+        <button id="img-check">${icon('update')}<span>Check for updates</span></button>
+        <button class="primary" id="img-clean" disabled>${icon('trash')}<span>Clean up</span></button>
+      </div>
+    </div>
+    <div id="img-body"><p class="muted pad">Loading…</p></div>`;
+  $('img-check').addEventListener('click', () => checkUpdates($('img-check')));
+  $('img-clean').addEventListener('click', showCleanup);
+  $('img-pull').addEventListener('click', showPull);
+  if (IMAGES) renderImages();
+  loadImages();
+}
+async function loadImages() {
+  try { IMAGES = await api('/api/images'); }
+  catch (e) { if (ROUTE.view === 'images') $('img-body').innerHTML = errBox(e.message); return; }
+  renderImages();
+}
+function renderImages() {
+  if (ROUTE.view !== 'images' || !IMAGES || !$('img-body')) return;
+  $('img-pull').hidden = !INFO.podman;
+  const removable = IMAGES.images.filter((i) => i.removable);
+  $('img-clean').disabled = !removable.length;
+  $('img-clean').querySelector('span').textContent = removable.length ? `Clean up ${fmtBytes(IMAGES.reclaimable)}` : 'Nothing to clean up';
+  const status = {};
+  for (const u of Object.values(UPDATES.stacks)) for (const i of u.images) status[i.image] = i;
+  const modules = new Set(STACKS.map((s) => s.name));
+  const row = (img) => {
+    const upd = img.tags.map((t) => status[t]).find(Boolean);
+    const updTag = !upd ? '<span class="muted small">—</span>'
+      : upd.status === 'update' ? '<span class="tag t-warn">Update available</span>'
+      : upd.status === 'current' ? '<span class="tag t-ok">Up to date</span>'
+      : upd.status === 'local' ? '<span class="tag t-idle">Built here</span>' : `<span class="tag t-idle" title="${esc(upd.message)}">Check failed</span>`;
+    const used = img.usedBy.length
+      ? img.usedBy.map((u) => (modules.has(u) ? `<a href="#/stacks/${enc(u)}/summary">${esc(u)}</a>` : esc(u))).join(', ')
+      : img.removable ? '<span class="tag t-idle">Unused, can be removed</span>' : '<span class="muted small">Unused</span>';
+    return `<div class="tr">
+      <span class="i-name c-name"><span class="name">${img.tags[0] ? esc(img.tags[0]) : '<span class="muted">Untagged</span>'}</span>
+        <span class="files">${esc(img.id.slice(0, 12))}${img.tags.length > 1 ? `, also ${img.tags.slice(1).map(esc).join(', ')}` : ''}</span></span>
+      <span class="i-size small">${fmtBytes(img.size)}</span>
+      <span class="i-created small muted">${esc(ago(img.created))}</span>
+      <span class="i-used small">${used}</span>
+      <span class="i-upd">${updTag}</span>
+      <span class="i-act r">${INFO.podman ? `<button class="icon-btn" data-im="${esc(img.id)}" title="More" aria-label="More actions for ${esc(img.tags[0] || img.id.slice(0, 12))}" aria-haspopup="menu">${icon('more', 'fill')}</button>` : ''}</span></div>`;
+  };
+  $('img-body').innerHTML = IMAGES.images.length
+    ? `<div class="table images"><div class="tr th"><span>Image</span><span>Size</span><span>Created</span><span>Used by</span><span>Update</span><span></span></div>${IMAGES.images.map(row).join('')}</div>`
+    : '<div class="table"><div class="empty">No image on the Pi.</div></div>';
+  $('img-body').querySelectorAll('[data-im]').forEach((b) => b.addEventListener('click', () => {
+    const img = IMAGES.images.find((i) => i.id === b.dataset.im);
+    openMenu(b, [
+      { label: 'Details', run: () => showImageDetails(img) },
+      { label: 'Tag…', run: () => showTag(img) },
+      { sep: true },
+      { label: img.usedBy.length ? 'Remove (in use)' : 'Remove…', danger: true, disabled: Boolean(img.usedBy.length), run: () => showImageRemove(img) },
+    ]);
+  }));
+}
+
+function showPull() {
+  openDialog('Pull image', `<div id="dlg-err"></div>
+    <label class="field"><span>Image (anonymous pull)</span><input type="text" id="pl-ref" placeholder="docker.io/library/nginx:1.27" autocomplete="off" spellcheck="false"></label>
+    <p class="muted small">A pull can take minutes on the Pi. It does not update any stack: <i>Update</i> does that.</p>`,
+  '<button data-close>Cancel</button><button class="primary" id="pl-go">Pull</button>');
+  $('pl-ref').focus();
+  $('pl-go').addEventListener('click', async () => {
+    $('pl-go').disabled = true; $('pl-go').textContent = 'Pulling…';
+    try {
+      const r = await api('/api/images/pull', { method: 'POST', body: JSON.stringify({ reference: $('pl-ref').value.trim() }) });
+      closeDialog(); toast(`Pulled ${r.pulled}`); loadImages();
+    } catch (e) { $('dlg-err').innerHTML = errBox(e.message); $('pl-go').disabled = false; $('pl-go').textContent = 'Pull'; }
+  });
+}
+async function showImageDetails(img) {
+  openDialog('Image details', '<p class="muted">Loading…</p>');
+  let d;
+  try { d = await api(`/api/images/${enc(img.id)}/inspect`); }
+  catch (e) { openDialog('Image details', errBox(e.message)); return; }
+  const labels = Object.entries(d.labels);
+  openDialog('Image details', `<dl class="kv">
+    <dt>Id</dt><dd><code>${esc(d.id.slice(0, 12))}</code></dd>
+    <dt>Tags</dt><dd>${d.tags.map(esc).join('<br>') || '<span class="muted">Untagged</span>'}</dd>
+    <dt>Digests</dt><dd class="small">${d.digests.map(esc).join('<br>') || '—'}</dd>
+    <dt>Size</dt><dd>${fmtBytes(d.size)}, ${d.layers} layers</dd>
+    <dt>Platform</dt><dd>${esc(d.os)}/${esc(d.architecture)}</dd>
+    <dt>Created</dt><dd>${esc(ago(d.created))}</dd>
+    <dt>Used by</dt><dd>${d.usedBy.map(esc).join(', ') || '—'}</dd>
+    <dt>Labels</dt><dd class="small">${labels.map(([k, v]) => `${esc(k)}=${esc(v)}`).join('<br>') || '—'}</dd></dl>`);
+}
+function showTag(img) {
+  openDialog('Tag image', `<div id="dlg-err"></div><p>Adds a name to <code>${esc(img.tags[0] || img.id.slice(0, 12))}</code>.</p>
+    <label class="field"><span>Repository</span><input type="text" id="tg-repo" placeholder="localhost/nginx" autocomplete="off" spellcheck="false"></label>
+    <label class="field"><span>Tag</span><input type="text" id="tg-tag" placeholder="keep" autocomplete="off" spellcheck="false"></label>`,
+  '<button data-close>Cancel</button><button class="primary" id="tg-go">Tag</button>');
+  $('tg-go').addEventListener('click', async () => {
+    $('tg-go').disabled = true;
+    try {
+      const r = await api('/api/images/tag', { method: 'POST', body: JSON.stringify({ id: img.id, repo: $('tg-repo').value.trim(), tag: $('tg-tag').value.trim() }) });
+      closeDialog(); toast(`Tagged ${r.tagged}`); loadImages();
+    } catch (e) { $('dlg-err').innerHTML = errBox(e.message); $('tg-go').disabled = false; }
+  });
+}
+function showImageRemove(img) {
+  openDialog('Remove image', `<div id="dlg-err"></div><p>Removes <code>${esc(img.tags[0] || img.id.slice(0, 12))}</code>${
+    img.tags.length > 1 ? ` and its other names (${img.tags.slice(1).map(esc).join(', ')})` : ''}, ${fmtBytes(img.size)}. No container uses it.</p>`,
+  '<button data-close>Cancel</button><button class="danger" id="ir-go">Remove</button>');
+  $('ir-go').addEventListener('click', async () => {
+    $('ir-go').disabled = true;
+    try {
+      const r = await api('/api/images/delete', { method: 'POST', body: JSON.stringify({ id: img.id }) });
+      closeDialog(); toast(`Removed the image, freed ${fmtBytes(r.freed)}`); loadImages();
+    } catch (e) { $('dlg-err').innerHTML = errBox(e.message); $('ir-go').disabled = false; }
+  });
+}
+
+async function showCleanup() {
+  openDialog('Clean up images', '<p class="muted">Looking for old images…</p>');
+  let data;
+  try { data = await api('/api/images'); }
+  catch (e) { return openDialog('Clean up images', errBox(e.message)); }
+  const rm = data.images.filter((i) => i.removable);
+  if (!rm.length) return openDialog('Clean up images', '<p>Nothing to clean up: every image is tagged or used by a container.</p>');
+  openDialog('Clean up images',
+    `<p>Removes ${plural(rm.length, 'untagged image')} that no container uses and frees ${fmtBytes(data.reclaimable)}.
+        Tagged images and the images of every container, running or stopped, stay.</p>
+     <ul class="plain">${rm.map((i) => `<li><code>${esc(i.id.slice(0, 12))}</code>, ${fmtBytes(i.size)}, created ${esc(ago(i.created))}</li>`).join('')}</ul>
+     <div id="dlg-err"></div>`,
+    `<button data-close>Cancel</button><button class="danger" id="do-clean">Remove ${plural(rm.length, 'image')}</button>`);
+  $('do-clean').addEventListener('click', async () => {
+    $('do-clean').disabled = true; $('do-clean').textContent = 'Removing…';
+    try {
+      const r = await api('/api/images/prune', { method: 'POST', body: JSON.stringify({ ids: rm.map((i) => i.id) }) });
+      closeDialog();
+      toast(`Removed ${plural(r.removed.length, 'image')}, freed ${fmtBytes(r.freed)}`);
+      if (r.errors.length) toast(`Not removed: ${r.errors.join(', ')}`, 'bad');
+    } catch (e) {
+      $('dlg-err').innerHTML = errBox(e.message); $('do-clean').disabled = false; $('do-clean').textContent = `Remove ${plural(rm.length, 'image')}`;
+    }
+    if (ROUTE.view === 'images') loadImages();
+  });
+}
+
+// ---------- settings ----------
+async function viewSettings() {
+  $('view').innerHTML = '<div class="page-head"><div><h1>Settings</h1></div></div><p class="muted pad">Loading…</p>';
+  let st;
+  try { st = await api('/api/settings'); }
+  catch (e) { if (ROUTE.view === 'settings') $('view').innerHTML = `<div class="page-head"><div><h1>Settings</h1></div></div>${errBox(e.message)}`; return; }
+  if (ROUTE.view !== 'settings') return;
+  const keyState = st.keySet
+    ? `set${st.keyHint ? ` (…${esc(st.keyHint)})` : ''}${st.keySource && st.keySource !== 'settings' ? `, from the ${esc(st.keySource)}` : ''}`
+    : 'not set';
+  $('view').innerHTML = `
+    <div class="page-head"><div><h1>Settings</h1><p class="sub">How this page reaches Portainer and Podman.</p></div></div>
+    <section class="panel" style="max-width:640px">
+      <div id="set-msg"></div>
+      <label class="field"><span>Portainer URL</span>
+        <input type="url" id="set-url" value="${esc(st.url)}" placeholder="https://192.168.50.3:9443" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>API key: ${keyState}</span>
+        <input type="password" id="set-key" placeholder="${st.keySet ? 'Leave empty to keep the current key' : 'Portainer → My account → Access tokens'}" autocomplete="off" spellcheck="false"></label>
+      <p class="muted small">Stored on the ${esc(SOURCE === 'Pi' ? 'Pi' : 'computer')} in a file only its owner can read (not encrypted).
+        The key is never shown again. Portainer's self-signed certificate is accepted.</p>
+      <div class="head-actions" style="justify-content:flex-end">
+        <button id="set-test">Test connection</button><button class="primary" id="set-save">Save settings</button></div>
+    </section>
+    <section class="panel" style="max-width:640px">
+      <h2>New stacks</h2>
+      <label class="field"><span>A stack that runs nowhere yet is created with</span>
+        <select id="set-backend"><option value="podman" ${st.defaultBackend === 'podman' ? 'selected' : ''} ${st.podman ? '' : 'disabled'}>Podman (podman-compose)</option>
+          <option value="portainer" ${st.defaultBackend === 'portainer' ? 'selected' : ''}>Portainer</option></select></label>
+      <p class="muted small">${st.podman ? 'The Podman socket is available here.' : 'There is no Podman socket here: only Portainer can be used.'}
+        The Portainer URL and API key are optional when every stack runs with Podman. <i>Save settings</i> above saves this too.</p>
+    </section>
+    <section class="panel" style="max-width:640px">
+      <h2>API token for the deploy scripts</h2>
+      <div id="tok-msg"></div>
+      <p class="muted small">${st.tokenSet ? 'A token is set.' : 'No token yet.'} The deploy scripts send it; it opens the API except these settings,
+        never the page. Put it in <code>portainer-podman-stack/stack-ui-api-token</code> on the workstation. It is shown once.</p>
+      <div class="head-actions" style="justify-content:flex-end">
+        ${st.tokenSet ? '<button id="tok-revoke" class="danger">Revoke</button>' : ''}<button id="tok-new">${st.tokenSet ? 'Generate a new one' : 'Generate'}</button></div>
+    </section>`;
+  const msg = (ok, text) => { $('set-msg').innerHTML = `<div class="${ok ? 'ok-note' : 'bad-note'}">${esc(text)}</div>`; };
+  const values = () => ({ url: $('set-url').value.trim(), apiKey: $('set-key').value.trim(), defaultBackend: $('set-backend').value });
+  const tokenCall = async (revoke) => {
+    try {
+      const r = await api('/api/settings/token', { method: 'POST', body: JSON.stringify({ revoke }) });
+      $('tok-msg').innerHTML = r.token
+        ? `<div class="ok-note">New token (copy it now; it is not shown again):</div><pre>${esc(r.token)}</pre>`
+        : '<div class="ok-note">The token is revoked.</div>';
+    } catch (e) { $('tok-msg').innerHTML = `<div class="bad-note">${esc(e.message)}</div>`; }
+  };
+  $('tok-new').addEventListener('click', () => {
+    if (!st.tokenSet || confirm('The current token stops working. Generate a new one?')) tokenCall(false);
+  });
+  $('tok-revoke')?.addEventListener('click', () => { if (confirm('Revoke the token? The deploy scripts stop working.')) tokenCall(true); });
+  $('set-test').addEventListener('click', async () => {
+    $('set-test').disabled = true; msg(true, 'Testing…');
+    try { const r = await api('/api/settings/test', { method: 'POST', body: JSON.stringify(values()) }); msg(r.ok, r.message); }
+    catch (e) { msg(false, e.message); }
+    $('set-test').disabled = false;
+  });
+  $('set-save').addEventListener('click', async () => {
+    $('set-save').disabled = true;
+    try {
+      await api('/api/settings', { method: 'POST', body: JSON.stringify(values()) });
+      toast('Settings saved');
+      go('#/stacks');
+      load();
+    } catch (e) { msg(false, e.message); $('set-save').disabled = false; }
+  });
+}
+
+// ---------- start ----------
+document.querySelector('[data-nav="stacks"]').innerHTML = `${icon('stacks')}<span>Stacks</span>`;
+document.querySelector('[data-nav="images"]').innerHTML = `${icon('images')}<span>Images</span>`;
+document.querySelector('[data-nav="settings"]').innerHTML = `${icon('settings')}<span>Settings</span>`;
+for (const [k, label] of [['containers', 'Containers'], ['logs', 'Logs'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['secrets', 'Secrets']]) {
+  document.querySelector(`[data-nav="${k}"]`).innerHTML = `${icon(k)}<span>${label}</span>`;
+}
+$('theme').innerHTML = `${icon('theme')}<span>Theme</span>`;
+$('logout').innerHTML = `${icon('logout')}<span>Sign out</span>`;
+if (AUTH) {
+  $('logout').hidden = false;
+  $('logout').addEventListener('click', async () => {
+    if (DIRTY && !confirm('The files have unsaved changes. Sign out without saving them?')) return;
+    DIRTY = false;
+    await fetch('/logout', { method: 'POST', headers: { 'X-UI-Token': TOKEN } });
+    location.replace('/');
+  });
+}
+function applyTheme(t) { if (t === 'light') document.documentElement.dataset.theme = 'light'; else delete document.documentElement.dataset.theme; }
+try { applyTheme(localStorage.getItem('stack-ui-theme')); } catch { /* storage unavailable */ }
+$('theme').addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  applyTheme(next);
+  try { localStorage.setItem('stack-ui-theme', next); } catch { /* storage unavailable */ }
+});
+
+render();
+load();
+api('/api/settings').then((st) => { if (!st.keySet && !st.podman && ROUTE.view !== 'settings') go('#/settings'); }).catch(() => {});
+</script>
+</body>
+</html>
