@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Portainer Stacks</title>
+<title>Stack UI</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <style>
   /* Podman Desktop-like: charcoal layers, one purple accent, status colours only where they mean something */
@@ -240,7 +240,7 @@
 <body>
 <div class="app">
   <nav class="side" aria-label="Main">
-    <div class="brand" title="Portainer Stacks"><img src="/icon.svg" alt=""></div>
+    <div class="brand" title="Stack UI"><img src="/icon.svg" alt=""></div>
     <a class="nav-a" href="#/stacks" data-nav="stacks"></a>
     <a class="nav-a" href="#/containers" data-nav="containers"></a>
     <a class="nav-a" href="#/images" data-nav="images"></a>
@@ -300,7 +300,7 @@ const icon = (name, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" ari
 
 // ---------- state ----------
 let STACKS = [];                                 // /api/stacks
-let INFO = { source: SOURCE, portainer: '', podman: false, defaultBackend: 'podman', portainerError: '', podmanError: '' };
+let INFO = { source: SOURCE, podman: true, podmanError: '' };   // podman: the page always has the socket
 let LOAD_ERROR = '';
 let DRIFT = {}; let DRIFT_LOADED = false;        // name -> same | differs | unknown
 let UPDATES = { checkedAt: '', stacks: {} };     // the last image-update check
@@ -331,8 +331,6 @@ function stackState(s) {
   return s.containers.length && s.containers.every((c) => c.state === 'running') ? 'run' : 'part';
 }
 const STATE_LABEL = { run: 'Running', part: 'Not every container runs', stop: 'Stopped', none: 'Not deployed' };
-const BACKEND_LABEL = { podman: 'Podman', portainer: 'Portainer' };
-const backendTag = (s) => (s.backend ? `<span class="tag t-idle bk">${BACKEND_LABEL[s.backend]}</span>` : '');
 const dotClass = (state) => (state === 'running' ? 'd-ok' : state === 'exited' || state === 'dead' ? 'd-bad' : 'd-idle');
 
 function fmtBytes(n) {
@@ -412,7 +410,6 @@ function moreItems(name) {
     { label: 'History', run: () => go(`#/stacks/${enc(name)}/history`) },
     { label: 'Compare with deployed', disabled: !s?.stack, run: () => go(`#/stacks/${enc(name)}/diff`) },
   ];
-  if (s?.backend === 'portainer' && INFO.podman) items.push({ label: 'Move to Podman…', run: () => showMigrate(name) });
   if (s?.stack) items.push({ sep: true }, { label: 'Delete stack…', danger: true, run: () => showDelete(name) });
   return items;
 }
@@ -461,7 +458,6 @@ function render() {
 function renderBanner() {
   const errs = [];
   if (LOAD_ERROR) errs.push(`The stacks could not be read: ${esc(LOAD_ERROR)}`);
-  if (INFO.portainerError) errs.push(`Portainer could not be read: ${esc(INFO.portainerError)} · <a href="#/settings">Settings</a>`);
   if (INFO.podmanError) errs.push(`Podman could not be read: ${esc(INFO.podmanError)}`);
   $('banner').innerHTML = ROUTE.view === 'settings' ? '' : errs.map((e) => `<div class="banner">${e}</div>`).join('');
 }
@@ -483,8 +479,7 @@ async function load() {
   try {
     const data = await api('/api/stacks');
     STACKS = data.stacks;
-    INFO = { source: data.source, portainer: data.portainer, podman: data.podman, defaultBackend: data.defaultBackend,
-             portainerError: data.portainerError, podmanError: data.podmanError };
+    INFO = { source: data.source, podman: true, podmanError: data.podmanError };
     LOAD_ERROR = '';
     for (const n of [...SELECTED]) if (!stackOf(n)?.stack) SELECTED.delete(n);
   } catch (e) {
@@ -529,7 +524,6 @@ const FILTERS = [
   ['stopped', 'Stopped', (s) => stackState(s) === 'stop'],
   ['differs', 'Differs from deployed', (s) => DRIFT[s.name] === 'differs'],
   ['updates', 'Image updates', (s) => UPDATES.stacks[s.name]?.status === 'update'],
-  ['portainer', 'On Portainer', (s) => s.backend === 'portainer'],
   ['outside', 'Not deployed', (s) => !s.stack],
 ];
 function visibleStacks() {
@@ -564,7 +558,7 @@ function driftCell(s) {
   const d = DRIFT[s.name];
   if (d === 'same') return '<span class="tag t-ok">Matches</span>';
   if (d === 'differs') return `<button class="tag t-warn" data-act="diff" data-name="${esc(s.name)}" title="Show what differs">Differs</button>`;
-  if (d === 'unknown') return '<span class="tag t-idle" title="Not known: Portainer could not be read, or no record of the last deploy (the next Update makes one)">Unknown</span>';
+  if (d === 'unknown') return '<span class="tag t-idle" title="Not known: no record of the last deploy (the next Update makes one)">Unknown</span>';
   return `<span class="muted small">${DRIFT_LOADED ? '—' : '…'}</span>`;
 }
 function imageCell(name) {
@@ -595,7 +589,7 @@ function stackRow(s) {
   return `<div class="tr${SELECTED.has(s.name) ? ' selected' : ''}" data-row="${n}">
     <span class="c-sel">${s.stack ? `<input type="checkbox" data-sel="${n}" aria-label="Select ${n}" ${SELECTED.has(s.name) ? 'checked' : ''}>` : ''}</span>
     <span class="c-state"><span class="state s-${state}" title="${STATE_LABEL[state]}">${icon('stacks')}</span></span>
-    <span class="c-name"><a class="name" href="#/stacks/${n}/summary">${n}</a>${backendTag(s)}<span class="files">${esc(s.compose)}</span></span>
+    <span class="c-name"><a class="name" href="#/stacks/${n}/summary">${n}</a><span class="files">${esc(s.compose)}</span></span>
     <span class="c-cont">${conts}</span>
     <span class="c-drift">${driftCell(s)}</span>
     <span class="c-img">${imageCell(s.name)}</span>
@@ -605,10 +599,8 @@ function stackRow(s) {
 
 function renderTable() {
   if (ROUTE.view !== 'stacks' || !$('table')) return;
-  const where = [INFO.podman ? 'Podman (podman-compose)' : '', INFO.portainer ? `Portainer at ${INFO.portainer}` : ''].filter(Boolean).join(' and ');
-  $('stacks-sub').textContent = where
-    ? `Stack modules stored on the ${INFO.source}, deployed with ${where}. An update sends these files.`
-    : LOAD_ERROR ? 'The stacks could not be read.' : 'Loading…';
+  $('stacks-sub').textContent = LOAD_ERROR ? 'The stacks could not be read.'
+    : 'The compose stacks of this host (STACKS_DIR), run with podman-compose. An update sends these files.';
   $('chips').innerHTML = FILTERS.map(([k, label, f]) => {
     const n = STACKS.filter(f).length;
     if (k !== 'all' && !n && FILTER !== k) return '';
@@ -622,7 +614,7 @@ function renderTable() {
     <span><input type="checkbox" data-sel-all aria-label="Select every stack shown" ${all ? 'checked' : ''} ${eligible.length ? '' : 'disabled'}></span>
     <span></span><span>Name</span><span>Containers</span><span>Deployed</span><span>Image</span><span class="r">Actions</span></div>`;
   const empty = !STACKS.length
-    ? `<div class="empty">${LOAD_ERROR ? 'No stack to show.' : INFO.portainer || INFO.podman ? 'No stack module yet. <i>Add stack</i> uploads one.' : 'Loading…'}</div>`
+    ? `<div class="empty">${LOAD_ERROR ? 'No stack to show.' : 'No stack yet: put a folder with a compose file into STACKS_DIR, or <i>Add stack</i>.'}</div>`
     : '<div class="empty">No stack matches. <button data-filter="all">Show all</button></div>';
   $('table').innerHTML = head + (rows.length ? rows.map(stackRow).join('') : empty);
   if ($('q') && QUERY && !rows.length) $('table').querySelector('.empty button')?.addEventListener('click', () => { QUERY = ''; $('q').value = ''; });
@@ -694,7 +686,7 @@ function renderDetailHead() {
   const n = esc(s.name);
   $('detail-head').innerHTML = `
     <div class="title-row"><span class="state big s-${state}">${icon('stacks')}</span>
-      <div><h1>${n}</h1><p class="sub">${STATE_LABEL[state]}${st ? (st.backend === 'portainer' ? `, Portainer stack #${st.id}` : ', Podman (podman-compose)') : ''}</p></div></div>
+      <div><h1>${n}</h1><p class="sub">${STATE_LABEL[state]}</p></div></div>
     <div class="head-actions">
       ${st ? `<button data-act="${st.status === 1 ? 'stop' : 'start'}" data-name="${n}">${icon(st.status === 1 ? 'stop' : 'play', 'fill')}<span>${st.status === 1 ? 'Stop' : 'Start'}</span></button>` : ''}
       <button class="primary" data-act="deploy" data-name="${n}">${icon('update')}<span>${st ? 'Update' : 'Create'}</span></button>
@@ -730,9 +722,7 @@ function tabSummary(name) {
     </section>
     <section class="panel"><h2>Details</h2>
       <dl class="kv">
-        <dt>Runs with</dt><dd>${!st ? `Not deployed yet; <i>Create</i> uses ${BACKEND_LABEL[INFO.defaultBackend]}`
-          : st.backend === 'portainer' ? `Portainer: stack #${st.id} in environment ${esc(st.endpoint)}, ${st.status === 1 ? 'active' : 'inactive'}`
-          : `Podman: podman-compose project ${esc(name)}`}</dd>
+        <dt>Runs with</dt><dd>${st ? `podman-compose project ${esc(name)}` : 'Not deployed yet'}</dd>
         <dt>Compared with deployed</dt><dd>${driftCell(s)}</dd>
         <dt>Compose file</dt><dd><code>${esc(s.compose)}</code></dd>
         <dt>Env file</dt><dd><code>${esc(s.env)}</code></dd>
@@ -760,16 +750,17 @@ async function tabFiles(name) {
     </div>
     <div id="save-err"></div>
     <section class="editor"><div class="ed-head">${esc(f.compose)}</div><textarea id="compose-text" spellcheck="false" aria-label="${esc(f.compose)}">${esc(f.composeText)}</textarea></section>
-    <section class="editor"><div class="ed-head">${esc(f.env)}</div><textarea id="env-text" class="short" spellcheck="false" aria-label="${esc(f.env)}">${esc(f.envText)}</textarea></section>
+    ${f.envText === null ? '<section class="editor"><p class="muted small pad">This stack has no env file.</p></section>'
+      : `<section class="editor"><div class="ed-head">${esc(f.env)}</div><textarea id="env-text" class="short" spellcheck="false" aria-label="${esc(f.env)}">${esc(f.envText)}</textarea></section>`}
     <p class="muted small">A save checks the compose file and the variables (no secrets in the env file). The running stack gets the change with the next update.</p>
     ${others}`;
   const mark = () => {
-    DIRTY = $('compose-text').value !== FILES.composeText || $('env-text').value !== FILES.envText;
+    DIRTY = $('compose-text').value !== FILES.composeText || ($('env-text') ? $('env-text').value !== FILES.envText : false);
     $('dirty').hidden = !DIRTY;
     document.querySelector('.tabs a[data-tab="files"]')?.classList.toggle('mod', DIRTY);
   };
   $('compose-text').addEventListener('input', mark);
-  $('env-text').addEventListener('input', mark);
+  $('env-text')?.addEventListener('input', mark);
 }
 
 document.addEventListener('keydown', (e) => {
@@ -781,7 +772,7 @@ document.addEventListener('keydown', (e) => {
 
 async function saveFlow(name, andUpdate) {
   if (!FILES || FILES.name !== name || !$('compose-text')) return;
-  const body = JSON.stringify({ composeText: $('compose-text').value, envText: $('env-text').value });
+  const body = JSON.stringify({ composeText: $('compose-text').value, envText: $('env-text') ? $('env-text').value : null });
   $('save-err').innerHTML = '';
   let p;
   try { p = await api(`/api/stacks/${enc(name)}/files/preview`, { method: 'POST', body }); }
@@ -819,7 +810,7 @@ async function updateAfterSave(name) {
   catch (e) { return openDialog(`Update ${name}`, errBox(e.message)); }
   // a new stack, a container in the way or a missing secret: the usual dialog, which asks or explains
   if (p.action !== 'update' || p.blocking.length || p.missingSecrets?.length) return startDeploy(name);
-  openDialog(`Updating ${name}`, `<p class="muted">Deploying the saved files${p.backend === 'portainer' ? ' to Portainer' : ' with podman-compose'}…</p>`, '<button disabled>Working…</button>');
+  openDialog(`Updating ${name}`, `<p class="muted">Deploying the saved files with podman-compose…</p>`, '<button disabled>Working…</button>');
   try {
     const r = await api(`/api/stacks/${enc(name)}/deploy`, { method: 'POST', body: JSON.stringify({ pull: false, remove: [] }) });
     if (r.ok) { closeDialog(); toast(`Updated ${name}`); }
@@ -887,7 +878,7 @@ async function tabDiff(name) {
     $('tab').innerHTML = '<section class="panel"><p class="muted">There is no record of what was deployed: the stack was started before stack-ui kept one. The next <i>Update</i> records it.</p></section>';
     return;
   }
-  const was = d.backend === 'podman' ? 'was deployed last' : 'Portainer has now';
+  const was = 'was deployed last';
   $('tab').innerHTML = `<section class="panel">
       <p class="muted">− is what ${was}; + is what an update sends from the ${esc(SOURCE)}.</p>
       <h4>Compose file</h4>${diffHtml(d.compose)}<h4>Variables</h4>${diffHtml(d.env)}</section>`;
@@ -932,10 +923,7 @@ function confirmRestart(name, container) {
 }
 
 function showDelete(name) {
-  const s = stackOf(name);
-  const what = s?.backend === 'portainer'
-    ? `Deletes the Portainer stack <b>${esc(name)}</b> and removes its containers.`
-    : `Stops and removes the containers of <b>${esc(name)}</b> (podman-compose down).`;
+  const what = `Stops and removes the containers of <b>${esc(name)}</b> (podman-compose down).`;
   openDialog(`Delete ${name}`,
     `<div id="dlg-err"></div>
      <p>${what}
@@ -958,32 +946,6 @@ function showDelete(name) {
   });
 }
 
-function showMigrate(name) {
-  openDialog(`Move ${name} to Podman`,
-    `<div id="dlg-err"></div>
-     <p>Deletes the Portainer stack <b>${esc(name)}</b> (its containers stop and are removed; the data on the host stays),
-        then starts it with podman-compose from the files stored here. The stack is down for a short while.</p>
-     <label class="field"><span>Type <b>${esc(name)}</b> to confirm</span><input type="text" id="mv-name" autocomplete="off" spellcheck="false"></label>
-     <pre id="mv-log" hidden></pre>`,
-    '<button data-close>Cancel</button><button class="primary" id="do-move" disabled>Move to Podman</button>');
-  $('mv-name').addEventListener('input', () => { $('do-move').disabled = $('mv-name').value !== name; });
-  $('mv-name').focus();
-  $('do-move').addEventListener('click', async () => {
-    $('do-move').disabled = true; $('do-move').textContent = 'Moving…';
-    try {
-      const r = await api(`/api/stacks/${enc(name)}/migrate`, { method: 'POST', body: JSON.stringify({ confirm: $('mv-name').value }) });
-      $('mv-log').hidden = false;
-      $('mv-log').textContent = r.log.join('\n');
-      if (r.ok) toast(`${name} runs with Podman now`);
-      else $('dlg-err').innerHTML = errBox('The move did not finish: see the log.');
-      $('dlg-foot').innerHTML = '<button data-close>Close</button>';
-    } catch (e) {
-      $('dlg-err').innerHTML = errBox(e.message); $('do-move').disabled = false; $('do-move').textContent = 'Move to Podman';
-    }
-    load();
-  });
-}
-
 async function startDeploy(name) {
   openDialog(`Update ${name}`, '<p class="muted">Checking…</p>');
   let p;
@@ -995,13 +957,11 @@ async function startDeploy(name) {
     return openDialog(title, `${errBox(`These Podman secrets do not exist yet: ${p.missingSecrets.join(', ')}.`)}
       <p>Create them under <a href="#/secrets">Secrets</a>, then try again.</p>`);
   }
-  const where = p.backend === 'podman' ? 'with podman-compose'
-    : create ? `as a Portainer stack in environment ${esc(p.endpoint)}` : `in Portainer (#${p.stackId})`;
+  const where = 'with podman-compose';
   let body = create
     ? `<p>Creates <b>${esc(name)}</b> ${where} from the compose file and variables stored here.
-         The host directories must exist: run the module's <code>prepare-${esc(name)}.sh</code> on the Pi once.</p>`
-    : `<p>Updates <b>${esc(name)}</b> ${where} with the compose file and variables stored here.${
-        p.backend === 'portainer' ? ' Edits made in Portainer are overwritten (see <i>Compare with deployed</i>).' : ''}</p>
+         The host directories must exist: create them before the first deploy.</p>`
+    : `<p>Updates <b>${esc(name)}</b> ${where} with the compose file and variables stored here.</p>
        <label class="check"><input type="checkbox" id="pull" checked> <span>Pull the newest images first</span></label>`;
   if (p.blocking.length) {
     body += `<p><b>In the way</b> (containers of the same name that are not part of this stack):</p><ul class="plain">${
@@ -1033,7 +993,7 @@ function updateSelected(names) {
   if (!list.length) return;
   openDialog(`Update ${plural(list.length, 'stack')}`,
     `<p>Pulls the newest images and updates these stacks one after the other. Like <i>Update</i>, it sends the files
-        stored here (edits made in Portainer are overwritten).</p>
+        stored here.</p>
      <ul class="plain">${list.map((n) => `<li>${esc(n)} ${imageCell(n).replace('data-act="deploy"', 'disabled')}</li>`).join('')}</ul>
      <pre id="upd-log" hidden></pre>`,
     `<button data-close>Cancel</button><button class="primary" id="upd-go">Update ${plural(list.length, 'stack')}</button>`);
@@ -1072,8 +1032,8 @@ function showAdd() {
     `<div id="dlg-err"></div>
      <p>Upload a stack package as a new module, e.g. the <code>podman/</code> folder of an app: its compose file (<code>.yaml</code>),
         its env file (<code>.env</code>) and, if it has them, its prepare script and README. Other files (a deploy script) are skipped.
-        The image of a locally built app must already be on the Pi (its own deploy script builds it).</p>
-     <label class="field"><span>Stack name (also the Portainer stack's name)</span><input type="text" id="add-name" placeholder="e.g. tools-for-gaggimate" autocomplete="off"></label>
+        A locally built image must already be on this host.</p>
+     <label class="field"><span>Stack name (also the podman-compose project name)</span><input type="text" id="add-name" placeholder="e.g. my-app" autocomplete="off"></label>
      <label class="field"><span>Files</span><input type="file" id="add-files" multiple></label>
      <div id="add-pick"></div>`,
     '<button data-close>Cancel</button><button class="primary" id="add-go" disabled>Add stack</button>');
@@ -1106,7 +1066,7 @@ function showAdd() {
       const r = await api('/api/stacks', { method: 'POST', body: JSON.stringify(body) });
       closeDialog();
       await load();
-      toast(`Added ${r.name}. Check its files, run its prepare script on the Pi if it has one, then create it.`);
+      toast(`Added ${r.name}. Check its files, create its host directories if it needs any, then create it.`);
       go(`#/stacks/${enc(r.name)}/files`);
     } catch (e) {
       $('dlg-err').innerHTML = errBox(e.message); $('add-go').disabled = false;
@@ -1126,7 +1086,7 @@ function portLinks(c) {
 async function viewContainers() {
   $('view').innerHTML = `
     <div class="page-head">
-      <div><h1>Containers</h1><p class="sub">Every container on the Pi. A container of a stack is removed with its stack; stack-ui and Portainer are protected.</p></div>
+      <div><h1>Containers</h1><p class="sub">Every container on this host. A container of a stack is removed with its stack; this page itself is protected.</p></div>
       <div class="head-actions">
         <label class="search">${icon('search')}<input id="cq" type="search" placeholder="Search containers and images" value="${esc(CQUERY)}" autocomplete="off" aria-label="Search"></label>
         <button class="icon-btn" id="c-reload" title="Reload" aria-label="Reload">${icon('refresh')}</button>
@@ -1400,7 +1360,7 @@ async function viewSecrets() {
 function viewImages() {
   $('view').innerHTML = `
     <div class="page-head">
-      <div><h1>Images</h1><p class="sub">The images on the Pi. <i>Clean up</i> removes only untagged images that no container uses:
+      <div><h1>Images</h1><p class="sub">The images on this host. <i>Clean up</i> removes only untagged images that no container uses:
         the old images that pulls leave behind.</p></div>
       <div class="head-actions">
         <button id="img-pull" ${INFO.podman ? '' : 'hidden'}>${icon('plus')}<span>Pull image</span></button>
@@ -1449,7 +1409,7 @@ function renderImages() {
   };
   $('img-body').innerHTML = IMAGES.images.length
     ? `<div class="table images"><div class="tr th"><span>Image</span><span>Size</span><span>Created</span><span>Used by</span><span>Update</span><span></span></div>${IMAGES.images.map(row).join('')}</div>`
-    : '<div class="table"><div class="empty">No image on the Pi.</div></div>';
+    : '<div class="table"><div class="empty">No image on this host.</div></div>';
   $('img-body').querySelectorAll('[data-im]').forEach((b) => b.addEventListener('click', () => {
     const img = IMAGES.images.find((i) => i.id === b.dataset.im);
     openMenu(b, [
@@ -1464,7 +1424,7 @@ function renderImages() {
 function showPull() {
   openDialog('Pull image', `<div id="dlg-err"></div>
     <label class="field"><span>Image (anonymous pull)</span><input type="text" id="pl-ref" placeholder="docker.io/library/nginx:1.27" autocomplete="off" spellcheck="false"></label>
-    <p class="muted small">A pull can take minutes on the Pi. It does not update any stack: <i>Update</i> does that.</p>`,
+    <p class="muted small">A pull can take minutes. It does not update any stack: <i>Update</i> does that.</p>`,
   '<button data-close>Cancel</button><button class="primary" id="pl-go">Pull</button>');
   $('pl-ref').focus();
   $('pl-go').addEventListener('click', async () => {
@@ -1551,40 +1511,16 @@ async function viewSettings() {
   try { st = await api('/api/settings'); }
   catch (e) { if (ROUTE.view === 'settings') $('view').innerHTML = `<div class="page-head"><div><h1>Settings</h1></div></div>${errBox(e.message)}`; return; }
   if (ROUTE.view !== 'settings') return;
-  const keyState = st.keySet
-    ? `set${st.keyHint ? ` (…${esc(st.keyHint)})` : ''}${st.keySource && st.keySource !== 'settings' ? `, from the ${esc(st.keySource)}` : ''}`
-    : 'not set';
   $('view').innerHTML = `
-    <div class="page-head"><div><h1>Settings</h1><p class="sub">How this page reaches Portainer and Podman.</p></div></div>
+    <div class="page-head"><div><h1>Settings</h1><p class="sub">Stack UI ${esc(st.version)}</p></div></div>
     <section class="panel" style="max-width:640px">
-      <div id="set-msg"></div>
-      <label class="field"><span>Portainer URL</span>
-        <input type="url" id="set-url" value="${esc(st.url)}" placeholder="https://192.168.50.3:9443" autocomplete="off" spellcheck="false"></label>
-      <label class="field"><span>API key: ${keyState}</span>
-        <input type="password" id="set-key" placeholder="${st.keySet ? 'Leave empty to keep the current key' : 'Portainer → My account → Access tokens'}" autocomplete="off" spellcheck="false"></label>
-      <p class="muted small">Stored on the ${esc(SOURCE === 'Pi' ? 'Pi' : 'computer')} in a file only its owner can read (not encrypted).
-        The key is never shown again. Portainer's self-signed certificate is accepted.</p>
-      <div class="head-actions" style="justify-content:flex-end">
-        <button id="set-test">Test connection</button><button class="primary" id="set-save">Save settings</button></div>
-    </section>
-    <section class="panel" style="max-width:640px">
-      <h2>New stacks</h2>
-      <label class="field"><span>A stack that runs nowhere yet is created with</span>
-        <select id="set-backend"><option value="podman" ${st.defaultBackend === 'podman' ? 'selected' : ''} ${st.podman ? '' : 'disabled'}>Podman (podman-compose)</option>
-          <option value="portainer" ${st.defaultBackend === 'portainer' ? 'selected' : ''}>Portainer</option></select></label>
-      <p class="muted small">${st.podman ? 'The Podman socket is available here.' : 'There is no Podman socket here: only Portainer can be used.'}
-        The Portainer URL and API key are optional when every stack runs with Podman. <i>Save settings</i> above saves this too.</p>
-    </section>
-    <section class="panel" style="max-width:640px">
-      <h2>API token for the deploy scripts</h2>
+      <h2>API token for scripts</h2>
       <div id="tok-msg"></div>
-      <p class="muted small">${st.tokenSet ? 'A token is set.' : 'No token yet.'} The deploy scripts send it; it opens the API except these settings,
-        never the page. Put it in <code>portainer-podman-stack/stack-ui-api-token</code> on the workstation. It is shown once.</p>
+      <p class="muted small">${st.tokenSet ? 'A token is set.' : 'No token yet.'} Scripts (e.g. <code>client/stack-ui-client.py</code>) send it;
+        it opens the API except these settings, never the page. Only its SHA-256 is kept; it is shown once.</p>
       <div class="head-actions" style="justify-content:flex-end">
         ${st.tokenSet ? '<button id="tok-revoke" class="danger">Revoke</button>' : ''}<button id="tok-new">${st.tokenSet ? 'Generate a new one' : 'Generate'}</button></div>
     </section>`;
-  const msg = (ok, text) => { $('set-msg').innerHTML = `<div class="${ok ? 'ok-note' : 'bad-note'}">${esc(text)}</div>`; };
-  const values = () => ({ url: $('set-url').value.trim(), apiKey: $('set-key').value.trim(), defaultBackend: $('set-backend').value });
   const tokenCall = async (revoke) => {
     try {
       const r = await api('/api/settings/token', { method: 'POST', body: JSON.stringify({ revoke }) });
@@ -1596,22 +1532,7 @@ async function viewSettings() {
   $('tok-new').addEventListener('click', () => {
     if (!st.tokenSet || confirm('The current token stops working. Generate a new one?')) tokenCall(false);
   });
-  $('tok-revoke')?.addEventListener('click', () => { if (confirm('Revoke the token? The deploy scripts stop working.')) tokenCall(true); });
-  $('set-test').addEventListener('click', async () => {
-    $('set-test').disabled = true; msg(true, 'Testing…');
-    try { const r = await api('/api/settings/test', { method: 'POST', body: JSON.stringify(values()) }); msg(r.ok, r.message); }
-    catch (e) { msg(false, e.message); }
-    $('set-test').disabled = false;
-  });
-  $('set-save').addEventListener('click', async () => {
-    $('set-save').disabled = true;
-    try {
-      await api('/api/settings', { method: 'POST', body: JSON.stringify(values()) });
-      toast('Settings saved');
-      go('#/stacks');
-      load();
-    } catch (e) { msg(false, e.message); $('set-save').disabled = false; }
-  });
+  $('tok-revoke')?.addEventListener('click', () => { if (confirm('Revoke the token? Scripts using it stop working.')) tokenCall(true); });
 }
 
 // ---------- start ----------
@@ -1642,7 +1563,6 @@ $('theme').addEventListener('click', () => {
 
 render();
 load();
-api('/api/settings').then((st) => { if (!st.keySet && !st.podman && ROUTE.view !== 'settings') go('#/settings'); }).catch(() => {});
 </script>
 </body>
 </html>
