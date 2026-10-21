@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.3
+
+- `STACK_UI_HIDE_UNDEPLOYED=true`: the Stacks page lists only the stacks that have containers (running or
+  stopped). Folders without containers stay in `STACKS_DIR` and in the API; after *Add stack* the new stack's own
+  page opens, where it is created.
+- *Add stack*: the compose file, the env file (optional) and the other files are chosen in separate fields.
+
 ## 1.0.2
 
 - Client: a folder with a `stack.json` can be deployed (the manifest itself is no longer sent as a file, which Stack UI refused).

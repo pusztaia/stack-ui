@@ -479,7 +479,7 @@ async function load() {
   try {
     const data = await api('/api/stacks');
     STACKS = data.stacks;
-    INFO = { source: data.source, podman: true, podmanError: data.podmanError };
+    INFO = { source: data.source, podman: true, podmanError: data.podmanError, hideUndeployed: !!data.hideUndeployed };
     LOAD_ERROR = '';
     for (const n of [...SELECTED]) if (!stackOf(n)?.stack) SELECTED.delete(n);
   } catch (e) {
@@ -526,10 +526,14 @@ const FILTERS = [
   ['updates', 'Image updates', (s) => UPDATES.stacks[s.name]?.status === 'update'],
   ['outside', 'Not deployed', (s) => !s.stack],
 ];
+// STACK_UI_HIDE_UNDEPLOYED: a folder without containers is not listed (its own page still opens, e.g. after Add stack)
+function listedStacks() {
+  return INFO.hideUndeployed ? STACKS.filter((s) => s.stack || s.containers.length) : STACKS;
+}
 function visibleStacks() {
   const f = (FILTERS.find((x) => x[0] === FILTER) || FILTERS[0])[2];
   const q = QUERY.trim().toLowerCase();
-  return STACKS.filter((s) => f(s) && (!q || s.name.includes(q) || s.containers.some((c) => c.name.toLowerCase().includes(q))));
+  return listedStacks().filter((s) => f(s) && (!q || s.name.includes(q) || s.containers.some((c) => c.name.toLowerCase().includes(q))));
 }
 
 function viewStacks() {
@@ -601,9 +605,10 @@ function stackRow(s) {
 function renderTable() {
   if (ROUTE.view !== 'stacks' || !$('table')) return;
   $('stacks-sub').textContent = LOAD_ERROR ? 'The stacks could not be read.'
-    : 'The compose stacks of this host (STACKS_DIR), run with podman-compose. An update sends these files.';
+    : 'The compose stacks of this host (STACKS_DIR), run with podman-compose. An update sends these files.'
+      + (INFO.hideUndeployed ? ' Folders without containers are not listed.' : '');
   $('chips').innerHTML = FILTERS.map(([k, label, f]) => {
-    const n = STACKS.filter(f).length;
+    const n = listedStacks().filter(f).length;
     if (k !== 'all' && !n && FILTER !== k) return '';
     const warn = k === 'updates' || k === 'differs' || k === 'partly';
     return `<button class="chip${FILTER === k ? ' on' : ''}${warn ? ' c-warn' : ''}" data-filter="${k}" aria-pressed="${FILTER === k}">${label} <b>${n}</b></button>`;
@@ -614,8 +619,9 @@ function renderTable() {
   const head = `<div class="tr th">
     <span><input type="checkbox" data-sel-all aria-label="Select every stack shown" ${all ? 'checked' : ''} ${eligible.length ? '' : 'disabled'}></span>
     <span></span><span>Name</span><span>Containers</span><span>Deployed</span><span>Image</span><span class="r">Actions</span></div>`;
-  const empty = !STACKS.length
-    ? `<div class="empty">${LOAD_ERROR ? 'No stack to show.' : 'No stack yet: put a folder with a compose file into STACKS_DIR, or <i>Add stack</i>.'}</div>`
+  const empty = !listedStacks().length
+    ? `<div class="empty">${LOAD_ERROR ? 'No stack to show.' : INFO.hideUndeployed && STACKS.length ? 'No stack has containers yet.'
+      : 'No stack yet: put a folder with a compose file into STACKS_DIR, or <i>Add stack</i>.'}</div>`
     : '<div class="empty">No stack matches. <button data-filter="all">Show all</button></div>';
   $('table').innerHTML = head + (rows.length ? rows.map(stackRow).join('') : empty);
   if ($('q') && QUERY && !rows.length) $('table').querySelector('.empty button')?.addEventListener('click', () => { QUERY = ''; $('q').value = ''; });
@@ -1070,38 +1076,40 @@ function updateSelected(names) {
 function showAdd() {
   openDialog('Add stack',
     `<div id="dlg-err"></div>
-     <p>Upload a stack as a new folder of STACKS_DIR: its compose file (<code>.yaml</code>),
-        its env file (<code>.env</code>) and the files it mounts (scripts, JSON/YAML configs, a README). Other files are skipped.
-        A locally built image must already be on this host.</p>
+     <p>Upload a stack as a new folder of STACKS_DIR. A locally built image must already be on this host.</p>
+     <label class="field"><span>Compose file (<code>.yaml</code>, <code>.yml</code>)</span><input type="file" id="add-compose" accept=".yaml,.yml"></label>
+     <label class="field"><span>Env file (<code>.env</code>, optional)</span><input type="file" id="add-env" accept=".env"></label>
+     <label class="field"><span>Other files (optional: the scripts, JSON/YAML configs and README it uses)</span><input type="file" id="add-other" multiple accept=".yaml,.yml,.sh,.md,.txt,.json"></label>
      <label class="field"><span>Stack name (also the podman-compose project name)</span><input type="text" id="add-name" placeholder="e.g. my-app" autocomplete="off"></label>
-     <label class="field"><span>Files</span><input type="file" id="add-files" multiple></label>
      <div id="add-pick"></div>`,
     '<button data-close>Cancel</button><button class="primary" id="add-go" disabled>Add stack</button>');
-  let pkg = {};
-  const pick = (label, id, list) => (list.length > 1
-    ? `<label class="field"><span>${label}</span><select id="${id}">${list.map((f) => `<option>${esc(f)}</option>`).join('')}</select></label>` : '');
-  $('add-files').addEventListener('change', async () => {
-    pkg = {};
-    const skipped = [];
-    for (const file of $('add-files').files) {
-      if (/\.(ya?ml|env|sh|md|txt|json)$/i.test(file.name) && file.size < 512 * 1024) pkg[file.name] = await file.text();
-      else skipped.push(file.name);
+  let pkg = {}; let compose = ''; let env = null;
+  const usable = (file) => /\.(ya?ml|env|sh|md|txt|json)$/i.test(file.name) && file.size < 512 * 1024;
+  async function collect() {
+    pkg = {}; compose = ''; env = null;
+    const notes = [];
+    const c = $('add-compose').files[0];
+    const e = $('add-env').files[0];
+    if (c && /\.ya?ml$/i.test(c.name) && usable(c)) { compose = c.name; pkg[c.name] = await c.text(); } else if (c) notes.push(`${esc(c.name)}: not a compose file (.yaml, under 512 KiB)`);
+    if (e && /\.env$/i.test(e.name) && usable(e) && !(e.name in pkg)) { env = e.name; pkg[e.name] = await e.text(); } else if (e) notes.push(`${esc(e.name)}: not usable as the env file`);
+    for (const f of $('add-other').files) {
+      if (f.name in pkg) notes.push(`${esc(f.name)}: chosen twice, skipped`);
+      else if (/\.env$/i.test(f.name)) notes.push(`${esc(f.name)}: skipped (an env file goes into Env file)`);
+      else if (usable(f)) pkg[f.name] = await f.text();
+      else notes.push(`${esc(f.name)}: skipped (only .yaml .yml .env .sh .md .txt .json, under 512 KiB)`);
     }
-    const yamls = Object.keys(pkg).filter((f) => /\.ya?ml$/i.test(f));
-    const envs = Object.keys(pkg).filter((f) => /\.env$/i.test(f));
-    if (!$('add-name').value) {
-      const base = (yamls[0] || '').replace(/(\.compose)?\.ya?ml$/i, '').replace(/^\d+-/, '').toLowerCase();
+    if (compose && !$('add-name').value) {
+      const base = compose.replace(/(\.compose)?\.ya?ml$/i, '').replace(/^\d+-/, '').toLowerCase();
       if (/^[a-z0-9][a-z0-9_-]*$/.test(base)) $('add-name').value = base;
     }
-    $('add-pick').innerHTML = `<p class="muted small">${Object.keys(pkg).map(esc).join(', ') || 'No usable file'}${
-      skipped.length ? `; skipped: ${skipped.map(esc).join(', ')}` : ''}</p>${pick('Compose file', 'add-compose', yamls)}${pick('Env file', 'add-env', envs)}`;
-    $('add-go').disabled = !(yamls.length && envs.length);
-  });
+    $('add-pick').innerHTML = `<p class="muted small">${Object.keys(pkg).map(esc).join(', ') || 'No file chosen yet'}</p>`
+      + (notes.length ? `<p class="small">${notes.join('<br>')}</p>` : '');
+    $('add-go').disabled = !compose;
+  }
+  ['add-compose', 'add-env', 'add-other'].forEach((id) => $(id).addEventListener('change', collect));
   $('add-go').addEventListener('click', async () => {
     $('add-go').disabled = true;
-    const body = { name: $('add-name').value.trim(), files: pkg };
-    if ($('add-compose')) body.compose = $('add-compose').value;
-    if ($('add-env')) body.env = $('add-env').value;
+    const body = { name: $('add-name').value.trim(), files: pkg, compose, env };
     try {
       const r = await api('/api/stacks', { method: 'POST', body: JSON.stringify(body) });
       closeDialog();

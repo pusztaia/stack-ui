@@ -1,4 +1,5 @@
 import importlib
+import os
 
 from tests.support import Base, compose_yaml, make_stack
 from stack_ui import server as srv
@@ -17,6 +18,17 @@ class ServerTest(Base):
         self.assertTrue(self.ui.run_deploy('web', pull=False, remove=[])['ok'])
         self.mock.add_container('web', project='web')
         self.assertEqual(self.ui.overview()['stacks'][0]['stack'], {'status': 1})
+
+    def test_hide_undeployed_flag(self):
+        """STACK_UI_HIDE_UNDEPLOYED only tells the page; the API still lists every folder (the client needs them)."""
+        self.assertFalse(self.ui.overview()['hideUndeployed'])
+        os.environ['STACK_UI_HIDE_UNDEPLOYED'] = 'true'
+        self.addCleanup(os.environ.pop, 'STACK_UI_HIDE_UNDEPLOYED', None)
+        self.ui = importlib.reload(srv)
+        self.patch(self.ui, 'SETTINGS_FILE', self.tmp / 'settings.json')
+        data = self.ui.overview()
+        self.assertTrue(data['hideUndeployed'])
+        self.assertEqual([s['name'] for s in data['stacks']], ['web'])
 
     def test_legacy_project_drift_unknown(self):
         self.mock.add_container('web', project='web')
@@ -68,7 +80,7 @@ class ServerTest(Base):
         self.assertTrue({r['name']: r for r in self.ui.network_list()['networks']}['lan']['protected'])
 
     def test_settings_view(self):
-        self.assertEqual(self.ui.settings_view(), {'tokenSet': False, 'version': '1.0.2'})
+        self.assertEqual(self.ui.settings_view(), {'tokenSet': False, 'version': '1.0.3'})
 
     def test_main_requires_stacks_dir(self):
         self.patch(st, 'STACKS_DIR', None)

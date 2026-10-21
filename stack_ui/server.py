@@ -53,6 +53,8 @@ ICON = HERE / 'icon.svg'
 DATA = Path(os.environ.get('STACK_UI_DATA') or '/data')
 SELF = os.environ.get('STACK_UI_SELF') or os.environ.get('HOSTNAME', '')
 PROTECTED = {x.strip() for x in os.environ.get('STACK_UI_PROTECTED', '').split(',') if x.strip()}
+# the Stacks page lists only the stacks that have containers (the API still lists every folder)
+HIDE_UNDEPLOYED = os.environ.get('STACK_UI_HIDE_UNDEPLOYED', '').strip().lower() in ('1', 'true', 'yes')
 PROTECTED_NETWORKS = {x.strip() for x in os.environ.get('STACK_UI_PROTECTED_NETWORKS', 'podman').split(',') if x.strip()}
 # the page's own password secret (and STACK_UI_PROTECTED_SECRETS) is never removed from the Secrets page
 PROTECTED_SECRETS = {'stack-ui-password'} | {x.strip() for x in os.environ.get('STACK_UI_PROTECTED_SECRETS', '').split(',') if x.strip()}
@@ -209,7 +211,7 @@ def overview() -> dict:
                      'protected': name in PROTECTED or name in own,
                      'containers': [{'name': st.cname(c), 'state': c.get('State'), 'status': c.get('Status'),
                                      'image': c.get('Image')} for c in mine]})
-    return {'stacks': rows, 'podmanError': snap['podmanError'], 'source': SOURCE}
+    return {'stacks': rows, 'podmanError': snap['podmanError'], 'source': SOURCE, 'hideUndeployed': HIDE_UNDEPLOYED}
 
 
 def diff(name: str) -> dict:
