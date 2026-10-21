@@ -7,6 +7,9 @@ One container, Python standard library + PyYAML, no database.
 - **Stacks**: list with state and containers; edit the compose and env file (every save keeps the previous
   version in `.history/`, a save shows its diff first); create, update (pull + recreate), start, stop, delete;
   compare a stack with what was deployed last; upload a new stack; update several stacks at once.
+- **A stack's other files**: the scripts, JSON/YAML configs and dashboards its compose file mounts with
+  `./name` are saved with it, checked (syntax, no secret literals), versioned in `.history/`, compared with the
+  last deploy, viewable and deletable on the page.
 - **Image updates**: asks the registries (anonymous HEAD requests) whether a newer image exists for each running
   tag and marks the stacks.
 - **Containers**: every container, its stack, state and published ports (as links); start, stop, restart, logs,
@@ -24,7 +27,13 @@ and `_`) that holds a compose file:
 2. else the first of `compose.yaml`, `compose.yml`, `docker-compose.yml`, `docker-compose.yaml`;
 3. else its only `*.yaml` / `*.yml` (two or more unknown YAML files and no `stack.json`: not a stack).
 
-The env file is `stack.json`'s, else `.env`, else the only `*.env`, else none. Hidden folders and the names in
+The env file is `stack.json`'s, else `.env`, else the only `*.env`, else none.
+
+A stack's **other files** are the rest of its folder with one of the suffixes `.yaml .yml .env .sh .md .txt
+.json` (flat: no subfolders; at most 512 KiB each). A save or an upload checks them: JSON and YAML must parse,
+and a secret-looking key (`*TOKEN`, `*PASSWORD`, `*SECRET`, `*API_KEY`, …) must not hold a literal value —
+references are fine: `${VAR}`, `$__file{/run/secrets/x}`, `$__env{VAR}`, `/run/secrets/x`. `.sh` files are made
+executable. Hidden folders and the names in
 `STACK_UI_IGNORE` are skipped. A stack runs as the podman-compose project of its folder's name, from the folder
 (relative paths in the compose file resolve there).
 
@@ -111,6 +120,9 @@ export STACK_UI_URL=http://my-host:8770 STACK_UI_API_TOKEN=...
 python client/stack-ui-client.py deploy ./my-app --dry-run   # the differences and the plan
 python client/stack-ui-client.py deploy ./my-app             # save the files there, then create or update
 ```
+
+It sends the stack's other files too, and lists the files that exist only on the host (delete them on the page
+if they are not needed).
 
 The token opens the API except the settings, never the page.
 
