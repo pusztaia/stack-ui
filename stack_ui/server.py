@@ -258,18 +258,33 @@ def check_env(text: str) -> None:
                              '(use a Podman secret: Secrets)')
 
 
-REFERENCE = ('$__file{', '${', '$__env{', '/run/secrets/')
+REFERENCE = ('$__file{', '${', '$__env{', '/run/secrets/', '!secret', '!env_var', '!include')
+ENV_REFERENCE = re.compile(r'^\$[A-Za-z_]\w*$')       # $VAR (Grafana provisioning)
+NOT_A_VALUE = {'', 'null', '~', '|', '>', '|-', '>-', '|+', '>+'}   # empty, or a block scalar's first line
+
+
+class TagLoader(yaml.SafeLoader):
+    """safe_load that accepts tags it does not know (Home Assistant: !secret, !include, !env_var)."""
+
+
+TagLoader.add_multi_constructor('!', lambda loader, suffix, node: None)
 KEY_VALUE = re.compile(r'^\s*(?:-\s*)?["\']?([A-Za-z_][\w.-]*)["\']?\s*[:=]\s*(.*?)\s*$')
 
 
 def literal(value: str) -> str:
-    value = value.split(' #', 1)[0].strip()
-    return value[1:-1] if len(value) >= 2 and value[0] == value[-1] and value[0] in '"\'' else value
+    """A YAML/env value without its quotes, or without a trailing # comment when it is not quoted."""
+    value = value.strip()
+    if value[:1] in ('"', "'"):
+        end = value.find(value[0], 1)
+        return value[1:end] if end > 0 else value[1:]
+    return value.split(' #', 1)[0].strip()
 
 
 def is_secret_literal(key, value) -> bool:
-    return (bool(SECRET_VAR.search(str(key))) and isinstance(value, str) and bool(value.strip())
-            and not value.strip().startswith(REFERENCE))
+    if not SECRET_VAR.search(str(key)) or not isinstance(value, str):
+        return False
+    value = value.strip()
+    return value not in NOT_A_VALUE and not value.startswith(REFERENCE) and not ENV_REFERENCE.match(value)
 
 
 def secret_lines(name: str, text: str) -> list[str]:
@@ -304,7 +319,7 @@ def check_stack_file(name: str, text: str) -> None:
         if name.endswith('.json'):
             json.loads(text)
         elif name.endswith(('.yaml', '.yml')):
-            yaml.safe_load(text)
+            yaml.load(text, Loader=TagLoader)  # noqa: S506 - a SafeLoader subclass
     except (ValueError, yaml.YAMLError) as exc:
         raise ValueError(f'"{name}" does not parse: {exc}') from None
     found = secret_lines(name, text)
@@ -324,6 +339,8 @@ def incoming_files(data: dict, compose_file: str, env_file: str | None) -> dict[
         name = str(name)
         if name in (compose_file, env_file):
             raise ValueError(f'"{name}" is the stack\'s compose or env file: send it as composeText / envText')
+        if name == '.env':
+            raise ValueError('".env" would become the stack\'s env file: give the file another name')
         out[name] = clean_text(text)
         check_stack_file(name, out[name])
     return out
@@ -376,6 +393,16 @@ def files(name: str) -> dict:
             'stackFiles': listing}
 
 
+def pin_manifest(folder: Path, compose_file: str, env_file: str | None) -> None:
+    """Write stack.json naming the stack's compose and env file, when there is none: another .yaml or .env file
+    in the folder would otherwise change which files discovery picks (or make it no stack at all)."""
+    manifest = folder / st.MANIFEST
+    if manifest.is_file():
+        return
+    st.write_lf(manifest, json.dumps({'compose': compose_file, 'env': env_file}, indent=2) + '\n')
+    st.match_owner(manifest)
+
+
 def file_text(name: str, fname: str) -> dict:
     module, compose_file, env_file = find_module(name)
     if fname not in st.stack_file_names(module, compose_file, env_file):
@@ -407,6 +434,8 @@ def save_files(name: str, data: dict) -> dict:
     extra = incoming_files(data, compose_file, env_file)
     pairs += sorted(extra.items())
     with FILES_LOCK:
+        if extra:
+            pin_manifest(module, compose_file, env_file)
         changed = []
         for fname, text in pairs:
             path = module / fname
@@ -1038,6 +1067,8 @@ def restore(name: str, data: dict) -> dict:
         check_stack_file(entry['file'], text)
     path = module / entry['file']
     with FILES_LOCK:
+        if entry['file'] not in (compose_file, env_file):
+            pin_manifest(module, compose_file, env_file)
         if not path.is_file() or path.read_text(encoding='utf-8') != text:
             write_file(path, text)
     return {'restored': entry['file']}
