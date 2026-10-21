@@ -663,6 +663,7 @@ function act(a, name, btn) {
 // ---------- stack detail ----------
 function viewDetail() {
   const { name, tab } = ROUTE;
+  if (tab !== 'history') HIST_FILE = '';
   const s = stackOf(name);
   if (!s) {
     $('view').innerHTML = `<a class="back" href="#/stacks">${icon('back')}Stacks</a>`
@@ -740,7 +741,12 @@ async function tabFiles(name) {
   if (!onTab(name, 'files')) return;
   FILES = { name, ...f };
   DIRTY = false;
-  const others = f.others.length ? `<p class="muted small">Also in the folder: ${f.others.map(esc).join(', ')}</p>` : '';
+  const list = f.stackFiles.length ? `<section class="panel"><h2>Other files</h2>
+      <p class="muted small">Scripts, configs and dashboards the compose file can mount (<code>./name</code>). They come from your folder or a script (<code>stack-ui-client.py</code>); here you can look at them.</p>
+      <div class="table res"><div class="tr th"><span>Name</span><span>Size</span><span>Since deploy</span><span></span></div>${
+      f.stackFiles.map((x) => `<div class="tr"><span><b>${esc(x.name)}</b></span><span class="small">${fmtBytes(x.size)}</span>
+        <span>${x.changed === null ? '<span class="muted small">—</span>' : x.changed ? '<span class="tag t-warn">Changed</span>' : '<span class="tag t-ok">Same</span>'}</span>
+        <span class="r"><button class="small" data-sf="view" data-f="${esc(x.name)}">View</button><button class="small" data-sf="diff" data-f="${esc(x.name)}" ${x.changed === null ? 'disabled' : ''}>Diff</button><button class="small" data-sf="history" data-f="${esc(x.name)}">History</button><button class="small danger" data-sf="delete" data-f="${esc(x.name)}">${icon('trash')}Delete</button></span></div>`).join('')}</div></section>` : '';
   $('tab').innerHTML = `
     <div class="editor-bar">
       <span id="dirty" class="dirty" hidden>Unsaved changes</span>
@@ -754,7 +760,7 @@ async function tabFiles(name) {
     ${f.envText === null ? '<section class="editor"><p class="muted small pad">This stack has no env file.</p></section>'
       : `<section class="editor"><div class="ed-head">${esc(f.env)}</div><textarea id="env-text" class="short" spellcheck="false" aria-label="${esc(f.env)}">${esc(f.envText)}</textarea></section>`}
     <p class="muted small">A save checks the compose file and the variables (no secrets in the env file). The running stack gets the change with the next update.</p>
-    ${others}`;
+    ${list}`;
   const mark = () => {
     DIRTY = $('compose-text').value !== FILES.composeText || ($('env-text') ? $('env-text').value !== FILES.envText : false);
     $('dirty').hidden = !DIRTY;
@@ -762,6 +768,34 @@ async function tabFiles(name) {
   };
   $('compose-text').addEventListener('input', mark);
   $('env-text')?.addEventListener('input', mark);
+  $('tab').querySelectorAll('[data-sf]').forEach((b) => b.addEventListener('click', () => stackFileAction(name, b.dataset.sf, b.dataset.f)));
+}
+
+let HIST_FILE = '';
+async function stackFileAction(name, act, file) {
+  if (act === 'history') { HIST_FILE = file; go(`#/stacks/${enc(name)}/history`); return; }
+  if (act === 'view' || act === 'diff') {
+    openDialog(file, '<p class="muted">Loading…</p>');
+    try {
+      if (act === 'view') {
+        const r = await api(`/api/stacks/${enc(name)}/files/${enc(file)}`);
+        openDialog(file, `<pre class="json">${esc(r.text)}</pre>`);
+      } else {
+        const d = await api(`/api/stacks/${enc(name)}/diff`);
+        openDialog(`${file}: since deploy`, `<p class="muted small">− is what was deployed last; + is the file now.</p>${diffHtml((d.files || {})[file] || '')}`);
+      }
+    } catch (e) { openDialog(file, errBox(e.message)); }
+    return;
+  }
+  openDialog(`Delete ${file}`, `<div id="dlg-err"></div><p>Deletes <b>${esc(file)}</b> from the stack's folder. Its last version stays in the history (restorable there).</p>`,
+    '<button data-close>Cancel</button><button class="danger" id="sf-del">Delete</button>');
+  $('sf-del').addEventListener('click', async () => {
+    $('sf-del').disabled = true;
+    try {
+      await api(`/api/stacks/${enc(name)}/files/delete`, { method: 'POST', body: JSON.stringify({ file }) });
+      closeDialog(); toast(`Deleted ${file}`); tabFiles(name);
+    } catch (e) { $('dlg-err').innerHTML = errBox(e.message); $('sf-del').disabled = false; }
+  });
 }
 
 document.addEventListener('keydown', (e) => {
@@ -828,13 +862,16 @@ async function tabHistory(name, note = '') {
   try { h = await api(`/api/stacks/${enc(name)}/history`); }
   catch (e) { if (onTab(name, 'history')) $('tab').innerHTML = errBox(e.message); return; }
   if (!onTab(name, 'history')) return;
-  const head = note ? `<div class="ok-note">${esc(note)}</div>` : '';
-  if (!h.versions.length) {
+  const versions = HIST_FILE ? h.versions.filter((v) => v.file === HIST_FILE) : h.versions;
+  const head = (note ? `<div class="ok-note">${esc(note)}</div>` : '')
+    + (HIST_FILE ? `<p class="muted small">Only <b>${esc(HIST_FILE)}</b> · <a href="#" id="hist-all">show all files</a></p>` : '');
+  if (!versions.length) {
     $('tab').innerHTML = `${head}<section class="panel"><p class="muted">No saved version yet. Every save on the Files tab keeps the previous file here.</p></section>`;
+    $('hist-all')?.addEventListener('click', (e) => { e.preventDefault(); HIST_FILE = ''; tabHistory(name); });
     return;
   }
   $('tab').innerHTML = `${head}<div class="hist">
-      <div class="hist-list" aria-label="Saved versions">${h.versions.map((v) =>
+      <div class="hist-list" aria-label="Saved versions">${versions.map((v) =>
         `<button data-version="${esc(v.version)}">${esc(new Date(v.time).toLocaleString())}<span class="file">${esc(v.file)}</span></button>`).join('')}</div>
       <section class="panel" id="hist-view"><p class="muted">Choose a version to see what restoring it would bring back.</p></section>
     </div>`;
@@ -862,6 +899,7 @@ async function tabHistory(name, note = '') {
     });
   };
   document.querySelectorAll('.hist-list button').forEach((b) => b.addEventListener('click', () => view(b)));
+  $('hist-all')?.addEventListener('click', (e) => { e.preventDefault(); HIST_FILE = ''; tabHistory(name); });
 }
 
 async function tabDiff(name) {
@@ -882,7 +920,8 @@ async function tabDiff(name) {
   const was = 'was deployed last';
   $('tab').innerHTML = `<section class="panel">
       <p class="muted">− is what ${was}; + is what an update sends from the ${esc(SOURCE)}.</p>
-      <h4>Compose file</h4>${diffHtml(d.compose)}<h4>Variables</h4>${diffHtml(d.env)}</section>`;
+      <h4>Compose file</h4>${diffHtml(d.compose)}<h4>Variables</h4>${diffHtml(d.env)}${
+      Object.entries(d.files || {}).filter(([, x]) => x).map(([n, x]) => `<h4>${esc(n)}</h4>${diffHtml(x)}`).join('')}</section>`;
 }
 
 // ---------- actions with a confirmation ----------
@@ -1032,7 +1071,7 @@ function showAdd() {
   openDialog('Add stack',
     `<div id="dlg-err"></div>
      <p>Upload a stack as a new folder of STACKS_DIR: its compose file (<code>.yaml</code>),
-        its env file (<code>.env</code>) and, if it has them, its prepare script and README. Other files (a deploy script) are skipped.
+        its env file (<code>.env</code>) and the files it mounts (scripts, JSON/YAML configs, a README). Other files are skipped.
         A locally built image must already be on this host.</p>
      <label class="field"><span>Stack name (also the podman-compose project name)</span><input type="text" id="add-name" placeholder="e.g. my-app" autocomplete="off"></label>
      <label class="field"><span>Files</span><input type="file" id="add-files" multiple></label>
@@ -1045,7 +1084,7 @@ function showAdd() {
     pkg = {};
     const skipped = [];
     for (const file of $('add-files').files) {
-      if (/\.(ya?ml|env|sh|md|txt)$/i.test(file.name) && file.size < 512 * 1024) pkg[file.name] = await file.text();
+      if (/\.(ya?ml|env|sh|md|txt|json)$/i.test(file.name) && file.size < 512 * 1024) pkg[file.name] = await file.text();
       else skipped.push(file.name);
     }
     const yamls = Object.keys(pkg).filter((f) => /\.ya?ml$/i.test(f));
