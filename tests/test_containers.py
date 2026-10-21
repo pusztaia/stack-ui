@@ -127,3 +127,22 @@ class ImagesManageTest(Base):
         self.assertEqual(d['digests'], ['docker.io/library/nginx@sha256:a'])
         with self.assertRaises(ValueError):
             self.ui.image_details('nope')
+
+
+class RealPodmanFormatsTest(Base):
+    """Fields the way a real Podman 5 answers them (the mock's defaults are simpler)."""
+
+    def setUp(self):
+        super().setUp()
+        self.ui = importlib.reload(srv)
+
+    def test_created_as_iso_date(self):
+        c = self.mock.add_container('web')
+        c['Created'] = '2026-10-08T06:52:56.251284638+02:00'
+        row = self.ui.container_table()['containers'][0]
+        self.assertEqual(row['created'], 1791435176)
+
+    def test_created_variants(self):
+        for value, expected in (('2026-10-08T04:52:56Z', 1791435176), (1791435176, 1791435176), ('', 0), (None, 0),
+                                ('not a date', 0)):
+            self.assertEqual(self.ui.unix_time(value), expected, value)

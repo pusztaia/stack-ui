@@ -474,6 +474,22 @@ def updates(check: bool) -> dict:
 
 # ---------- images: what is on this host, and removing the untagged leftovers of pulls ----------
 
+ISO_TIME = re.compile(r'^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?$')
+
+
+def unix_time(value) -> int:
+    """Seconds since 1970 from what Podman sends: a number (images) or an ISO date with nanoseconds and a zone
+    (containers, e.g. 2026-10-08T06:52:56.251284638+02:00); 0 when there is nothing usable."""
+    if isinstance(value, (int, float)):
+        return int(value)
+    m = ISO_TIME.match(str(value or '').strip())
+    if not m:
+        return 0
+    zone = m.group(3) or 'Z'
+    stamp = datetime.fromisoformat(m.group(1) + ('+00:00' if zone == 'Z' else zone))
+    return int(stamp.timestamp())
+
+
 def short_id(image_id: str) -> str:
     return str(image_id or '').split(':', 1)[-1]
 
@@ -494,7 +510,7 @@ def image_table(containers: list[dict], imgs: list[dict], endpoint: int | None) 
         tags = [t for t in img.get('RepoTags') or [] if t and t != '<none>:<none>']
         users = sorted(used.get(iid, set()))
         rows.append({'id': iid, 'endpoint': endpoint, 'tags': tags, 'size': int(img.get('Size') or 0),
-                     'created': int(img.get('Created') or 0), 'usedBy': users, 'removable': not tags and not users})
+                     'created': unix_time(img.get('Created')), 'usedBy': users, 'removable': not tags and not users})
     return rows
 
 
@@ -644,7 +660,7 @@ def container_table() -> dict:
         owner = next((n for n, cnames in mods if st.belongs(c, n, cnames)), '')
         stack = owner or stack_label(c)
         rows.append({'name': st.cname(c), 'id': str(c.get('Id') or ''), 'state': c.get('State'),
-                     'status': c.get('Status'), 'image': c.get('Image'), 'created': int(c.get('Created') or 0),
+                     'status': c.get('Status'), 'image': c.get('Image'), 'created': unix_time(c.get('Created')),
                      'stack': stack, 'ports': published_ports(c), 'inStack': bool(owner) or stack in names,
                      'protected': is_protected(c, own_projects)})
     return {'containers': sorted(rows, key=lambda r: (r['stack'] or '~', r['name']))}
