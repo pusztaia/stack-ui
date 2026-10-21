@@ -76,3 +76,25 @@ class ClientTest(Base):
         os.environ['FAKE_COMPOSE_FAIL_ON'] = 'up'
         self.assertEqual(sc.main(['deploy', str(self.local), '--no-pull']), 1)
         self.assertEqual(sc.main(['deploy', str(self.tmp / 'missing')]), 1)
+
+    def test_stack_files_sent_and_reported(self):
+        (self.local / 'dash.json').write_text('{"a": 1}\n', encoding='utf-8')
+        sc.deploy(self.local, pull=False, log=lambda _: None)                      # upload with the json
+        self.assertTrue((self.stacks / 'web' / 'dash.json').is_file())
+        (self.local / 'dash.json').write_text('{"a": 2}\n', encoding='utf-8')
+        (self.stacks / 'web' / 'only-there.txt').write_text('x\n', encoding='utf-8')
+        log = []
+        sc.deploy(self.local, dry_run=True, log=log.append)
+        self.assertTrue(any('+{"a": 2}' in line for line in log))
+        self.assertEqual((self.stacks / 'web' / 'dash.json').read_text(), '{"a": 1}\n')
+        log = []
+        sc.deploy(self.local, pull=False, log=log.append)
+        self.assertEqual((self.stacks / 'web' / 'dash.json').read_text(), '{"a": 2}\n')
+        self.assertTrue(any('only on the host: only-there.txt' in line for line in log))
+
+    def test_too_large_request(self):
+        for n in range(3):
+            (self.local / f'big{n}.txt').write_text('x' * 400_000 + '\n', encoding='utf-8')
+        with self.assertRaises(sc.ClientError) as ctx:
+            sc.deploy(self.local, pull=False, log=lambda _: None)
+        self.assertIn('1 MiB', str(ctx.exception))

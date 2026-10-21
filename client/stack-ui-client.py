@@ -24,7 +24,8 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import quote
 
-UPLOAD_SUFFIXES = ('.yaml', '.yml', '.env', '.sh', '.md', '.txt')
+UPLOAD_SUFFIXES = ('.yaml', '.yml', '.env', '.sh', '.md', '.txt', '.json')
+MAX_BODY = 1024 * 1024  # Stack UI refuses a larger request
 MANIFEST = 'stack.json'
 COMPOSE_NAMES = ('compose.yaml', 'compose.yml', 'docker-compose.yml', 'docker-compose.yaml')
 TOKEN_FILE = ''
@@ -71,6 +72,9 @@ def call(method: str, path: str, body: dict | None = None, timeout: float = 2400
     if not base:
         raise ClientError('set STACK_UI_URL, e.g. http://my-host:8770')
     data = json.dumps(body).encode('utf-8') if body is not None else None
+    if data is not None and len(data) > MAX_BODY:
+        raise ClientError(f'the request is larger than 1 MiB ({len(data) // 1024} KiB): Stack UI refuses it '
+                          '(a stack file may be at most 512 KiB)')
     req = urllib.request.Request(base + path, data=data, method=method,
                                  headers={'Authorization': f'Bearer {token()}', 'Content-Type': 'application/json'})
     try:
@@ -117,13 +121,19 @@ def deploy(folder: Path, *, dry_run: bool = False, pull: bool = True, log=print,
         call('POST', '/api/stacks', {'name': name, 'files': package(folder), 'compose': compose_file, 'env': env_file})
         log(f'uploaded "{name}"')
     elif dry_run:
+        texts['files'] = {f: t for f, t in package(folder).items() if f not in (compose_file, env_file)}
         d = call('POST', f'/api/stacks/{n}/files/preview', texts)
         log(d['compose'] or f'{compose_file}: the same in Stack UI')
         if env_file:
             log(d['env'] or f'{env_file}: the same in Stack UI')
+        for fname, diff in (d.get('files') or {}).items():
+            log(diff or f'{fname}: the same in Stack UI')
     else:
-        saved = call('POST', f'/api/stacks/{n}/files', texts)['saved']
-        log('saved: ' + (', '.join(saved) or 'nothing changed'))
+        texts['files'] = {f: t for f, t in package(folder).items() if f not in (compose_file, env_file)}
+        r = call('POST', f'/api/stacks/{n}/files', texts)
+        log('saved: ' + (', '.join(r['saved']) or 'nothing changed'))
+        if r.get('onlyOnHost'):
+            log('only on the host: ' + ', '.join(r['onlyOnHost']) + ' (delete them on the page if they are not needed)')
     p = call('GET', f'/api/stacks/{n}/plan')
     log(f'{p["action"]} with podman-compose')
     if p.get('missingSecrets'):
