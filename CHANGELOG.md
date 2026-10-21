@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1
+
+- A stack runs without a pod by default, like Docker Compose: `userns_mode` (e.g. `keep-id`) failed with
+  "--userns and --pod cannot be set together". A compose file can still ask for a pod with
+  `x-podman: {in_pod: true}`. A stack started in a pod before keeps its old pod (`pod_<name>`) until it is
+  removed by hand (`podman pod rm pod_<name>`); the next update recreates the containers without it.
+
 ## 1.0.0
 
 First release: split out of a private home-server repository; Podman only.

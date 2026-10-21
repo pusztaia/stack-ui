@@ -181,10 +181,21 @@ def plan(folder: Path, compose_file: str) -> dict:
             'missing_secrets': missing_secrets(compose)}
 
 
+def in_pod_args(folder: Path, compose_file: str) -> list[str]:
+    """No pod per stack (like Docker Compose and Portainer: userns_mode and friends work), unless the compose file
+    decides itself with `x-podman: {in_pod: ...}` (the command line would override that)."""
+    try:
+        data = yaml.safe_load((folder / compose_file).read_text(encoding='utf-8')) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        data = {}
+    x_podman = data.get('x-podman') if isinstance(data, dict) else None
+    return [] if isinstance(x_podman, dict) and 'in_pod' in x_podman else ['--in-pod', 'false']
+
+
 def run_compose(folder: Path, compose_file: str, env_file: str | None, args: list[str], log,
                 timeout: int = LONG_TIMEOUT) -> None:
-    cmd = [*shlex.split(COMPOSE_CMD), '--podman-path', PODMAN_PATH, '-p', folder.name, '-f', compose_file,
-           *(['--env-file', env_file] if env_file else []), *args]
+    cmd = [*shlex.split(COMPOSE_CMD), '--podman-path', PODMAN_PATH, *in_pod_args(folder, compose_file),
+           '-p', folder.name, '-f', compose_file, *(['--env-file', env_file] if env_file else []), *args]
     log('$ podman-compose ' + ' '.join(args))
     try:
         r = subprocess.run(cmd, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,

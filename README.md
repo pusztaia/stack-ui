@@ -29,6 +29,9 @@ and `_`) that holds a compose file:
 
 The env file is `stack.json`'s, else `.env`, else the only `*.env`, else none.
 
+A stack runs **without a pod**, like Docker Compose (so `userns_mode: keep-id` and the like work), unless its
+compose file says otherwise: `x-podman: {in_pod: true}` (or a pod name).
+
 A stack's **other files** are the rest of its folder with one of the suffixes `.yaml .yml .env .sh .md .txt
 .json` (flat: no subfolders; at most 512 KiB each). A save or an upload checks them: JSON and YAML must parse,
 and a secret-looking key (`*TOKEN`, `*PASSWORD`, `*SECRET`, `*API_KEY`, …) must not hold a literal value —

@@ -54,15 +54,25 @@ class StackOpsTest(Base):
     def test_deploy_without_env_has_no_env_file_argument(self):
         f = self.stack(env=None)
         st.deploy(f, 'compose.yaml', None, pull=False, approve=lambda cs: True, log=lambda _: None)
-        self.assertEqual(self.compose_calls()[-1], ['--podman-path', st.PODMAN_PATH, '-p', 'web', '-f', 'compose.yaml', 'up', '-d'])
+        self.assertEqual(self.compose_calls()[-1], ['--podman-path', st.PODMAN_PATH, '--in-pod', 'false', '-p', 'web',
+                                                    '-f', 'compose.yaml', 'up', '-d'])
         self.assertEqual(sorted(p.name for p in (f / st.DEPLOYED).iterdir()), ['compose.yaml'])
         self.assertEqual(st.deployed_diff(f, 'compose.yaml', None, 'host'), {'compose': '', 'env': '', 'files': {}})
 
     def test_deploy_pull_then_up_records(self):
         f = self.stack()
         self.assertEqual(st.deploy(f, 'compose.yaml', '.env', approve=lambda cs: True, log=lambda _: None), 'create')
-        base = ['--podman-path', st.PODMAN_PATH, '-p', 'web', '-f', 'compose.yaml', '--env-file', '.env']
+        base = ['--podman-path', st.PODMAN_PATH, '--in-pod', 'false', '-p', 'web', '-f', 'compose.yaml', '--env-file', '.env']
         self.assertEqual(self.compose_calls(), [base + ['pull'], base + ['up', '-d', '--force-recreate']])
+
+    def test_in_pod_left_to_the_compose_file(self):
+        f = make_stack(self.stacks, 'pod', compose_yaml('pod') + 'x-podman:\n  in_pod: true\n')
+        st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
+        self.assertNotIn('--in-pod', self.compose_calls()[-1])
+
+    def test_in_pod_false_for_an_unreadable_compose(self):
+        f = make_stack(self.stacks, 'odd', 'services: [\n')
+        self.assertEqual(st.in_pod_args(f, 'compose.yaml'), ['--in-pod', 'false'])
 
     def test_pull_before_removing_containers_in_the_way(self):
         f = self.stack()
