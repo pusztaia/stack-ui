@@ -93,7 +93,8 @@ def call(method: str, path: str, body: dict | None = None, timeout: float = 2400
 def package(folder: Path) -> dict[str, str]:
     """The folder's files Stack UI accepts in an upload."""
     return {p.name: p.read_text(encoding='utf-8') for p in sorted(folder.iterdir())
-            if p.is_file() and p.name.endswith(UPLOAD_SUFFIXES) and (p.name == '.env' or not p.name.startswith('.'))}
+            if p.is_file() and p.name.endswith(UPLOAD_SUFFIXES) and p.name != MANIFEST
+            and (p.name == '.env' or not p.name.startswith('.'))}
 
 
 def ask_terminal() -> bool:

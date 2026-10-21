@@ -92,6 +92,15 @@ class ClientTest(Base):
         self.assertEqual((self.stacks / 'web' / 'dash.json').read_text(), '{"a": 2}\n')
         self.assertTrue(any('only on the host: only-there.txt' in line for line in log))
 
+    def test_folder_with_stack_json(self):
+        """A folder that names its compose file in stack.json: the manifest itself is never sent as a file."""
+        local = make_stack(self.repo, 'two', compose_yaml('two'), compose_name='10-new.yaml', env_name='two.env')
+        (local / '10-old.yaml').write_text(compose_yaml('two'), encoding='utf-8')
+        (local / 'stack.json').write_text('{"compose": "10-new.yaml", "env": "two.env"}\n', encoding='utf-8')
+        self.assertNotIn('stack.json', sc.package(local))
+        self.assertTrue(sc.deploy(local, pull=False, log=lambda _: None))      # upload of a new stack
+        self.assertTrue(sc.deploy(local, pull=False, log=lambda _: None))      # save of an existing one
+
     def test_too_large_request(self):
         for n in range(3):
             (self.local / f'big{n}.txt').write_text('x' * 400_000 + '\n', encoding='utf-8')
