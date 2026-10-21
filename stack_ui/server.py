@@ -61,8 +61,8 @@ FILES_LOCK = threading.Lock()    # one save or upload at a time
 MAX_BODY = 1024 * 1024
 SESSION_HOURS = 12
 HASH_ITERATIONS = 300_000
-FILE_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$')
-UPLOAD_SUFFIXES = ('.yaml', '.yml', '.env', '.sh', '.md', '.txt')
+FILE_NAME = st.FILE_NAME
+UPLOAD_SUFFIXES = st.ALLOWED_SUFFIXES
 SECRET_VAR = re.compile(r'(TOKEN|PASSWORD|PASSWD|SECRET|API_KEY|APIKEY)$', re.IGNORECASE)
 SETTINGS_FILE = Path(os.environ.get('STACK_UI_SETTINGS_FILE') or DATA / 'settings.json')
 SETTINGS_LOCK = threading.Lock()
@@ -258,6 +258,77 @@ def check_env(text: str) -> None:
                              '(use a Podman secret: Secrets)')
 
 
+REFERENCE = ('$__file{', '${', '$__env{', '/run/secrets/')
+KEY_VALUE = re.compile(r'^\s*(?:-\s*)?["\']?([A-Za-z_][\w.-]*)["\']?\s*[:=]\s*(.*?)\s*$')
+
+
+def literal(value: str) -> str:
+    value = value.split(' #', 1)[0].strip()
+    return value[1:-1] if len(value) >= 2 and value[0] == value[-1] and value[0] in '"\'' else value
+
+
+def is_secret_literal(key, value) -> bool:
+    return (bool(SECRET_VAR.search(str(key))) and isinstance(value, str) and bool(value.strip())
+            and not value.strip().startswith(REFERENCE))
+
+
+def secret_lines(name: str, text: str) -> list[str]:
+    """Where a stack file gives a secret-looking key a literal value: ['file:line' or 'file: key.path']."""
+    found = []
+    if name.endswith('.json'):
+        def walk(node, path):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if is_secret_literal(k, v):
+                        found.append(f'{name}: {path}{k}')
+                    walk(v, f'{path}{k}.')
+            elif isinstance(node, list):
+                for i, v in enumerate(node):
+                    walk(v, f'{path}{i}.')
+        walk(json.loads(text), '')
+    elif name.endswith(('.yaml', '.yml', '.env', '.txt')):
+        for n, line in enumerate(text.splitlines(), 1):
+            m = KEY_VALUE.match(line)
+            if m and is_secret_literal(m.group(1), literal(m.group(2))):
+                found.append(f'{name}:{n}')
+    return found
+
+
+def check_stack_file(name: str, text: str) -> None:
+    """A stack file's name, size, syntax and secrets (raises ValueError naming the file)."""
+    if not st.is_stack_file_name(name):
+        raise ValueError(f'"{name}": only flat {", ".join(st.ALLOWED_SUFFIXES)} files (not stack.json)')
+    if len(text.encode('utf-8')) > st.MAX_FILE:
+        raise ValueError(f'"{name}" is larger than {st.MAX_FILE // 1024} KiB')
+    try:
+        if name.endswith('.json'):
+            json.loads(text)
+        elif name.endswith(('.yaml', '.yml')):
+            yaml.safe_load(text)
+    except (ValueError, yaml.YAMLError) as exc:
+        raise ValueError(f'"{name}" does not parse: {exc}') from None
+    found = secret_lines(name, text)
+    if found:
+        raise ValueError(f'{found[0]} holds a secret; use a Podman secret (Secrets) and mount it')
+
+
+def incoming_files(data: dict, compose_file: str, env_file: str | None) -> dict[str, str]:
+    """The request's stack files ({name: text}), every one checked (nothing is written when one fails)."""
+    given = data.get('files')
+    if given is None:
+        return {}
+    if not isinstance(given, dict):
+        raise ValueError('files must be an object {name: text}')
+    out = {}
+    for name, text in given.items():
+        name = str(name)
+        if name in (compose_file, env_file):
+            raise ValueError(f'"{name}" is the stack\'s compose or env file: send it as composeText / envText')
+        out[name] = clean_text(text)
+        check_stack_file(name, out[name])
+    return out
+
+
 def clean_text(text) -> str:
     if not isinstance(text, str):
         raise ValueError('file contents must be text')
@@ -265,33 +336,63 @@ def clean_text(text) -> str:
     return text if text.endswith('\n') else text + '\n'
 
 
+def backup(path: Path) -> None:
+    """Keep the file's current version in .history/ (two saves in one second keep both)."""
+    history = path.parent / '.history'
+    if not history.is_dir():
+        history.mkdir()
+        st.match_owner(history)
+    stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    target, n = history / f'{path.name}.{stamp}', 1
+    while target.exists():
+        n += 1
+        target = history / f'{path.name}.{stamp}-{n}'
+    target.write_bytes(path.read_bytes())
+    st.match_owner(target)
+
+
 def write_file(path: Path, text: str) -> None:
-    """Keep the previous version in .history/, then replace the file atomically (owners: see st.match_owner)."""
+    """Keep the previous version in .history/, then replace the file atomically (owners: see st.match_owner);
+    a .sh file is executable."""
     if path.is_file():
-        history = path.parent / '.history'
-        if not history.is_dir():
-            history.mkdir()
-            st.match_owner(history)
-        stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-        backup, n = history / f'{path.name}.{stamp}', 1
-        while backup.exists():  # two saves in one second keep both versions
-            n += 1
-            backup = history / f'{path.name}.{stamp}-{n}'
-        backup.write_bytes(path.read_bytes())
-        st.match_owner(backup)
+        backup(path)
     tmp = path.with_name(f'.{path.name}.tmp')
     st.write_lf(tmp, text)
     st.match_owner(tmp)
     os.replace(tmp, path)
+    if path.name.endswith('.sh'):
+        os.chmod(path, 0o755)
 
 
 def files(name: str) -> dict:
+    """The compose and env file's text, and the stack's other files: [{name, size, changed}] (changed since the
+    last deploy; None without a record)."""
     module, compose_file, env_file = find_module(name)
-    extra = sorted(p.name for p in module.iterdir() if p.is_file() and p.name not in (compose_file, env_file)
-                   and not p.name.startswith('.') and p.suffix in ('.sh', '.md', '.txt'))
+    d = st.deployed_diff(module, compose_file, env_file, SOURCE)
+    listing = [{'name': n, 'size': (module / n).stat().st_size, 'changed': None if d is None else bool(d['files'].get(n))}
+               for n in st.stack_file_names(module, compose_file, env_file)]
     return {'compose': compose_file, 'composeText': (module / compose_file).read_text(encoding='utf-8'),
             'env': env_file, 'envText': (module / env_file).read_text(encoding='utf-8') if env_file else None,
-            'others': extra}
+            'stackFiles': listing}
+
+
+def file_text(name: str, fname: str) -> dict:
+    module, compose_file, env_file = find_module(name)
+    if fname not in st.stack_file_names(module, compose_file, env_file):
+        raise ValueError(f'"{fname}" is not a file of the stack {name}')
+    return {'name': fname, 'text': (module / fname).read_text(encoding='utf-8', errors='replace')}
+
+
+def delete_file(name: str, data: dict) -> dict:
+    """{file}: remove one stack file (not compose, env or stack.json); its last version stays in .history/."""
+    module, compose_file, env_file = find_module(name)
+    fname = str(data.get('file') or '')
+    if fname not in st.stack_file_names(module, compose_file, env_file):
+        raise ValueError(f'"{fname}" is not a file of the stack {name} (compose, env and stack.json stay)')
+    with FILES_LOCK:
+        backup(module / fname)
+        (module / fname).unlink()
+    return {'deleted': fname}
 
 
 def save_files(name: str, data: dict) -> dict:
@@ -303,13 +404,17 @@ def save_files(name: str, data: dict) -> dict:
         env = clean_text(data.get('envText'))
         check_env(env)
         pairs.append((env_file, env))
+    extra = incoming_files(data, compose_file, env_file)
+    pairs += sorted(extra.items())
     with FILES_LOCK:
         changed = []
         for fname, text in pairs:
-            if (module / fname).read_text(encoding='utf-8') != text:
-                write_file(module / fname, text)
+            path = module / fname
+            if not path.is_file() or path.read_text(encoding='utf-8') != text:
+                write_file(path, text)
                 changed.append(fname)
-    return {'saved': changed}
+    only = sorted(set(st.stack_file_names(module, compose_file, env_file)) - set(extra)) if 'files' in data else []
+    return {'saved': changed, 'onlyOnHost': only}
 
 
 def upload(data: dict) -> dict:
@@ -339,6 +444,9 @@ def upload(data: dict) -> dict:
     check_compose(pkg[compose])
     if env:
         check_env(pkg[env])
+    for fname, text in pkg.items():
+        if fname not in (compose, env):
+            check_stack_file(fname, text)
     with FILES_LOCK:
         module = st.STACKS_DIR / name
         if module.exists():
@@ -864,29 +972,37 @@ def preview_files(name: str, data: dict) -> dict:
     if env_file:
         env = clean_text(data.get('envText'))
         check_env(env)
+    extra = incoming_files(data, compose_file, env_file)
 
     def udiff(fname: str | None, new: str | None) -> str:
         if not fname:
             return ''
-        old = (module / fname).read_text(encoding='utf-8')
+        old = (module / fname).read_text(encoding='utf-8') if (module / fname).is_file() else ''
         return '\n'.join(difflib.unified_diff(old.splitlines(), new.splitlines(), f'now: {fname}', f'new: {fname}',
                                               lineterm=''))
 
-    return {'compose': udiff(compose_file, compose), 'env': udiff(env_file, env)}
+    return {'compose': udiff(compose_file, compose), 'env': udiff(env_file, env),
+            'files': {n: udiff(n, text) for n, text in sorted(extra.items())}}
+
+
+HISTORY_NAME = re.compile(r'^(.+)\.(\d{8}T\d{6}Z)(?:-(\d+))?$')
 
 
 def history(name: str) -> list[dict]:
-    """Every saved version of the module's compose and env file, newest first: [{version, file, time}]."""
+    """Every saved version of the stack's compose, env and other files (also of a file deleted since), newest
+    first: [{version, file, time}]."""
     module, compose_file, env_file = find_module(name)
     folder = module / '.history'
     found = []
-    for fname in filter(None, (compose_file, env_file)):
-        pattern = re.compile(re.escape(fname) + r'\.(\d{8}T\d{6}Z)(?:-(\d+))?')
-        for p in folder.iterdir() if folder.is_dir() else []:
-            m = pattern.fullmatch(p.name)
-            if m and p.is_file():
-                t = datetime.strptime(m.group(1), '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
-                found.append((t, int(m.group(2) or 1), {'version': p.name, 'file': fname, 'time': t.isoformat()}))
+    for p in folder.iterdir() if folder.is_dir() else []:
+        m = HISTORY_NAME.match(p.name)
+        if not m or not p.is_file():
+            continue
+        fname = m.group(1)
+        if fname not in (compose_file, env_file) and not st.is_stack_file_name(fname):
+            continue
+        t = datetime.strptime(m.group(2), '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
+        found.append((t, int(m.group(3) or 1), {'version': p.name, 'file': fname, 'time': t.isoformat()}))
     found.sort(key=lambda x: x[:2], reverse=True)
     return [x[2] for x in found]
 
@@ -903,7 +1019,7 @@ def history_version(name: str, version: str) -> dict:
     """One saved version and its diff from the current file (what Restore would bring back)."""
     module, entry = history_entry(name, version)
     text = (module / '.history' / version).read_text(encoding='utf-8')
-    current = (module / entry['file']).read_text(encoding='utf-8')
+    current = (module / entry['file']).read_text(encoding='utf-8') if (module / entry['file']).is_file() else ''
     d = '\n'.join(difflib.unified_diff(current.splitlines(), text.splitlines(), f'now: {entry["file"]}', version,
                                        lineterm=''))
     return {'file': entry['file'], 'time': entry['time'], 'text': text, 'diff': d}
@@ -911,13 +1027,19 @@ def history_version(name: str, version: str) -> dict:
 
 def restore(name: str, data: dict) -> dict:
     """Put a saved version back (checked like a save); the current file goes into .history/ first."""
-    _, compose_file, _ = find_module(name)
+    _, compose_file, env_file = find_module(name)
     module, entry = history_entry(name, str(data.get('version') or ''))
     text = clean_text((module / '.history' / entry['version']).read_text(encoding='utf-8'))
-    (check_compose if entry['file'] == compose_file else check_env)(text)
+    if entry['file'] == compose_file:
+        check_compose(text)
+    elif entry['file'] == env_file:
+        check_env(text)
+    else:
+        check_stack_file(entry['file'], text)
+    path = module / entry['file']
     with FILES_LOCK:
-        if (module / entry['file']).read_text(encoding='utf-8') != text:
-            write_file(module / entry['file'], text)
+        if not path.is_file() or path.read_text(encoding='utf-8') != text:
+            write_file(path, text)
     return {'restored': entry['file']}
 
 
@@ -1183,6 +1305,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, {'pull': image_pull, 'tag': image_tag, 'delete': image_remove}[parts[2]](data))
             if method == 'GET' and len(parts) == 4 and parts[1] == 'images' and parts[3] == 'inspect':
                 return self.json(200, image_details(parts[2]))
+            if method == 'POST' and len(parts) == 5 and parts[1] == 'stacks' and parts[3:] == ['files', 'delete']:
+                return self.json(200, delete_file(parts[2], data))
+            if method == 'GET' and len(parts) == 5 and parts[1] == 'stacks' and parts[3] == 'files':
+                return self.json(200, file_text(parts[2], parts[4]))
             if method == 'POST' and len(parts) == 5 and parts[1] == 'stacks' and parts[3:] == ['files', 'preview']:
                 return self.json(200, preview_files(parts[2], data))
             if parts == ['api', 'updates']:  # GET: the last check against what runs now; POST: ask the registries
