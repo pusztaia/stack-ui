@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2
+
+- Client: a folder with a `stack.json` can be deployed (the manifest itself is no longer sent as a file, which Stack UI refused).
+
 ## 1.0.1
 
 - A stack runs without a pod by default, like Docker Compose: `userns_mode` (e.g. `keep-id`) failed with
