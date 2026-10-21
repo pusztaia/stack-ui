@@ -3,3 +3,5 @@ __pycache__/
 .history/
 .deployed/
 settings.json
+# a local folder of your own stacks (e.g. deployed with the client): never committed
+/stacks/
