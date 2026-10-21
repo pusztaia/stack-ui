@@ -56,7 +56,7 @@ class StackOpsTest(Base):
         st.deploy(f, 'compose.yaml', None, pull=False, approve=lambda cs: True, log=lambda _: None)
         self.assertEqual(self.compose_calls()[-1], ['--podman-path', st.PODMAN_PATH, '-p', 'web', '-f', 'compose.yaml', 'up', '-d'])
         self.assertEqual(sorted(p.name for p in (f / st.DEPLOYED).iterdir()), ['compose.yaml'])
-        self.assertEqual(st.deployed_diff(f, 'compose.yaml', None, 'host'), ('', ''))
+        self.assertEqual(st.deployed_diff(f, 'compose.yaml', None, 'host'), {'compose': '', 'env': '', 'files': {}})
 
     def test_deploy_pull_then_up_records(self):
         f = self.stack()
@@ -122,3 +122,35 @@ class StackOpsTest(Base):
         f = self.stack()
         st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
         self.assertEqual(sorted(chowned), ['.deployed', '.env', 'compose.yaml'])
+
+    def test_stack_file_names(self):
+        f = self.stack()
+        for n in ('init.sh', 'dash.json', 'grafana.yaml', 'README.md', 'notes.txt', 'run.py', '.hidden.json', 'stack.json'):
+            (f / n).write_bytes(b'{}\n' if n.endswith('.json') else b'x\n')
+        (f / 'sub').mkdir()
+        self.assertEqual(st.stack_file_names(f, 'compose.yaml', '.env'),
+                         ['README.md', 'dash.json', 'grafana.yaml', 'init.sh', 'notes.txt'])
+
+    def test_deployed_record_has_stack_files_and_diff(self):
+        f = self.stack()
+        (f / 'dash.json').write_bytes(b'{"a": 1}\n')
+        st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
+        self.assertTrue((f / st.DEPLOYED / 'dash.json').is_file())
+        d = st.deployed_diff(f, 'compose.yaml', '.env', 'host')
+        self.assertFalse(st.has_differences(d))
+        (f / 'dash.json').write_bytes(b'{"a": 2}\n')
+        (f / 'new.sh').write_bytes(b'echo\n')
+        d = st.deployed_diff(f, 'compose.yaml', '.env', 'host')
+        self.assertIn('+{"a": 2}', d['files']['dash.json'])
+        self.assertIn('+echo', d['files']['new.sh'])
+        self.assertTrue(st.has_differences(d))
+
+    def test_removed_file_differs(self):
+        f = self.stack()
+        (f / 'init.sh').write_bytes(b'echo hi\n')
+        st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
+        (f / 'init.sh').unlink()
+        d = st.deployed_diff(f, 'compose.yaml', '.env', 'host')
+        self.assertIn('-echo hi', d['files']['init.sh'])
+        self.assertTrue(st.has_differences(d))
+

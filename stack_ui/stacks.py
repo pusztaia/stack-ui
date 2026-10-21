@@ -30,6 +30,9 @@ STACKS_DIR = Path(os.environ['STACKS_DIR']).resolve() if os.environ.get('STACKS_
 IGNORE = {x.strip() for x in os.environ.get('STACK_UI_IGNORE', '').split(',') if x.strip()}
 STACK_NAME = re.compile(r'^[a-z0-9][a-z0-9_-]{0,62}$')
 MANIFEST = 'stack.json'
+ALLOWED_SUFFIXES = ('.yaml', '.yml', '.env', '.sh', '.md', '.txt', '.json')
+FILE_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$')
+MAX_FILE = 512 * 1024
 COMPOSE_NAMES = ('compose.yaml', 'compose.yml', 'docker-compose.yml', 'docker-compose.yaml')
 PROJECT_LABEL = 'io.podman.compose.project'
 COMPOSE_PROJECT_LABELS = ('com.docker.compose.project', 'io.podman.compose.project')
@@ -66,6 +69,19 @@ def stack_files(folder: Path) -> tuple[str, str | None] | None:
         return compose, '.env'
     envs = sorted(p.name for p in folder.glob('*.env') if p.is_file())
     return compose, envs[0] if len(envs) == 1 else None
+
+
+def is_stack_file_name(name: str) -> bool:
+    """A name a stack folder's file may have: flat, allowed suffix, not the manifest."""
+    return ((FILE_NAME.match(name) is not None or name == '.env') and name.endswith(ALLOWED_SUFFIXES)
+            and name != MANIFEST)
+
+
+def stack_file_names(folder: Path, compose_file: str, env_file: str | None) -> list[str]:
+    """The stack's other files (scripts, configs, dashboards): every regular file with an allowed name, except
+    the compose and env file."""
+    return sorted(p.name for p in folder.iterdir() if p.is_file() and is_stack_file_name(p.name)
+                  and p.name not in (compose_file, env_file) and not p.name.startswith('.'))
 
 
 def discover() -> list[tuple[Path, str, str | None]]:
@@ -197,7 +213,7 @@ def save_deployed(folder: Path, compose_file: str, env_file: str | None) -> None
     shutil.rmtree(record, ignore_errors=True)
     record.mkdir()
     match_owner(record)
-    for fname in (compose_file, env_file):
+    for fname in (compose_file, env_file, *stack_file_names(folder, compose_file, env_file)):
         if fname:
             shutil.copyfile(folder / fname, record / fname)
             match_owner(record / fname)
@@ -238,17 +254,25 @@ def stack_action(folder: Path, compose_file: str, env_file: str | None, action: 
         shutil.rmtree(folder / DEPLOYED, ignore_errors=True)
 
 
-def deployed_diff(folder: Path, compose_file: str, env_file: str | None, label: str) -> tuple[str, str] | None:
-    """(compose diff, env diff) of the last deploy's files against the folder's; None without a record."""
+def deployed_diff(folder: Path, compose_file: str, env_file: str | None, label: str) -> dict | None:
+    """The last deploy's files against the folder's (deployed -> label): {'compose', 'env', 'files': {name: diff}}
+    (a file new or removed since the deploy diffs from / to empty); None without a record."""
     record = folder / DEPLOYED
     if not (record / compose_file).is_file() or (env_file and not (record / env_file).is_file()):
         return None
 
+    def read(path: Path) -> list[str]:
+        return path.read_text(encoding='utf-8', errors='replace').splitlines() if path.is_file() else []
+
     def udiff(fname: str | None) -> str:
         if not fname:
             return ''
-        old = (record / fname).read_text(encoding='utf-8').splitlines()
-        new = (folder / fname).read_text(encoding='utf-8').splitlines()
-        return '\n'.join(difflib.unified_diff(old, new, f'deployed: {fname}', f'{label}: {fname}', lineterm=''))
+        return '\n'.join(difflib.unified_diff(read(record / fname), read(folder / fname), f'deployed: {fname}',
+                                              f'{label}: {fname}', lineterm=''))
 
-    return udiff(compose_file), udiff(env_file)
+    names = set(stack_file_names(folder, compose_file, env_file)) | set(stack_file_names(record, compose_file, env_file))
+    return {'compose': udiff(compose_file), 'env': udiff(env_file), 'files': {n: udiff(n) for n in sorted(names)}}
+
+
+def has_differences(d: dict) -> bool:
+    return bool(d['compose'] or d['env'] or any(d['files'].values()))

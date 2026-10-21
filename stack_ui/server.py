@@ -218,7 +218,7 @@ def diff(name: str) -> dict:
     if not deployed(name, snapshot()):
         return {'exists': False}
     d = st.deployed_diff(folder, compose_file, env_file, SOURCE)
-    return {'exists': d is not None, **({'compose': d[0], 'env': d[1]} if d else {})}
+    return {'exists': d is not None, **(d or {})}
 
 
 def drift() -> dict:
@@ -228,7 +228,7 @@ def drift() -> dict:
     for folder, compose_file, env_file in st.discover():
         if deployed(folder.name, snap):
             d = st.deployed_diff(folder, compose_file, env_file, SOURCE)
-            out[folder.name] = 'unknown' if d is None else 'differs' if any(d) else 'same'
+            out[folder.name] = 'unknown' if d is None else 'differs' if st.has_differences(d) else 'same'
     return out
 
 
