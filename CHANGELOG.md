@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.7
+
+- *Resources*: the current CPU and memory of every running container and of the host, on a new page (largest
+  memory use first), as a *Memory* column and a host line on the Stacks list, and on a stack's Summary tab.
+  CPU is a share of the whole host, computed from two readings (Podman's own figure is an average since the
+  container started). A container with no memory limit shows `no limit`.
+- *Settings*: how often the numbers refresh (off, 5, 10, 30, 60 seconds; default 10; paused while the tab is hidden).
+- API: `GET /api/resources`.
+
 ## 1.0.6
 
 - Healthchecks: a container's `healthy` / `unhealthy` / `starting` state shows next to it (Stacks list, a stack's

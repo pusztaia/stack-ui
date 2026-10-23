@@ -17,6 +17,11 @@ One container, Python standard library + PyYAML, no database.
 - **Containers**: every container, its stack, state and published ports (as links); start, stop, restart, logs,
   details (the inspect, secret-looking values masked), remove (only outside a stack).
 - **Images**: sizes and users; pull, tag, remove (only unused), clean up the untagged leftovers of pulls.
+- **Resources**: the CPU and memory of every running container and of the host; also on the Stacks list (a
+  *Memory* column and a line with the host's RAM and CPU) and on a stack's Summary tab. A container near its
+  memory limit turns yellow (80 %), then red (95 %). Refreshed every 10 seconds by default; *Settings* has the
+  choice (off, 5, 10, 30, 60 seconds), kept in the browser. The page asks Podman for the numbers; nothing is
+  stored.
 - **Logs**, **Networks**, **Volumes** and **Secrets** (Podman secrets: a value goes in and is never shown again).
 - An **API token** for scripts, and `client/stack-ui-client.py` that deploys a folder through the API.
 
