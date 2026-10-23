@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.6
+
+- Healthchecks: a container's `healthy` / `unhealthy` / `starting` state shows next to it (Stacks list, a stack's
+  page, Containers), and the Stacks list has an *Unhealthy* filter.
+- *Differs* says what differs: its tooltip lists each changed file with the lines added and removed since the last
+  deploy (`/api/drift` gives `{state, changes}` per stack).
+- Before the first *Check for updates* the Image column of a deployed stack says *Not checked* instead of `—`.
+
 ## 1.0.5
 
 - *Files* tab: *Load from files…* reads a new compose and/or env file from your computer into the editors

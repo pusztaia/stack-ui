@@ -32,7 +32,7 @@ class ServerTest(Base):
 
     def test_legacy_project_drift_unknown(self):
         self.mock.add_container('web', project='web')
-        self.assertEqual(self.ui.drift(), {'web': 'unknown'})
+        self.assertEqual(self.ui.drift(), {'web': {'state': 'unknown', 'changes': []}})
 
     def test_podman_unreadable_refuses_changes(self):
         self.mock.fail[('GET', '/containers/json')] = (500, 'down')
@@ -80,7 +80,7 @@ class ServerTest(Base):
         self.assertTrue({r['name']: r for r in self.ui.network_list()['networks']}['lan']['protected'])
 
     def test_settings_view(self):
-        self.assertEqual(self.ui.settings_view(), {'tokenSet': False, 'version': '1.0.5'})
+        self.assertEqual(self.ui.settings_view(), {'tokenSet': False, 'version': '1.0.6'})
 
     def test_main_requires_stacks_dir(self):
         self.patch(st, 'STACKS_DIR', None)

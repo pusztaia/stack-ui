@@ -224,13 +224,24 @@ def diff(name: str) -> dict:
 
 
 def drift() -> dict:
-    """{name: 'same' | 'differs' | 'unknown'} for every deployed stack (unknown: no record of its last deploy)."""
+    """{name: {state: 'same' | 'differs' | 'unknown', changes: [{file, added, removed}]}} for every deployed stack
+    (unknown: no record of its last deploy; changes: the lines each differing file gained and lost since it)."""
     snap = snapshot()
     out = {}
     for folder, compose_file, env_file in st.discover():
         if deployed(folder.name, snap):
             d = st.deployed_diff(folder, compose_file, env_file, SOURCE)
-            out[folder.name] = 'unknown' if d is None else 'differs' if st.has_differences(d) else 'same'
+            if d is None:
+                out[folder.name] = {'state': 'unknown', 'changes': []}
+                continue
+            diffs = {compose_file: d['compose'], env_file: d['env'], **d['files']}
+            changes = []
+            for fname, text in sorted((n, t) for n, t in diffs.items() if n and t):
+                lines = text.splitlines()
+                changes.append({'file': fname,
+                                'added': sum(1 for x in lines if x.startswith('+') and not x.startswith('+++')),
+                                'removed': sum(1 for x in lines if x.startswith('-') and not x.startswith('---'))})
+            out[folder.name] = {'state': 'differs' if changes else 'same', 'changes': changes}
     return out
 
 

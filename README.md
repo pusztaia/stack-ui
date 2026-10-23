@@ -4,7 +4,7 @@ A small web page for the compose stacks of a [Podman](https://podman.io) host. E
 stack; Stack UI runs it with [podman-compose](https://github.com/containers/podman-compose) through the Podman socket.
 One container, Python standard library + PyYAML, no database.
 
-- **Stacks**: list with state and containers; edit the compose and env file, or load a new version of them from
+- **Stacks**: list with state, containers and their healthchecks; edit the compose and env file, or load a new version of them from
   your files (every save keeps the previous version in `.history/`, a save shows its diff first; a running stack is
   updated with every save, restore or file delete on the page, so its folder stays what runs); create, update
   (pull + recreate), start, stop, delete;

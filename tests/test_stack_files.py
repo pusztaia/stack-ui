@@ -119,6 +119,8 @@ class StackFilesTest(Base):
         self.mock.add_container('web', project='web')
         st.deploy(self.f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
         (self.f / 'dash.json').write_bytes(b'{"a": 2}\n')
+        (self.f / '.env').write_bytes((self.f / '.env').read_bytes() + b'A=1\nB=2\n')
         d = self.ui.diff('web')
         self.assertIn('+{"a": 2}', d['files']['dash.json'])
-        self.assertEqual(self.ui.drift(), {'web': 'differs'})
+        self.assertEqual(self.ui.drift(), {'web': {'state': 'differs', 'changes': [
+            {'file': '.env', 'added': 2, 'removed': 0}, {'file': 'dash.json', 'added': 1, 'removed': 1}]}})

@@ -126,6 +126,7 @@
   .t-warn { background: var(--warn-soft); color: var(--warn); }
   .t-bad { background: var(--bad-soft); color: var(--bad); }
   .t-idle { background: var(--idle-soft); color: var(--idle); }
+  .tag.hl { font-size: 11px; padding: 0 6px; }
   .muted { color: var(--muted); } .small { font-size: 12.5px; } .pad { padding: 18px 2px; }
   .empty { padding: 28px 18px; text-align: center; color: var(--muted); }
 
@@ -303,7 +304,7 @@ const icon = (name, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" ari
 let STACKS = [];                                 // /api/stacks
 let INFO = { source: SOURCE, podman: true, podmanError: '' };   // podman: the page always has the socket
 let LOAD_ERROR = '';
-let DRIFT = {}; let DRIFT_LOADED = false;        // name -> same | differs | unknown
+let DRIFT = {}; let DRIFT_LOADED = false;        // name -> {state: same | differs | unknown, changes: [{file, added, removed}]}
 let UPDATES = { checkedAt: '', stacks: {} };     // the last image-update check
 let IMAGES = null;                               // /api/images
 let FILTER = 'all'; let QUERY = '';
@@ -522,8 +523,9 @@ const FILTERS = [
   ['all', 'All', () => true],
   ['running', 'Running', (s) => stackState(s) === 'run'],
   ['partly', 'Not every container runs', (s) => stackState(s) === 'part'],
+  ['unhealthy', 'Unhealthy', (s) => s.containers.some((c) => c.status === 'unhealthy')],
   ['stopped', 'Stopped', (s) => stackState(s) === 'stop'],
-  ['differs', 'Differs from deployed', (s) => DRIFT[s.name] === 'differs'],
+  ['differs', 'Differs from deployed', (s) => DRIFT[s.name]?.state === 'differs'],
   ['updates', 'Image updates', (s) => UPDATES.stacks[s.name]?.status === 'update'],
   ['outside', 'Not deployed', (s) => !s.stack],
 ];
@@ -560,14 +562,18 @@ function viewStacks() {
 
 function driftCell(s) {
   if (!s.stack) return '<span class="muted small">—</span>';
-  const d = DRIFT[s.name];
+  const d = DRIFT[s.name]?.state;
   if (d === 'same') return '<span class="tag t-ok">Matches</span>';
-  if (d === 'differs') return `<button class="tag t-warn" data-act="diff" data-name="${esc(s.name)}" title="Show what differs">Differs</button>`;
+  if (d === 'differs') {
+    const title = DRIFT[s.name].changes.map((c) => `${c.file}: +${c.added} −${c.removed}`).join('\n');
+    return `<button class="tag t-warn" data-act="diff" data-name="${esc(s.name)}" title="${esc(`${title}\n(click: the full diff)`)}">Differs</button>`;
+  }
   if (d === 'unknown') return '<span class="tag t-idle" title="Not known: no record of the last deploy (the next Update makes one)">Unknown</span>';
   return `<span class="muted small">${DRIFT_LOADED ? '—' : '…'}</span>`;
 }
 function imageCell(name) {
   const u = UPDATES.stacks[name];
+  if (!UPDATES.checkedAt && stackOf(name)?.containers.length) return '<span class="tag t-idle" title="Whether a newer image exists: Check for updates asks the registries">Not checked</span>';
   if (!u || u.status === 'none') return '<span class="muted small">—</span>';
   const title = esc(u.images.map((i) => `${i.container}: ${i.image} – ${i.message}`).join('\n'));
   if (u.status === 'update') return `<button class="tag t-warn" data-act="deploy" data-name="${esc(name)}" title="${title}">Update available</button>`;
@@ -585,11 +591,16 @@ function rowActions(s) {
     : `<button class="small primary" data-act="deploy" data-name="${n}">Create</button>`;
   return `${main}<button class="icon-btn" data-act="more" data-name="${n}" title="More" aria-label="More actions for ${n}" aria-haspopup="menu">${icon('more', 'fill')}</button>`;
 }
+// libpod's container list gives the healthcheck's state as Status (empty without a healthcheck)
+function healthTag(status) {
+  const cls = { healthy: 't-ok', unhealthy: 't-bad', starting: 't-warn' }[status];
+  return cls ? `<span class="tag hl ${cls}" title="Healthcheck">${status}</span>` : '';
+}
 function stackRow(s) {
   const n = esc(s.name);
   const state = stackState(s);
   const conts = s.containers.length
-    ? s.containers.map((c) => `<span class="ct" title="${esc(c.image)} – ${esc(c.status)}"><i class="dot ${dotClass(c.state)}"></i>${esc(c.name)}</span>`).join('')
+    ? s.containers.map((c) => `<span class="ct" title="${esc(c.image)} – ${esc(c.status || c.state)}"><i class="dot ${dotClass(c.state)}"></i>${esc(c.name)}${healthTag(c.status)}</span>`).join('')
       + (!s.stack ? '<span class="small">not deployed: Create asks to replace it</span>' : '')
     : '<span class="muted small">No container</span>';
   return `<div class="tr${SELECTED.has(s.name) ? ' selected' : ''}" data-row="${n}">
@@ -611,7 +622,7 @@ function renderTable() {
   $('chips').innerHTML = FILTERS.map(([k, label, f]) => {
     const n = listedStacks().filter(f).length;
     if (k !== 'all' && !n && FILTER !== k) return '';
-    const warn = k === 'updates' || k === 'differs' || k === 'partly';
+    const warn = k === 'updates' || k === 'differs' || k === 'partly' || k === 'unhealthy';
     return `<button class="chip${FILTER === k ? ' on' : ''}${warn ? ' c-warn' : ''}" data-filter="${k}" aria-pressed="${FILTER === k}">${label} <b>${n}</b></button>`;
   }).join('');
   const rows = visibleStacks();
@@ -721,7 +732,7 @@ function tabSummary(name) {
   const rows = s.containers.map((c) => `<div class="tr">
       <span class="k-name ct"><i class="dot ${dotClass(c.state)}"></i><b>${esc(c.name)}</b></span>
       <span class="k-img files">${esc(c.image)}</span>
-      <span class="k-stat small muted">${esc(c.status || c.state)}</span>
+      <span class="k-stat small muted">${esc(c.state)} ${healthTag(c.status)}</span>
       <span class="k-upd">${updTag(c.name)}</span>
       <span class="k-act r">${INFO.podman ? `<button class="small" data-act="logs" data-container="${esc(c.name)}">${icon('logs')}Logs</button>` : ''}<button class="small" data-act="restart" data-name="${esc(name)}" data-container="${esc(c.name)}">${icon('refresh')}Restart</button></span>
     </div>`).join('');
@@ -850,7 +861,7 @@ async function saveFlow(name, andUpdate) {
 }
 
 function driftNote(name, andUpdate) {
-  return andUpdate && DRIFT[name] === 'differs'
+  return andUpdate && DRIFT[name]?.state === 'differs'
     ? '<div class="warn-note">The stack\'s folder already differs from what was deployed last (<i>Compare with deployed</i> tab): the update deploys those changes too.</div>' : '';
 }
 
@@ -1194,7 +1205,7 @@ async function viewContainers() {
         return `<div class="tr">
           <span class="c-name"><b>${n}</b>${stackTag}${c.protected ? ' <span class="tag t-idle bk">Protected</span>' : ''}<span class="files">${esc(ago(c.created))}</span></span>
           <span class="files">${esc(c.image)}</span>
-          <span class="ct"><i class="dot ${dotClass(c.state)}"></i>${esc(c.status || c.state)}</span>
+          <span class="ct"><i class="dot ${dotClass(c.state)}"></i>${esc(c.state)}${healthTag(c.status)}</span>
           <span class="ports small">${portLinks(c)}</span>
           <span class="r">${run ? btn('stop', 'Stop', !c.protected) : btn('start', 'Start')}${btn('restart', 'Restart', run && !c.protected)}${btn('logs', 'Logs')}${btn('details', 'Details')}${btn('remove', 'Remove', !c.inStack && !c.protected, 'small danger')}</span></div>`;
       }).join('') || '<div class="empty">No container matches.</div>'}</div>`;
