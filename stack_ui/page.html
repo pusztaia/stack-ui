@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stack UI</title>
+<title>Stack UI __VERSION__</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <style>
   /* Podman Desktop-like: charcoal layers, one purple accent, status colours only where they mean something */
@@ -51,6 +51,7 @@
   .nav-a[aria-current="page"]::before { content: ""; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 3px;
                                         border-radius: 0 3px 3px 0; background: var(--accent); }
   .side .grow { flex: 1; }
+  .ver { text-align: center; font-size: 10px; color: var(--faint); padding: 2px 0 4px; }
   .side button.nav-a { border: 0; background: transparent; font: inherit; font-size: 11px; cursor: pointer; width: 100%; }
   main { padding: 22px 28px 96px; min-width: 0; }
   .content { max-width: 1240px; margin: 0 auto; }
@@ -223,6 +224,7 @@
     .brand img { width: 28px; height: 28px; }
     .nav-a, .side button.nav-a { flex-direction: row; font-size: 12.5px; padding: 7px 10px; width: auto; white-space: nowrap; }
     .nav-a[aria-current="page"]::before { display: none; }
+    .ver { padding: 0 6px; white-space: nowrap; }
     main { padding: 16px 16px 96px; }
     .search { min-width: 0; flex: 1 1 100%; }
     .head-actions { width: 100%; }
@@ -261,6 +263,7 @@
     <a class="nav-a" href="#/secrets" data-nav="secrets"></a>
     <a class="nav-a" href="#/settings" data-nav="settings"></a>
     <div class="grow"></div>
+    <div class="ver" title="Stack UI __VERSION__">v__VERSION__</div>
     <button class="nav-a" id="theme" title="Switch light / dark"></button>
     <button class="nav-a" id="logout" hidden></button>
   </nav>

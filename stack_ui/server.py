@@ -1468,7 +1468,8 @@ class Handler(BaseHTTPRequestHandler):
             if token is None:
                 return self.send(200, LOGIN_PAGE.encode('utf-8'), 'text/html; charset=utf-8')
             page = (PAGE.read_text(encoding='utf-8').replace('__UI_TOKEN__', token)
-                    .replace('__AUTH__', 'true' if Config.password_hash else 'false').replace('__SOURCE__', SOURCE))
+                    .replace('__AUTH__', 'true' if Config.password_hash else 'false').replace('__SOURCE__', SOURCE)
+                    .replace('__VERSION__', __version__))
             return self.send(200, page.encode('utf-8'), 'text/html; charset=utf-8')
         if not path.startswith('/api/'):
             return self.json(404, {'error': 'not found'})

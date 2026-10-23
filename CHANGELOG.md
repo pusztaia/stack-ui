@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.8
+
+- The running version shows on every page: small under the menu (`v1.0.8`, with a tooltip) and in the browser
+  tab's title (`Stack UI 1.0.8`), not only on the Settings page.
+
 ## 1.0.7
 
 - *Resources*: the current CPU and memory of every running container and of the host, on a new page (largest
