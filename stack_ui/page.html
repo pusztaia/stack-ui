@@ -173,6 +173,7 @@
   .banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; background: var(--bad-soft); color: var(--bad); }
   .ok-note { padding: 8px 12px; border-radius: 8px; background: var(--ok-soft); color: var(--ok); margin-bottom: 10px; }
   .bad-note { padding: 8px 12px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); margin-bottom: 10px; }
+  .warn-note { padding: 8px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); margin-bottom: 10px; }
 
   /* dialog, menu, toasts */
   dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 1px solid var(--line);
@@ -661,10 +662,13 @@ function act(a, name, btn) {
   if (a === 'sel-update') return updateSelected([...SELECTED]);
   if (a === 'restart') return confirmRestart(name, btn.dataset.container);
   if (a === 'logs') return go(`#/logs/${enc(btn.dataset.container)}`);
-  if (a === 'save') return saveFlow(name, false);
-  if (a === 'save-update') return saveFlow(name, true);
+  if (a === 'save') return saveFlow(name, live(name));
+  if (a === 'load-files') return loadFiles(name);
   return undefined;
 }
+
+// a running stack's folder never differs from what runs: every change the page makes there is followed by an update
+const live = (name) => !!stackOf(name)?.stack;
 
 // ---------- stack detail ----------
 function viewDetail() {
@@ -756,16 +760,17 @@ async function tabFiles(name) {
   $('tab').innerHTML = `
     <div class="editor-bar">
       <span id="dirty" class="dirty" hidden>Unsaved changes</span>
-      <span class="muted small">Ctrl+S saves. Each save keeps the previous file in the history.</span>
+      <span class="muted small">Ctrl+S ${live(name) ? 'saves and updates' : 'saves'}. Each save keeps the previous file in the history.</span>
       <span class="grow"></span>
-      <button data-act="save" data-name="${esc(name)}">Save</button>
-      <button class="primary" data-act="save-update" data-name="${esc(name)}">Save and update</button>
+      <button data-act="load-files" data-name="${esc(name)}">Load from files…</button>
+      <button class="primary" data-act="save" data-name="${esc(name)}">${live(name) ? 'Save and update' : 'Save'}</button>
     </div>
     <div id="save-err"></div>
     <section class="editor"><div class="ed-head">${esc(f.compose)}</div><textarea id="compose-text" spellcheck="false" aria-label="${esc(f.compose)}">${esc(f.composeText)}</textarea></section>
     ${f.envText === null ? '<section class="editor"><p class="muted small pad">This stack has no env file.</p></section>'
       : `<section class="editor"><div class="ed-head">${esc(f.env)}</div><textarea id="env-text" class="short" spellcheck="false" aria-label="${esc(f.env)}">${esc(f.envText)}</textarea></section>`}
-    <p class="muted small">A save checks the compose file and the variables (no secrets in the env file). The running stack gets the change with the next update.</p>
+    <p class="muted small">A save checks the compose file and the variables (no secrets in the env file).${live(name)
+      ? ' The stack runs, so every save updates it (without a pull): its folder stays what runs.' : ''}</p>
     ${list}`;
   const mark = () => {
     DIRTY = $('compose-text').value !== FILES.composeText || ($('env-text') ? $('env-text').value !== FILES.envText : false);
@@ -793,13 +798,15 @@ async function stackFileAction(name, act, file) {
     } catch (e) { openDialog(file, errBox(e.message)); }
     return;
   }
-  openDialog(`Delete ${file}`, `<div id="dlg-err"></div><p>Deletes <b>${esc(file)}</b> from the stack's folder. Its last version stays in the history (restorable there).</p>`,
-    '<button data-close>Cancel</button><button class="danger" id="sf-del">Delete</button>');
+  const andUpdate = live(name);
+  openDialog(`Delete ${file}`, `<div id="dlg-err"></div><p>Deletes <b>${esc(file)}</b> from the stack's folder${andUpdate ? ', then updates the stack (without a pull)' : ''}. Its last version stays in the history (restorable there).</p>${driftNote(name, andUpdate)}`,
+    `<button data-close>Cancel</button><button class="danger" id="sf-del">${andUpdate ? 'Delete and update' : 'Delete'}</button>`);
   $('sf-del').addEventListener('click', async () => {
     $('sf-del').disabled = true;
     try {
       await api(`/api/stacks/${enc(name)}/files/delete`, { method: 'POST', body: JSON.stringify({ file }) });
       closeDialog(); toast(`Deleted ${file}`); tabFiles(name);
+      if (andUpdate) updateAfterSave(name);
     } catch (e) { $('dlg-err').innerHTML = errBox(e.message); $('sf-del').disabled = false; }
   });
 }
@@ -807,7 +814,7 @@ async function stackFileAction(name, act, file) {
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && ROUTE.view === 'detail' && ROUTE.tab === 'files' && FILES) {
     e.preventDefault();
-    if (!$('dlg').open) saveFlow(ROUTE.name, false);
+    if (!$('dlg').open) saveFlow(ROUTE.name, live(ROUTE.name));
   }
 });
 
@@ -818,16 +825,13 @@ async function saveFlow(name, andUpdate) {
   let p;
   try { p = await api(`/api/stacks/${enc(name)}/files/preview`, { method: 'POST', body }); }
   catch (e) { $('save-err').innerHTML = errBox(e.message); return; }
-  if (!p.compose && !p.env) {
-    if (andUpdate) return updateAfterSave(name);
-    return toast('Nothing to save: the files are unchanged');
-  }
+  if (!p.compose && !p.env) return toast('Nothing to save: the files are unchanged');
   const label = andUpdate ? 'Save and update' : 'Save';
   openDialog(`Save ${name}`,
-    `<p class="muted">− is the file now, + is what will be saved.</p>
+    `${driftNote(name, andUpdate)}<p class="muted">− is the file in the stack's folder now, + is what will be saved${andUpdate ? ' and deployed' : ''}.</p>
      ${p.compose ? `<h4>${esc(FILES.compose)}</h4>${diffHtml(p.compose)}` : ''}
      ${p.env ? `<h4>${esc(FILES.env)}</h4>${diffHtml(p.env)}` : ''}<div id="dlg-err"></div>`,
-    `<button data-close>Keep editing</button><button class="primary" id="do-save">${label}</button>`);
+    `<button data-close>Cancel</button><button class="primary" id="do-save">${label}</button>`);
   $('do-save').addEventListener('click', async () => {
     $('do-save').disabled = true;
     try {
@@ -842,6 +846,38 @@ async function saveFlow(name, andUpdate) {
       $('dlg-err').innerHTML = errBox(e.message);
       $('do-save').disabled = false;
     }
+  });
+}
+
+function driftNote(name, andUpdate) {
+  return andUpdate && DRIFT[name] === 'differs'
+    ? '<div class="warn-note">The stack\'s folder already differs from what was deployed last (<i>Compare with deployed</i> tab): the update deploys those changes too.</div>' : '';
+}
+
+// the compose and env file chosen here replace the editors' text (whatever their names); the save dialog then shows
+// the difference to the stack's folder
+function loadFiles(name) {
+  if (!FILES || FILES.name !== name || !$('compose-text')) return;
+  const hasEnv = !!$('env-text');
+  openDialog(`Load files into ${name}`,
+    `<p class="muted small">Their text replaces <code>${esc(FILES.compose)}</code>${hasEnv ? ` and <code>${esc(FILES.env)}</code>` : ''} in the editors, whatever the files are called; the next step shows the difference to the stack's folder.</p>
+     <label class="field"><span>Compose file (<code>.yaml</code>, <code>.yml</code>)</span><input type="file" id="lf-compose" accept=".yaml,.yml"></label>
+     <label class="field"><span>Env file (<code>.env</code>)</span><input type="file" id="lf-env" accept=".env" ${hasEnv ? '' : 'disabled'}></label>
+     ${hasEnv ? '' : '<p class="muted small">This stack has no env file.</p>'}<div id="dlg-err"></div>`,
+    '<button data-close>Cancel</button><button class="primary" id="lf-go">Compare</button>');
+  $('lf-go').addEventListener('click', async () => {
+    const c = $('lf-compose').files[0];
+    const e = hasEnv ? $('lf-env').files[0] : null;
+    const bad = [];
+    if (c && !(/\.ya?ml$/i.test(c.name) && c.size < 512 * 1024)) bad.push(`${c.name}: not a compose file (.yaml, under 512 KiB)`);
+    if (e && !(/\.env$/i.test(e.name) && e.size < 512 * 1024)) bad.push(`${e.name}: not an env file (.env, under 512 KiB)`);
+    if (!c && !e) bad.push(hasEnv ? 'Choose a compose file, an env file or both.' : 'Choose a compose file.');
+    if (bad.length) { $('dlg-err').innerHTML = errBox(bad.join(' · ')); return; }
+    if (c) $('compose-text').value = await c.text();
+    if (e) $('env-text').value = await e.text();
+    $('compose-text').dispatchEvent(new Event('input'));
+    closeDialog();
+    saveFlow(name, live(name));
   });
 }
 
@@ -893,14 +929,15 @@ async function tabHistory(name, note = '') {
         − is the file now, + is what restoring brings back.</p>
       ${diffHtml(d.diff)}
       <div class="head-actions" style="margin-top:12px;justify-content:flex-end">
-        <button class="primary" id="hist-restore" ${d.diff ? '' : 'disabled title="Same as the file now"'}>Restore this version</button></div>`;
+        <button class="primary" id="hist-restore" ${d.diff ? '' : 'disabled title="Same as the file now"'}>${live(name) ? 'Restore and update' : 'Restore this version'}</button></div>`;
     $('hist-restore').addEventListener('click', async () => {
       $('hist-restore').disabled = true;
+      const andUpdate = live(name);
       try {
         const r = await api(`/api/stacks/${enc(name)}/restore`, { method: 'POST', body: JSON.stringify({ version }) });
         toast(`Restored ${r.restored}`);
-        tabHistory(name, `Restored ${r.restored}; the file it replaced is in the history too. The running stack gets it with the next update.`);
-        load();
+        tabHistory(name, `Restored ${r.restored}; the file it replaced is in the history too.${andUpdate ? '' : ' The stack gets it when it is created.'}`);
+        if (andUpdate) updateAfterSave(name); else load();
       } catch (e) { $('hist-err').innerHTML = errBox(e.message); $('hist-restore').disabled = false; }
     });
   };

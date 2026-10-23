@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.5
+
+- *Files* tab: *Load from files…* reads a new compose and/or env file from your computer into the editors
+  (whatever their names) and shows the difference to the stack's folder before anything is saved.
+- A running stack's folder stays what runs: on the page every save, history restore and file delete of a deployed
+  stack is followed by an update (without a pull); the plain *Save* is gone for it. A stack that is not deployed
+  is only saved, as before. When the folder already differed from the last deploy, the dialog says so. The API
+  and the client are unchanged.
+
 ## 1.0.4
 
 - *Check for updates* no longer marks an image as newer forever when only its multi-arch index changed (another
