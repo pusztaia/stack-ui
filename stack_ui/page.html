@@ -95,7 +95,7 @@
 
   /* tables */
   .table { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
-  .tr { display: grid; grid-template-columns: 36px 34px minmax(150px, 1.3fr) minmax(170px, 1.7fr) 104px 140px 124px;
+  .tr { display: grid; grid-template-columns: 36px 34px minmax(150px, 1.3fr) minmax(170px, 1.7fr) 150px 104px 140px 124px;
         gap: 10px; align-items: center; padding: 9px 12px; border-top: 1px solid var(--line-soft); }
   .tr:first-child { border-top: 0; }
   .tr.th { font-size: 12px; font-weight: 600; color: var(--muted); padding-top: 8px; padding-bottom: 8px; }
@@ -103,7 +103,7 @@
   .tr[data-row]:hover { background: var(--hover); }
   .tr.selected { background: var(--accent-soft); }
   .images .tr { grid-template-columns: minmax(220px, 2fr) 84px 110px minmax(150px, 1.4fr) 130px 44px; }
-  .conts .tr { grid-template-columns: minmax(130px, 1fr) minmax(170px, 1.6fr) minmax(110px, .9fr) 130px 170px; }
+  .conts .tr { grid-template-columns: minmax(130px, 1fr) minmax(170px, 1.6fr) minmax(110px, .9fr) 70px 150px 130px 170px; }
   .c-name { display: flex; flex-direction: column; min-width: 0; }
   .name { color: var(--text); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
   a.name:hover { color: var(--accent); }
@@ -127,6 +127,11 @@
   .t-bad { background: var(--bad-soft); color: var(--bad); }
   .t-idle { background: var(--idle-soft); color: var(--idle); }
   .tag.hl { font-size: 11px; padding: 0 6px; }
+  .hostline { display: flex; flex-wrap: wrap; gap: 4px 22px; align-items: center; margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+  .hostline:empty { display: none; }
+  .bar { display: inline-block; width: 90px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; vertical-align: middle; }
+  .bar > i { display: block; height: 100%; }
+  .b-ok > i { background: var(--ok); } .b-warn > i { background: var(--warn); } .b-bad > i { background: var(--bad); } .b-idle > i { background: var(--idle); }
   .muted { color: var(--muted); } .small { font-size: 12.5px; } .pad { padding: 18px 2px; }
   .empty { padding: 28px 18px; text-align: center; color: var(--muted); }
 
@@ -222,16 +227,17 @@
     .head-actions { width: 100%; }
     .table .th { display: none; }
     .stacks .tr { grid-template-columns: 22px 30px minmax(0, 1fr) auto;
-                  grid-template-areas: "sel state name act" "sel state cont cont" "sel state drift img"; gap: 6px 10px; }
+                  grid-template-areas: "sel state name act" "sel state cont cont" "sel state mem mem" "sel state drift img"; gap: 6px 10px; }
     .c-sel { grid-area: sel; } .c-state { grid-area: state; } .c-name { grid-area: name; } .c-cont { grid-area: cont; }
-    .c-drift { grid-area: drift; } .c-img { grid-area: img; justify-self: start; } .c-act { grid-area: act; }
-    .c-drift > .muted, .c-img > .muted { display: none; }
+    .c-drift { grid-area: drift; } .c-img { grid-area: img; justify-self: start; } .c-act { grid-area: act; } .c-mem { grid-area: mem; }
+    .c-drift > .muted, .c-img > .muted, .c-mem > .muted { display: none; }
     .images .tr { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "iname iupd iact" "iused iused iused" "isize icreated icreated"; gap: 4px 10px; }
     .i-act { grid-area: iact; }
     .i-name { grid-area: iname; } .i-upd { grid-area: iupd; } .i-used { grid-area: iused; } .i-size { grid-area: isize; }
     .i-created { grid-area: icreated; justify-self: end; }
-    .conts .tr { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "kname kact" "kimg kimg" "kstat kupd"; gap: 4px 10px; }
+    .conts .tr { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "kname kact" "kimg kimg" "kstat kupd" "kcpu kmem"; gap: 4px 10px; }
     .k-name { grid-area: kname; } .k-img { grid-area: kimg; } .k-stat { grid-area: kstat; } .k-upd { grid-area: kupd; } .k-act { grid-area: kact; }
+    .k-cpu { grid-area: kcpu; } .k-mem { grid-area: kmem; justify-self: end; }
     .hist { grid-template-columns: 1fr; }
     .res .tr { grid-template-columns: minmax(0, 1fr) auto; }
     .ctab .tr { grid-template-columns: minmax(0, 1fr); gap: 4px; }
@@ -308,6 +314,14 @@ let DRIFT = {}; let DRIFT_LOADED = false;        // name -> {state: same | diffe
 let UPDATES = { checkedAt: '', stacks: {} };     // the last image-update check
 let IMAGES = null;                               // /api/images
 let FILTER = 'all'; let QUERY = '';
+let RES = null;                                  // /api/resources: {host, containers, error}
+let RES_BUSY = false; let RES_TIMER = null;
+const REFRESH_CHOICES = [0, 5, 10, 30, 60];      // seconds between resource readings; 0: only when asked
+let REFRESH = 10;
+try {
+  const saved = localStorage.getItem('stack-ui-refresh');
+  if (saved !== null && REFRESH_CHOICES.includes(Number(saved))) REFRESH = Number(saved);
+} catch { /* storage unavailable */ }
 const SELECTED = new Set();
 let ROUTE = { view: 'stacks' };
 let FILES = null;                                // the files open on the Files tab
@@ -455,6 +469,7 @@ function render() {
   ({ stacks: viewStacks, detail: viewDetail, images: viewImages, settings: viewSettings, containers: viewContainers, logs: viewLogs,
      networks: viewNetworks, volumes: viewVolumes, secrets: viewSecrets })[ROUTE.view]();
   if (previous !== ROUTE.view) window.scrollTo(0, 0);
+  if (usesResources()) loadResources();
 }
 
 function renderBanner() {
@@ -490,6 +505,7 @@ async function load() {
   refreshViews();
   loadDrift();
   loadUpdates();
+  if (usesResources()) loadResources();
 }
 async function loadDrift() {
   try { DRIFT = await api('/api/drift'); } catch { DRIFT = {}; }
@@ -517,6 +533,62 @@ async function checkUpdates(btn) {
   btn.disabled = false; label.textContent = old;
   refreshViews();
 }
+
+// ---------- resource usage (/api/resources: the CPU and memory numbers) ----------
+const fmtMem = (n) => (n < 1024 ** 3 ? `${Math.round(n / 1024 ** 2)} MB` : `${(n / 1024 ** 3).toFixed(1)} GB`);
+const fmtCpu = (v) => (v === null || v === undefined ? '—' : `${v.toFixed(1)} %`);
+// the share of the memory limit in use: a warning from 80 %, bad from 95 %; without a limit no colour
+function memClass(used, limit) {
+  if (!limit) return '';
+  const r = used / limit;
+  return r >= 0.95 ? 't-bad' : r >= 0.8 ? 't-warn' : 't-ok';
+}
+const BAR_CLASS = { 't-ok': 'b-ok', 't-warn': 'b-warn', 't-bad': 'b-bad', '': 'b-idle' };
+function usageBar(used, total, cls) {
+  const pct = total ? Math.min(100, Math.round((used / total) * 100)) : 0;
+  return `<span class="bar ${cls}" role="img" aria-label="${pct} %"><i style="width:${pct}%"></i></span>`;
+}
+const usageOf = (name) => (RES && RES.containers[name]) || null;
+function memTag(u) {   // u: {mem, limit} (limit 0: none) or null
+  if (!u) return '<span class="muted small">—</span>';
+  const cls = memClass(u.mem, u.limit);
+  return `<span class="${cls ? `tag ${cls}` : 'small'}">${fmtMem(u.mem)}${u.limit ? ` / ${fmtMem(u.limit)}` : ''}</span>`;
+}
+// a stack's running containers: their use over their limits (the limits only count when every one has one)
+function stackUsage(s) {
+  const rows = s.containers.map((c) => usageOf(c.name)).filter(Boolean);
+  if (!rows.length) return null;
+  return { mem: rows.reduce((a, r) => a + r.mem, 0), limit: rows.every((r) => r.limit) ? rows.reduce((a, r) => a + r.limit, 0) : 0 };
+}
+function memCell(s) {
+  const u = stackUsage(s);
+  if (!u) return `<span class="muted small">${RES ? '—' : '…'}</span>`;
+  const title = s.containers.map((c) => {
+    const r = usageOf(c.name);
+    return r ? `${c.name}: ${fmtMem(r.mem)}${r.limit ? ` / ${fmtMem(r.limit)}` : ' (no limit)'} · CPU ${fmtCpu(r.cpu)}` : '';
+  }).filter(Boolean).join('\n');
+  return `<span title="${esc(title)}">${memTag(u)}</span>`;
+}
+function hostLine() {
+  const h = RES && RES.host;
+  if (!h) return '';
+  const cls = memClass(h.memUsed, h.memTotal);
+  return `<span>RAM <span class="${cls ? `tag ${cls}` : 'small'}">${fmtMem(h.memUsed)} / ${fmtMem(h.memTotal)}</span></span>
+    <span>CPU ${fmtCpu(h.cpu)} of ${h.cpus} cores</span>`;
+}
+const usesResources = () => ROUTE.view === 'stacks' || ROUTE.view === 'resources' || (ROUTE.view === 'detail' && ROUTE.tab === 'summary');
+async function loadResources() {
+  if (RES_BUSY) return;
+  RES_BUSY = true;
+  try { RES = await api('/api/resources'); } catch (e) { RES = { host: null, containers: {}, error: e.message }; }
+  RES_BUSY = false;
+  refreshViews();
+}
+function scheduleResources() {
+  clearInterval(RES_TIMER);
+  RES_TIMER = REFRESH ? setInterval(() => { if (!document.hidden && usesResources()) loadResources(); }, REFRESH * 1000) : null;
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && REFRESH && usesResources()) loadResources(); });
 
 // ---------- stacks list ----------
 const FILTERS = [
@@ -551,6 +623,7 @@ function viewStacks() {
       </div>
     </div>
     <div class="chips" id="chips" role="toolbar" aria-label="Show"></div>
+    <div class="hostline" id="hostline"></div>
     <div class="table stacks" id="table"></div>
     <div id="selbar"></div>`;
   $('q').addEventListener('input', (e) => { QUERY = e.target.value; renderTable(); });
@@ -608,6 +681,7 @@ function stackRow(s) {
     <span class="c-state"><span class="state s-${state}" title="${STATE_LABEL[state]}">${icon('stacks')}</span></span>
     <span class="c-name"><a class="name" href="#/stacks/${n}/summary">${n}</a><span class="files">${esc(s.compose)}</span></span>
     <span class="c-cont">${conts}</span>
+    <span class="c-mem">${memCell(s)}</span>
     <span class="c-drift">${driftCell(s)}</span>
     <span class="c-img">${imageCell(s.name)}</span>
     <span class="c-act">${rowActions(s)}</span>
@@ -619,6 +693,7 @@ function renderTable() {
   $('stacks-sub').textContent = LOAD_ERROR ? 'The stacks could not be read.'
     : 'The compose stacks of this host (STACKS_DIR), run with podman-compose. An update sends these files.'
       + (INFO.hideUndeployed ? ' Folders without containers are not listed.' : '');
+  $('hostline').innerHTML = hostLine();
   $('chips').innerHTML = FILTERS.map(([k, label, f]) => {
     const n = listedStacks().filter(f).length;
     if (k !== 'all' && !n && FILTER !== k) return '';
@@ -630,7 +705,7 @@ function renderTable() {
   const all = eligible.length && eligible.every((s) => SELECTED.has(s.name));
   const head = `<div class="tr th">
     <span><input type="checkbox" data-sel-all aria-label="Select every stack shown" ${all ? 'checked' : ''} ${eligible.length ? '' : 'disabled'}></span>
-    <span></span><span>Name</span><span>Containers</span><span>Deployed</span><span>Image</span><span class="r">Actions</span></div>`;
+    <span></span><span>Name</span><span>Containers</span><span>Memory</span><span>Deployed</span><span>Image</span><span class="r">Actions</span></div>`;
   const empty = !listedStacks().length
     ? `<div class="empty">${LOAD_ERROR ? 'No stack to show.' : INFO.hideUndeployed && STACKS.length ? 'No stack has containers yet.'
       : 'No stack yet: put a folder with a compose file into STACKS_DIR, or <i>Add stack</i>.'}</div>`
@@ -733,6 +808,8 @@ function tabSummary(name) {
       <span class="k-name ct"><i class="dot ${dotClass(c.state)}"></i><b>${esc(c.name)}</b></span>
       <span class="k-img files">${esc(c.image)}</span>
       <span class="k-stat small muted">${esc(c.state)} ${healthTag(c.status)}</span>
+      <span class="k-cpu small">${usageOf(c.name) ? fmtCpu(usageOf(c.name).cpu) : '—'}</span>
+      <span class="k-mem">${memTag(usageOf(c.name))}</span>
       <span class="k-upd">${updTag(c.name)}</span>
       <span class="k-act r">${INFO.podman ? `<button class="small" data-act="logs" data-container="${esc(c.name)}">${icon('logs')}Logs</button>` : ''}<button class="small" data-act="restart" data-name="${esc(name)}" data-container="${esc(c.name)}">${icon('refresh')}Restart</button></span>
     </div>`).join('');
@@ -740,7 +817,7 @@ function tabSummary(name) {
     : 'The stack is not deployed yet: <i>Create</i> starts it.';
   $('tab').innerHTML = `
     <section class="panel"><h2>Containers</h2>
-      ${s.containers.length ? `<div class="table conts"><div class="tr th"><span>Name</span><span>Image</span><span>Status</span><span>Image update</span><span></span></div>${rows}</div>`
+      ${s.containers.length ? `<div class="table conts"><div class="tr th"><span>Name</span><span>Image</span><span>Status</span><span>CPU</span><span>Memory</span><span>Image update</span><span></span></div>${rows}</div>`
         : `<p class="muted">${none}</p>`}
     </section>
     <section class="panel"><h2>Details</h2>
@@ -1616,7 +1693,19 @@ async function viewSettings() {
         it opens the API except these settings, never the page. Only its SHA-256 is kept; it is shown once.</p>
       <div class="head-actions" style="justify-content:flex-end">
         ${st.tokenSet ? '<button id="tok-revoke" class="danger">Revoke</button>' : ''}<button id="tok-new">${st.tokenSet ? 'Generate a new one' : 'Generate'}</button></div>
+    </section>
+    <section class="panel" style="max-width:640px">
+      <h2>Resource numbers</h2>
+      <p class="muted small">How often the CPU and memory numbers are read while a page that shows them is open (never while this tab is hidden). Kept in this browser.</p>
+      <label class="field"><span>Refresh</span><select id="res-refresh">${REFRESH_CHOICES.map((v) =>
+        `<option value="${v}" ${v === REFRESH ? 'selected' : ''}>${v ? `every ${v} s` : 'Off (only the reload buttons)'}</option>`).join('')}</select></label>
     </section>`;
+  $('res-refresh').addEventListener('change', (e) => {
+    REFRESH = Number(e.target.value);
+    try { localStorage.setItem('stack-ui-refresh', String(REFRESH)); } catch { /* storage unavailable */ }
+    scheduleResources();
+    toast(REFRESH ? `Resource numbers: every ${REFRESH} s` : 'Resource numbers: only when reloaded');
+  });
   const tokenCall = async (revoke) => {
     try {
       const r = await api('/api/settings/token', { method: 'POST', body: JSON.stringify({ revoke }) });
@@ -1657,6 +1746,7 @@ $('theme').addEventListener('click', () => {
   try { localStorage.setItem('stack-ui-theme', next); } catch { /* storage unavailable */ }
 });
 
+scheduleResources();
 render();
 load();
 </script>
