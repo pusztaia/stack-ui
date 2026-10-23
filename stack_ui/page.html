@@ -131,6 +131,7 @@
   .hostline:empty { display: none; }
   .bar { display: inline-block; width: 90px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; vertical-align: middle; }
   .bar > i { display: block; height: 100%; }
+  .usage .tr { grid-template-columns: minmax(150px, 1.3fr) minmax(110px, 1fr) 80px minmax(190px, 1.6fr) 90px 60px; }
   .b-ok > i { background: var(--ok); } .b-warn > i { background: var(--warn); } .b-bad > i { background: var(--bad); } .b-idle > i { background: var(--idle); }
   .muted { color: var(--muted); } .small { font-size: 12.5px; } .pad { padding: 18px 2px; }
   .empty { padding: 28px 18px; text-align: center; color: var(--muted); }
@@ -240,6 +241,7 @@
     .k-cpu { grid-area: kcpu; } .k-mem { grid-area: kmem; justify-self: end; }
     .hist { grid-template-columns: 1fr; }
     .res .tr { grid-template-columns: minmax(0, 1fr) auto; }
+    .usage .tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     .ctab .tr { grid-template-columns: minmax(0, 1fr); gap: 4px; }
     dl.kv { grid-template-columns: 1fr; gap: 2px; } dl.kv dd { margin-bottom: 8px; }
   }
@@ -251,6 +253,7 @@
     <div class="brand" title="Stack UI"><img src="/icon.svg" alt=""></div>
     <a class="nav-a" href="#/stacks" data-nav="stacks"></a>
     <a class="nav-a" href="#/containers" data-nav="containers"></a>
+    <a class="nav-a" href="#/resources" data-nav="resources"></a>
     <a class="nav-a" href="#/images" data-nav="images"></a>
     <a class="nav-a" href="#/logs" data-nav="logs"></a>
     <a class="nav-a" href="#/networks" data-nav="networks"></a>
@@ -300,6 +303,7 @@ const ICON = {
   refresh: '<path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5"/><path d="M20 4v4.5h-4.5"/><path d="M20 12a8 8 0 0 1-13.7 5.6L4 15.5"/><path d="M4 20v-4.5h4.5"/>',
   logs: '<path d="M5 6h14M5 10h14M5 14h9M5 18h11"/>',
   containers: '<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M7 7V5h10v2M7 11v4M11 11v4M15 11v4"/>',
+  resources: '<path d="M4 20V11M10 20V4M16 20v-6M22 20H2"/>',
   networks: '<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5m0 0-6 5m6-5 6 5"/>',
   volumes: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/>',
   secrets: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
@@ -438,6 +442,7 @@ function parseHash() {
   if (p[0] === 'images') return { view: 'images' };
   if (p[0] === 'settings') return { view: 'settings' };
   if (p[0] === 'containers') return { view: 'containers' };
+  if (p[0] === 'resources') return { view: 'resources' };
   if (p[0] === 'logs') return { view: 'logs', container: p[1] || '' };
   if (['networks', 'volumes', 'secrets'].includes(p[0])) return { view: p[0] };
   if (p[0] === 'stacks' && p[1]) return { view: 'detail', name: p[1], tab: TABS[p[2]] ? p[2] : 'summary' };
@@ -466,7 +471,7 @@ function render() {
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   renderBanner();
-  ({ stacks: viewStacks, detail: viewDetail, images: viewImages, settings: viewSettings, containers: viewContainers, logs: viewLogs,
+  ({ stacks: viewStacks, detail: viewDetail, images: viewImages, settings: viewSettings, containers: viewContainers, resources: viewResources, logs: viewLogs,
      networks: viewNetworks, volumes: viewVolumes, secrets: viewSecrets })[ROUTE.view]();
   if (previous !== ROUTE.view) window.scrollTo(0, 0);
   if (usesResources()) loadResources();
@@ -489,6 +494,7 @@ function refreshViews() {
     if (ROUTE.tab === 'summary') tabSummary(ROUTE.name);
   }
   if (ROUTE.view === 'images') renderImages();
+  if (ROUTE.view === 'resources') renderResources();
 }
 
 // ---------- data ----------
@@ -1678,6 +1684,37 @@ async function showCleanup() {
 }
 
 // ---------- settings ----------
+function viewResources() {
+  $('view').innerHTML = `
+    <div class="page-head">
+      <div><h1>Resources</h1><p class="sub">CPU and memory of the running containers, the largest memory use first. CPU is a share of the whole host: every core together is 100 %.</p></div>
+      <div class="head-actions"><button class="icon-btn" id="res-reload" title="Reload" aria-label="Reload">${icon('refresh')}</button></div>
+    </div>
+    <div id="res-body"><p class="muted pad">Loading…</p></div>`;
+  $('res-reload').addEventListener('click', loadResources);
+  renderResources();
+}
+function renderResources() {
+  if (ROUTE.view !== 'resources' || !$('res-body') || !RES) return;
+  const h = RES.host;
+  const owner = (name) => (STACKS.find((s) => s.containers.some((c) => c.name === name)) || {}).name || '';
+  const rows = Object.entries(RES.containers).sort((a, b) => b[1].mem - a[1].mem || a[0].localeCompare(b[0]));
+  const hostPanel = h ? `<section class="panel"><dl class="kv">
+      <dt>Memory</dt><dd>${usageBar(h.memUsed, h.memTotal, BAR_CLASS[memClass(h.memUsed, h.memTotal)])} ${fmtMem(h.memUsed)} / ${fmtMem(h.memTotal)}</dd>
+      <dt>CPU</dt><dd>${usageBar(h.cpu || 0, 100, 'b-idle')} ${fmtCpu(h.cpu)} of ${h.cpus} cores</dd></dl></section>` : '';
+  const table = rows.length ? `<div class="table usage"><div class="tr th"><span>Container</span><span>Stack</span><span>CPU</span><span>Memory</span><span>Limit</span><span>PIDs</span></div>${
+    rows.map(([name, r]) => {
+      const stack = owner(name);
+      return `<div class="tr"><span><b>${esc(name)}</b></span>
+        <span>${stack ? `<a class="tag t-idle" href="#/stacks/${enc(stack)}/summary">${esc(stack)}</a>` : '<span class="muted small">—</span>'}</span>
+        <span class="small">${fmtCpu(r.cpu)}</span>
+        <span class="small">${usageBar(r.mem, r.limit || (h ? h.memTotal : 0), BAR_CLASS[memClass(r.mem, r.limit)])} ${fmtMem(r.mem)}</span>
+        <span class="small">${r.limit ? fmtMem(r.limit) : 'no limit'}</span>
+        <span class="small">${r.pids}</span></div>`;
+    }).join('')}</div>` : '<div class="empty">No container is running.</div>';
+  $('res-body').innerHTML = `${RES.error ? errBox(RES.error) : ''}${hostPanel}${table}`;
+}
+
 async function viewSettings() {
   $('view').innerHTML = '<div class="page-head"><div><h1>Settings</h1></div></div><p class="muted pad">Loading…</p>';
   let st;
@@ -1724,7 +1761,7 @@ async function viewSettings() {
 document.querySelector('[data-nav="stacks"]').innerHTML = `${icon('stacks')}<span>Stacks</span>`;
 document.querySelector('[data-nav="images"]').innerHTML = `${icon('images')}<span>Images</span>`;
 document.querySelector('[data-nav="settings"]').innerHTML = `${icon('settings')}<span>Settings</span>`;
-for (const [k, label] of [['containers', 'Containers'], ['logs', 'Logs'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['secrets', 'Secrets']]) {
+for (const [k, label] of [['containers', 'Containers'], ['resources', 'Resources'], ['logs', 'Logs'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['secrets', 'Secrets']]) {
   document.querySelector(`[data-nav="${k}"]`).innerHTML = `${icon(k)}<span>${label}</span>`;
 }
 $('theme').innerHTML = `${icon('theme')}<span>Theme</span>`;
