@@ -21,6 +21,8 @@ class MockPodman:
         self.fail: dict[tuple[str, str], tuple[int, str]] = {}  # (method, path) -> (status, message)
         self.pull_errors: dict[str, str] = {}  # image reference -> the error the pull stream reports
         self.pulled: list[str] = []
+        self.stats: list[dict] = []        # what GET /containers/stats answers now (running containers only)
+        self.stats_next: list[list[dict]] = []   # after an answer, stats becomes the first item of this queue
         self.server = None
 
     def start(self) -> str:
@@ -62,6 +64,11 @@ def route(mock: MockPodman, h, method: str, seg: list[str], q: dict, body: bytes
         for vol in filters.get('volume', []):
             cs = [c for c in cs if vol in c.get('MockVolumes', [])]
         return h.reply(200, cs)
+    if seg == ['containers', 'stats']:
+        answer = {'Error': None, 'Stats': mock.stats}
+        if mock.stats_next:
+            mock.stats = mock.stats_next.pop(0)
+        return h.reply(200, answer)
     if seg[0] == 'containers' and len(seg) >= 2:
         c = next((c for c in mock.containers if seg[1] in (c['Id'], c['Names'][0])), None)
         if c is None:

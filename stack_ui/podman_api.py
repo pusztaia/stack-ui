@@ -119,6 +119,12 @@ def container_action(cid: str, action: str) -> None:
     request('POST', f'/containers/{quote(cid, safe="")}/{action}', query=query, timeout=90)
 
 
+def container_stats() -> list[dict]:
+    """One reading of every running container's resource use. The CPU fields are totals since the container
+    started (CPUNano: its CPU time, SystemNano: the time of the reading), so a percentage needs two readings."""
+    return (call('GET', '/containers/stats', query={'stream': 'false'}) or {}).get('Stats') or []
+
+
 def remove_container(cid: str) -> None:
     request('DELETE', f'/containers/{quote(cid, safe="")}', query={'force': 'true'}, timeout=90)
 
