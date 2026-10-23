@@ -37,6 +37,20 @@ class ImagesTest(Base):
         self.patch(self.ui, 'check_ref', lambda ref, local, platform: (('sha256:aaa',), ''))
         self.assertEqual(self.ui.updates(check=True)['stacks']['web']['status'], 'current')
 
+    def test_local_image_with_a_digest_is_built_here(self):
+        # podman gives an image built on the host a digest too (localhost/name@sha256:...): it is still "built
+        # here", never a failed registry check
+        make_stack(self.stacks, 'tools', compose_yaml('tools'))
+        self.mock.add_container('tools', project='tools', image='localhost/tools:1.3-beta', image_id='built1')
+        self.mock.images.append({'Id': 'built1', 'RepoTags': ['localhost/tools:1.3-beta'],
+                                 'RepoDigests': ['localhost/tools@sha256:loc'], 'Size': 10, 'Created': 3,
+                                 'Os': 'linux', 'Architecture': 'arm64'})
+        self.patch(self.ui, 'check_ref', lambda ref, local, platform: (('sha256:aaa',), '') if 'nginx' in ref
+                   else self.fail(f'{ref} must not be asked of a registry'))
+        tools = self.ui.updates(check=True)['stacks']['tools']
+        self.assertEqual(tools['status'], 'local')
+        self.assertEqual(tools['images'][0]['message'], 'built here: not checked')
+
     def registry(self, index_digest: str, arm64_digest: str) -> list[str]:
         """A registry serving a multi-arch index for every tag; the methods it was asked with."""
         index = {'manifests': [

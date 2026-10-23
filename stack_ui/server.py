@@ -632,7 +632,7 @@ def updates(check: bool) -> dict:
     if check:
         local: dict[str, set[str]] = {}
         platforms: dict[str, tuple[str, str, str] | None] = {}
-        for r in (r for rows in images.values() for r in rows if r['digests']):
+        for r in (r for rows in images.values() for r in rows if r['digests'] and parse_ref(r['image'])):
             local.setdefault(r['image'], set()).update(r['digests'])
             platforms[r['image']] = platforms.get(r['image']) or r['platform']
         refs = sorted(local)
@@ -646,7 +646,9 @@ def updates(check: bool) -> dict:
         listed = []
         for r in rows:
             digests, error = REMOTE.get(r['image'], ((), 'not checked yet'))
-            status = ('local' if not r['digests'] else 'unknown' if not digests
+            # built on this host (podman gives such an image a localhost/... digest too) or pinned to a digest:
+            # nothing to ask a registry about
+            status = ('local' if not r['digests'] or parse_ref(r['image']) is None else 'unknown' if not digests
                       else 'current' if any(d in r['digests'] for d in digests) else 'update')
             message = ('built here: not checked' if status == 'local' else error if status == 'unknown'
                        else 'a newer image is in the registry' if status == 'update' else 'up to date')

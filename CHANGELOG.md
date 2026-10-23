@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.10
+
+- *Check for updates*: an image built on the host (`localhost/…`, which Podman gives a digest too) or pinned to a
+  digest shows *Built here* and is never asked of a registry; before, it was counted as a failed check ("The
+  registry could not be asked for 1 stack").
+
 ## 1.0.9
 
 - *Delete stack* can delete the stack's folder too: a tick box (on by default) in the dialog, which lists the
