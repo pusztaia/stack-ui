@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.9
+
+- *Delete stack* can delete the stack's folder too: a tick box (on by default) in the dialog, which lists the
+  folder's files and sizes first and warns when it holds subfolders (a compose file may mount one, e.g. `./data`,
+  and that is the application's own data). Only a plain folder directly inside `STACKS_DIR` is removed, and only
+  after the containers are gone. Data outside the folder stays.
+- A stack without containers (a leftover folder) has *Delete stack folder…* too, which removes only the folder.
+
 ## 1.0.8
 
 - The running version shows on every page: small under the menu (`v1.0.8`, with a tooltip) and in the browser

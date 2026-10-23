@@ -433,7 +433,7 @@ function moreItems(name) {
     { label: 'History', run: () => go(`#/stacks/${enc(name)}/history`) },
     { label: 'Compare with deployed', disabled: !s?.stack, run: () => go(`#/stacks/${enc(name)}/diff`) },
   ];
-  if (s?.stack && !s.protected) items.push({ sep: true }, { label: 'Delete stack…', danger: true, run: () => showDelete(name) });
+  if (s && !s.protected) items.push({ sep: true }, { label: s.stack ? 'Delete stack…' : 'Delete stack folder…', danger: true, run: () => showDelete(name) });
   return items;
 }
 
@@ -1121,25 +1121,48 @@ function confirmRestart(name, container) {
   });
 }
 
-function showDelete(name) {
-  const what = `Stops and removes the containers of <b>${esc(name)}</b> (podman-compose down).`;
-  openDialog(`Delete ${name}`,
+async function showDelete(name) {
+  const live = !!stackOf(name)?.stack;   // a stack without containers: only its folder can go
+  const title = `Delete ${name}`;
+  openDialog(title, '<p class="muted">Loading…</p>');
+  let f;
+  try { f = await api(`/api/stacks/${enc(name)}/folder`); } catch (e) { return openDialog(title, errBox(e.message)); }
+  const list = f.entries.map((e) => `<li><code>${esc(e.name)}${e.dir ? '/' : ''}</code> <span class="muted small">${fmtBytes(e.size)}${e.dir && !e.complete ? '+' : ''}</span></li>`).join('');
+  const what = live ? `Stops and removes the containers of <b>${esc(name)}</b> (podman-compose down).`
+    : `<b>${esc(name)}</b> has no containers of its own; no container is touched.`;
+  openDialog(title,
     `<div id="dlg-err"></div>
-     <p>${what}
-        The stack's files and the data on the host stay; <i>Create</i> brings the stack back.</p>
+     <p>${what} Data the containers keep elsewhere on the host stays.</p>
+     <label style="display:flex;gap:8px;align-items:center;margin:8px 0"><input type="checkbox" id="del-folder" style="width:auto" checked ${live ? '' : 'disabled'}>
+       <span>Also delete the stack's folder (compose file, env file, history)</span></label>
+     <div id="del-info">
+       <ul class="small" style="margin:6px 0 10px;padding-left:20px">${list || '<li class="muted">(empty)</li>'}</ul>
+       ${f.hasFolders ? '<div class="warn-note">The folder contains subfolders. If the compose file mounts one of them (for example <code>./data</code>), it holds the application\'s own data, and that goes with the folder.</div>' : ''}
+       <p class="muted small">This cannot be undone: the folder is not in git and its history goes with it.</p>
+     </div>
      <label class="field"><span>Type <b>${esc(name)}</b> to confirm</span><input type="text" id="del-name" autocomplete="off" spellcheck="false"></label>`,
-    '<button data-close>Cancel</button><button class="danger" id="do-delete" disabled>Delete stack</button>');
-  $('del-name').addEventListener('input', () => { $('do-delete').disabled = $('del-name').value !== name; });
+    '<button data-close>Cancel</button><button class="danger" id="do-delete" disabled></button>');
+  const label = () => (live ? ($('del-folder').checked ? 'Delete stack and folder' : 'Delete stack') : 'Delete folder');
+  const sync = () => {
+    $('do-delete').textContent = label();
+    $('del-info').hidden = !$('del-folder').checked;
+    $('do-delete').disabled = $('del-name').value !== name;
+  };
+  $('del-folder').addEventListener('change', sync);
+  $('del-name').addEventListener('input', sync);
+  sync();
   $('del-name').focus();
   $('do-delete').addEventListener('click', async () => {
+    const withFolder = $('del-folder').checked;
     $('do-delete').disabled = true; $('do-delete').textContent = 'Deleting…';
     try {
-      await api(`/api/stacks/${enc(name)}/delete`, { method: 'POST', body: JSON.stringify({ confirm: $('del-name').value }) });
+      await api(`/api/stacks/${enc(name)}/delete`, { method: 'POST', body: JSON.stringify({ confirm: $('del-name').value, deleteFolder: withFolder }) });
       closeDialog();
       SELECTED.delete(name);
-      toast(`Deleted ${name}`);
+      toast(withFolder ? `Deleted ${name} and its folder` : `Deleted ${name}`);
+      if (withFolder && ROUTE.view === 'detail' && ROUTE.name === name) go('#/stacks');
     } catch (e) {
-      $('dlg-err').innerHTML = errBox(e.message); $('do-delete').textContent = 'Delete stack'; $('do-delete').disabled = false;
+      $('dlg-err').innerHTML = errBox(e.message); sync();
     }
     load();
   });

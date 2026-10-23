@@ -29,6 +29,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import sys
 import threading
 import time
@@ -1294,17 +1295,65 @@ def run_deploy(name: str, pull: bool, remove: list[str], only_update: bool = Fal
             return {'ok': False, 'log': log + [f'ERROR: {exc}']}
 
 
+OWN_FOLDERS = ('.history', st.DEPLOYED)   # Stack UI's own folders in a stack's folder: not the application's data
+
+
+def dir_size(path: Path, limit: int = 50_000) -> tuple[int, bool]:
+    """(bytes of the files below path, whether every file was counted: it stops after limit files)."""
+    total = count = 0
+    for root, _, files in os.walk(path):
+        for fname in files:
+            count += 1
+            if count > limit:
+                return total, False
+            try:
+                total += (Path(root) / fname).lstat().st_size
+            except OSError:
+                pass
+    return total, True
+
+
+def stack_folder(name: str) -> dict:
+    """What deleting the stack's folder removes: its entries with sizes. hasFolders: it holds a folder besides
+    Stack UI's own, and a compose file can mount such a folder (./data), so it may hold the application's data."""
+    folder, _, _ = find_module(name)
+    entries = []
+    for p in sorted(folder.iterdir(), key=lambda x: x.name):
+        if p.is_dir() and not p.is_symlink():
+            size, complete = dir_size(p)
+            entries.append({'name': p.name, 'dir': True, 'size': size, 'complete': complete})
+        else:
+            entries.append({'name': p.name, 'dir': False, 'size': p.lstat().st_size, 'complete': True})
+    return {'entries': entries, 'hasFolders': any(e['dir'] and e['name'] not in OWN_FOLDERS for e in entries)}
+
+
+def remove_stack_folder(folder: Path) -> None:
+    """Delete a stack's folder: only a plain folder directly inside STACKS_DIR (never a link, never STACKS_DIR)."""
+    if folder.is_symlink() or not folder.is_dir() or folder.resolve().parent != st.STACKS_DIR.resolve():
+        raise ValueError(f'"{folder.name}" is not a plain folder of STACKS_DIR: it is not deleted')
+    try:
+        shutil.rmtree(folder)
+    except OSError as exc:
+        raise ValueError(f'the folder could not be deleted completely: {exc}') from None
+
+
 def stack_action(name: str, action: str, data: dict) -> dict:
-    """start, stop or delete the stack; delete needs {confirm: <name>}."""
+    """start, stop or delete the stack; delete needs {confirm: <name>} and, to remove the stack's folder too,
+    {deleteFolder: true} (a stack without containers can only be deleted that way)."""
     folder, compose_file, env_file = find_module(name)
     if action == 'delete' and data.get('confirm') != name:
         raise ValueError(f'type the stack name "{name}" to delete it')
     refuse_protected(name)
+    remove_folder = action == 'delete' and data.get('deleteFolder') is True
     with DEPLOY_LOCK:
-        if not deployed(name, require_podman_state()):
+        live = deployed(name, require_podman_state())
+        if not live and not remove_folder:
             raise NotDeployed(name)
-        st.stack_action(folder, compose_file, env_file, action, log=lambda _: None)
-    return {'ok': True, 'action': action}
+        if live:
+            st.stack_action(folder, compose_file, env_file, action, log=lambda _: None)
+        if remove_folder:
+            remove_stack_folder(folder)
+    return {'ok': True, 'action': action, 'folderRemoved': remove_folder}
 
 
 def restart(name: str, data: dict) -> dict:
@@ -1548,6 +1597,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json(200, stack_action(name, action, data))
                 if method == 'POST' and action == 'restart':
                     return self.json(200, restart(name, data))
+                if method == 'GET' and action == 'folder':
+                    return self.json(200, stack_folder(name))
                 if method == 'GET' and action == 'history':
                     version = (query.get('version') or [''])[0]
                     return self.json(200, history_version(name, version) if version else {'versions': history(name)})
