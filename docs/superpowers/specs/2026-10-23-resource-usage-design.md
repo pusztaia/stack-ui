@@ -52,6 +52,9 @@ stats thread (runs when nobody looks).
     measured against the second sample taken for it (see *First call*).
   - **First call**, or a call where a running container has no usable previous sample: a second stats call 1 s
     later, so the page has numbers at once. Otherwise the stored sample is used, however old.
+  - **Readings closer than 1 s** (two open tabs, the reload button pressed twice): the stored sample is kept and
+    the last value is repeated, so a few milliseconds never give a noisy percentage. The same for the host's CPU
+    (less than one second of ticks, `USER_HZ` = 100 per core).
   - **Limit**: `MemLimit`, or `null` when it is 0 or at least the host's total memory (no limit set).
   - **Host memory** from `/proc/meminfo`: `memTotal` = `MemTotal`, `memUsed` = `MemTotal − MemAvailable` (bytes).
     Inside the container `/proc/meminfo` and `/proc/stat` show the host's values.
