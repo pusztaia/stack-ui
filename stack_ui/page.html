@@ -94,8 +94,8 @@
   button.chip.c-warn b { color: var(--warn); }
 
   /* tables */
-  .table { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
-  .tr { display: grid; grid-template-columns: 36px 34px minmax(150px, 1.3fr) minmax(170px, 1.7fr) 150px 104px 140px 124px;
+  .table { border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; overflow-y: hidden; background: var(--panel); }
+  .tr { display: grid; grid-template-columns: 36px 34px minmax(150px, 1.3fr) minmax(150px, 1.7fr) 130px 104px 140px 124px;
         gap: 10px; align-items: center; padding: 9px 12px; border-top: 1px solid var(--line-soft); }
   .tr:first-child { border-top: 0; }
   .tr.th { font-size: 12px; font-weight: 600; color: var(--muted); padding-top: 8px; padding-bottom: 8px; }
@@ -103,7 +103,7 @@
   .tr[data-row]:hover { background: var(--hover); }
   .tr.selected { background: var(--accent-soft); }
   .images .tr { grid-template-columns: minmax(220px, 2fr) 84px 110px minmax(150px, 1.4fr) 130px 44px; }
-  .conts .tr { grid-template-columns: minmax(130px, 1fr) minmax(170px, 1.6fr) minmax(110px, .9fr) 70px 150px 130px 170px; }
+  .conts .tr { grid-template-columns: minmax(120px, 1fr) minmax(140px, 1.6fr) minmax(100px, .9fr) 64px 130px 130px 170px; }
   .c-name { display: flex; flex-direction: column; min-width: 0; }
   .name { color: var(--text); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
   a.name:hover { color: var(--accent); }
@@ -583,12 +583,31 @@ function hostLine() {
     <span>CPU ${fmtCpu(h.cpu)} of ${h.cpus} cores</span>`;
 }
 const usesResources = () => ROUTE.view === 'stacks' || ROUTE.view === 'resources' || (ROUTE.view === 'detail' && ROUTE.tab === 'summary');
+// new numbers without redrawing the view: a redraw every few seconds would take the keyboard focus and a text selection away
+function refreshResourceCells() {
+  if (ROUTE.view === 'stacks' && $('hostline')) {
+    $('hostline').innerHTML = hostLine();
+    document.querySelectorAll('#table [data-row]').forEach((row) => {
+      const s = stackOf(row.dataset.row);
+      const cell = row.querySelector('.c-mem');
+      if (s && cell) cell.innerHTML = memCell(s);
+    });
+  } else if (ROUTE.view === 'detail' && ROUTE.tab === 'summary' && $('tab')) {
+    document.querySelectorAll('#tab .conts .tr[data-container]').forEach((row) => {
+      const r = usageOf(row.dataset.container);
+      row.querySelector('.k-cpu').textContent = r ? fmtCpu(r.cpu) : '—';
+      row.querySelector('.k-mem').innerHTML = memTag(r);
+    });
+  } else {
+    refreshViews();
+  }
+}
 async function loadResources() {
   if (RES_BUSY) return;
   RES_BUSY = true;
   try { RES = await api('/api/resources'); } catch (e) { RES = { host: null, containers: {}, error: e.message }; }
   RES_BUSY = false;
-  refreshViews();
+  refreshResourceCells();
 }
 function scheduleResources() {
   clearInterval(RES_TIMER);
@@ -810,7 +829,7 @@ function tabSummary(name) {
     const text = { update: 'Update available', current: 'Up to date', local: 'Built here', unknown: 'Check failed' }[i.status] || '—';
     return `<span class="tag ${cls}" title="${esc(i.message)}">${text}</span>`;
   };
-  const rows = s.containers.map((c) => `<div class="tr">
+  const rows = s.containers.map((c) => `<div class="tr" data-container="${esc(c.name)}">
       <span class="k-name ct"><i class="dot ${dotClass(c.state)}"></i><b>${esc(c.name)}</b></span>
       <span class="k-img files">${esc(c.image)}</span>
       <span class="k-stat small muted">${esc(c.state)} ${healthTag(c.status)}</span>

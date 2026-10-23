@@ -13,9 +13,10 @@ HOST_MEM = 4_096_000_000       # MemTotal in bytes
 HOST_USED = 3_072_000_000      # MemTotal - MemAvailable in bytes
 
 
-def stat(name, cpu_ns, sys_ns, mem=100_000_000, limit=268_435_456, pids=3):
+def stat(name, cpu_ns, sys_ns, mem=100_000_000, limit=268_435_456, pids=3, cid=None):
     """One entry of Podman's containers/stats answer (the keys the page's server reads)."""
-    return {'Name': name, 'CPUNano': cpu_ns, 'SystemNano': sys_ns, 'MemUsage': mem, 'MemLimit': limit, 'PIDs': pids}
+    return {'ContainerID': cid or f'id-{name}', 'Name': name, 'CPUNano': cpu_ns, 'SystemNano': sys_ns,
+            'MemUsage': mem, 'MemLimit': limit, 'PIDs': pids}
 
 
 def proc_stat(user, system, idle):
@@ -96,6 +97,16 @@ class UsageTest(Base):
         self.pauses = 0
         self.mock.stats = [stat('app', 100, 12_000_000_000)]   # its CPU time went down: it was restarted
         self.mock.stats_next = [[stat('app', 400_000_100, 13_000_000_000)]]
+        r = self.ui.resources()
+        self.assertEqual(self.pauses, 1)
+        self.assertEqual(r['containers']['app']['cpu'], 10.0)
+
+    def test_recreated_container_is_measured_again(self):
+        self.first_call()
+        self.pauses = 0
+        # the same name, a new container (podman-compose up): its CPU time is already above the old reading
+        self.mock.stats = [stat('app', 9_000_000_000, 12_000_000_000, cid='id-new')]
+        self.mock.stats_next = [[stat('app', 9_400_000_000, 13_000_000_000, cid='id-new')]]
         r = self.ui.resources()
         self.assertEqual(self.pauses, 1)
         self.assertEqual(r['containers']['app']['cpu'], 10.0)

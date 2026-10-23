@@ -665,7 +665,7 @@ SECOND_READING_WAIT = 1.2              # seconds between the two readings of a f
 MIN_INTERVAL_NS = 1_000_000_000        # readings closer than this repeat the last value
 USER_HZ = 100                          # ticks per second in /proc/stat
 RESOURCES_LOCK = threading.Lock()
-SAMPLES: dict[str, tuple[int, int]] = {}   # container name -> (CPUNano, SystemNano) of its last reading
+SAMPLES: dict[str, tuple[str, int, int]] = {}   # container name -> (its ID, CPUNano, SystemNano) of its last reading
 SHARES: dict[str, float] = {}              # container name -> its last CPU percent
 HOST_SAMPLE: tuple[int, int] | None = None  # (busy, total) ticks of the last /proc/stat reading
 HOST_LAST: float | None = None             # the host's last CPU percent
@@ -721,15 +721,16 @@ def cpu_shares(stats: list[dict], cpus: int) -> tuple[dict[str, float | None], b
         if not name:
             continue
         names.add(name)
+        cid = str(s.get('ContainerID') or '')
         now = (int(s.get('CPUNano') or 0), int(s.get('SystemNano') or 0))
-        prev = SAMPLES.get(name)
+        prev = SAMPLES[name][1:] if name in SAMPLES and SAMPLES[name][0] == cid else None   # a new container of that name: none
         if prev and now[0] >= prev[0] and now[1] - prev[1] >= MIN_INTERVAL_NS:
-            SAMPLES[name] = now
+            SAMPLES[name] = (cid, *now)
             SHARES[name] = out[name] = round(max(0.0, (now[0] - prev[0]) / (now[1] - prev[1]) / cpus * 100), 1)
         elif prev and now[0] >= prev[0] and 0 <= now[1] - prev[1] < MIN_INTERVAL_NS and name in SHARES:
             out[name] = SHARES[name]   # read again within a second: the last value stands
-        else:                          # the first reading, or a restarted container (its CPU time went down)
-            SAMPLES[name] = now
+        else:                          # the first reading, a restarted or recreated container
+            SAMPLES[name] = (cid, *now)
             SHARES.pop(name, None)
             out[name] = None
             missing = True
