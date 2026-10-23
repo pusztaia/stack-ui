@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4
+
+- *Check for updates* no longer marks an image as newer forever when only its multi-arch index changed (another
+  platform's image, attestations) while this host's image stays the same (e.g. `redis:8-alpine` on arm64): when
+  the tag's digest is not a local one, the index is read once and its manifest for the host's platform counts.
+
 ## 1.0.3
 
 - `STACK_UI_HIDE_UNDEPLOYED=true`: the Stacks page lists only the stacks that have containers (running or

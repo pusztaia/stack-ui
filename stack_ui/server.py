@@ -498,11 +498,12 @@ def upload(data: dict) -> dict:
 # ---------- image updates: the registry's digest of each image tag against the one the container runs ----------
 
 REGISTRY_SCHEME = 'https'
-MANIFEST_TYPES = ', '.join(('application/vnd.oci.image.index.v1+json',
-                            'application/vnd.docker.distribution.manifest.list.v2+json',
-                            'application/vnd.docker.distribution.manifest.v2+json',
+INDEX_TYPES = ('application/vnd.oci.image.index.v1+json', 'application/vnd.docker.distribution.manifest.list.v2+json')
+MANIFEST_TYPES = ', '.join((*INDEX_TYPES, 'application/vnd.docker.distribution.manifest.v2+json',
                             'application/vnd.oci.image.manifest.v1+json'))
-REMOTE: dict[str, tuple[str, str]] = {}  # image reference -> (registry digest or '', error) of the last check
+# image reference -> (the registry digests that mean "current": the tag's, and its manifest for this host's
+# platform when the tag is a multi-arch index; empty when unknown, error) of the last check
+REMOTE: dict[str, tuple[tuple[str, ...], str]] = {}
 UPDATES_LOCK = threading.Lock()
 CHECKED_AT = ''
 
@@ -522,47 +523,72 @@ def parse_ref(ref: str) -> tuple[str, str, str] | None:
     return registry, name, tag
 
 
-def registry_head(url: str, token: str = '') -> str:
+def registry_fetch(url: str, token: str, method: str) -> tuple[str, str, bytes]:
+    """(digest, media type, body: only for GET) of a manifest request."""
     headers = {'Accept': MANIFEST_TYPES, **({'Authorization': f'Bearer {token}'} if token else {})}
-    with urllib.request.urlopen(urllib.request.Request(url, method='HEAD', headers=headers), timeout=15) as resp:
-        return resp.headers.get('Docker-Content-Digest', '')
+    with urllib.request.urlopen(urllib.request.Request(url, method=method, headers=headers), timeout=15) as resp:
+        return (resp.headers.get('Docker-Content-Digest', ''), resp.headers.get('Content-Type', '').split(';')[0].strip(),
+                resp.read() if method == 'GET' else b'')
 
 
-def remote_digest(registry: str, repo: str, tag: str) -> str:
-    """The digest the registry serves for the tag (a HEAD request; anonymous token when it asks for one)."""
-    url = f'{REGISTRY_SCHEME}://{registry}/v2/{repo}/manifests/{tag}'
-    try:
-        return registry_head(url)
-    except urllib.error.HTTPError as exc:
-        if exc.code != 401:
-            raise
-        challenge = exc.headers.get('WWW-Authenticate', '')
+def registry_token(challenge: str, registry: str, repo: str) -> str:
+    """An anonymous pull token for the registry's Bearer challenge."""
     params = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
     if not challenge.lower().startswith('bearer') or 'realm' not in params:
         raise ValueError('the registry asks for a login')
     query = urlencode({'service': params.get('service', registry), 'scope': params.get('scope', f'repository:{repo}:pull')})
     with urllib.request.urlopen(f'{params["realm"]}?{query}', timeout=15) as resp:
         data = json.loads(resp.read().decode('utf-8'))
-    return registry_head(url, data.get('token') or data.get('access_token') or '')
+    return data.get('token') or data.get('access_token') or ''
 
 
-def check_ref(ref: str) -> tuple[str, str]:
+def platform_digest(index: dict, platform: tuple[str, str, str]) -> list[str]:
+    """The digest of the index's manifest for (os, architecture, variant); a missing variant matches any."""
+    os_, arch, variant = platform
+    found = [m for m in index.get('manifests') or [] if isinstance(m, dict) and isinstance(m.get('platform'), dict)
+             and m['platform'].get('os') == os_ and m['platform'].get('architecture') == arch]
+    exact = [m for m in found if variant and m['platform'].get('variant') == variant]
+    return [str((exact or found)[0].get('digest') or '')] if found else []
+
+
+def remote_digests(registry: str, repo: str, tag: str, local: set[str], platform: tuple[str, str, str] | None) -> tuple[str, ...]:
+    """The digests the registry serves for the tag: a HEAD request (anonymous token when it asks for one). When
+    the tag's digest is not one of the local ones and it is a multi-arch index, the index is read too (one GET,
+    only then: registries count those) for the manifest of this host's platform: an index changes when another
+    platform's image does, while this host's stays the same."""
+    url = f'{REGISTRY_SCHEME}://{registry}/v2/{repo}/manifests/{tag}'
+    token = ''
+    try:
+        digest, media_type, _ = registry_fetch(url, token, 'HEAD')
+    except urllib.error.HTTPError as exc:
+        if exc.code != 401:
+            raise
+        token = registry_token(exc.headers.get('WWW-Authenticate', ''), registry, repo)
+        digest, media_type, _ = registry_fetch(url, token, 'HEAD')
+    if not digest or digest in local or media_type not in INDEX_TYPES or platform is None:
+        return (digest,) if digest else ()
+    _, _, body = registry_fetch(f'{REGISTRY_SCHEME}://{registry}/v2/{repo}/manifests/{digest}', token, 'GET')
+    return (digest, *platform_digest(json.loads(body.decode('utf-8')), platform))
+
+
+def check_ref(ref: str, local: set[str], platform: tuple[str, str, str] | None) -> tuple[tuple[str, ...], str]:
     parsed = parse_ref(ref)
     if parsed is None:
-        return '', 'pinned to a digest or built locally'
+        return (), 'pinned to a digest or built locally'
     try:
-        digest = remote_digest(*parsed)
-        return (digest, '') if digest else ('', 'the registry sent no digest')
+        digests = remote_digests(*parsed, local, platform)
+        return (digests, '') if digests else ((), 'the registry sent no digest')
     except urllib.error.HTTPError as exc:
-        return '', f'registry: HTTP {exc.code}'
+        return (), f'registry: HTTP {exc.code}'
     except (urllib.error.URLError, OSError, ValueError) as exc:
-        return '', f'registry: {exc}'
+        return (), f'registry: {exc}'
 
 
 def stack_images() -> dict[str, list[dict]]:
-    """{stack: [{container, image, digests}]}: the registry digests of the image each container runs."""
+    """{stack: [{container, image, digests, platform}]}: the registry digests and the platform (os, architecture,
+    variant; None when unknown) of the image each container runs."""
     containers = pa.containers()
-    inspected: dict[str, list[str]] = {}
+    inspected: dict[str, dict] = {}
     found = {}
     for folder, compose_file, _ in st.discover():
         names = st.container_names((folder / compose_file).read_text(encoding='utf-8'))
@@ -572,8 +598,12 @@ def stack_images() -> dict[str, list[dict]]:
                 continue
             image_id = str(c.get('ImageID') or '')
             if image_id not in inspected:
-                inspected[image_id] = [d.split('@', 1)[1] for d in pa.image(image_id).get('RepoDigests') or [] if '@' in d]
-            rows.append({'container': st.cname(c), 'image': str(c.get('Image') or ''), 'digests': inspected[image_id]})
+                info = pa.image(image_id)
+                os_, arch = str(info.get('Os') or ''), str(info.get('Architecture') or '')
+                inspected[image_id] = {
+                    'digests': [d.split('@', 1)[1] for d in info.get('RepoDigests') or [] if '@' in d],
+                    'platform': (os_, arch, str(info.get('Variant') or '')) if os_ and arch else None}
+            rows.append({'container': st.cname(c), 'image': str(c.get('Image') or ''), **inspected[image_id]})
         if rows:
             found[folder.name] = rows
     return found
@@ -588,9 +618,14 @@ def updates(check: bool) -> dict:
         return {'checkedAt': '', 'stacks': {}}
     images = stack_images()
     if check:
-        refs = sorted({r['image'] for rows in images.values() for r in rows if r['digests']})
+        local: dict[str, set[str]] = {}
+        platforms: dict[str, tuple[str, str, str] | None] = {}
+        for r in (r for rows in images.values() for r in rows if r['digests']):
+            local.setdefault(r['image'], set()).update(r['digests'])
+            platforms[r['image']] = platforms.get(r['image']) or r['platform']
+        refs = sorted(local)
         with ThreadPoolExecutor(max_workers=4) as pool:
-            results = dict(zip(refs, pool.map(check_ref, refs)))
+            results = dict(zip(refs, pool.map(lambda ref: check_ref(ref, local[ref], platforms[ref]), refs)))
         with UPDATES_LOCK:
             REMOTE.update(results)
             CHECKED_AT = datetime.now(timezone.utc).isoformat(timespec='seconds')
@@ -598,9 +633,9 @@ def updates(check: bool) -> dict:
     for name, rows in images.items():
         listed = []
         for r in rows:
-            digest, error = REMOTE.get(r['image'], ('', 'not checked yet'))
-            status = ('local' if not r['digests'] else 'unknown' if not digest
-                      else 'current' if digest in r['digests'] else 'update')
+            digests, error = REMOTE.get(r['image'], ((), 'not checked yet'))
+            status = ('local' if not r['digests'] else 'unknown' if not digests
+                      else 'current' if any(d in r['digests'] for d in digests) else 'update')
             message = ('built here: not checked' if status == 'local' else error if status == 'unknown'
                        else 'a newer image is in the registry' if status == 'update' else 'up to date')
             listed.append({'container': r['container'], 'image': r['image'], 'status': status, 'message': message})

@@ -80,7 +80,7 @@ class ServerTest(Base):
         self.assertTrue({r['name']: r for r in self.ui.network_list()['networks']}['lan']['protected'])
 
     def test_settings_view(self):
-        self.assertEqual(self.ui.settings_view(), {'tokenSet': False, 'version': '1.0.3'})
+        self.assertEqual(self.ui.settings_view(), {'tokenSet': False, 'version': '1.0.4'})
 
     def test_main_requires_stacks_dir(self):
         self.patch(st, 'STACKS_DIR', None)
