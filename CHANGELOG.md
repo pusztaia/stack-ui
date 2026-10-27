@@ -8,6 +8,9 @@
   earlier keeps working with its own count; sign-in takes correspondingly longer on a small board.
 - `client/stack-ui-client.py` warns once when `STACK_UI_URL` is plain http to another machine: the API token and
   the stack files would cross the network unencrypted.
+- The image is built from pinned parts: the base image by digest, the Python packages by hash
+  (`requirements.txt`, `pip --require-hashes`), and the release workflow's actions by commit; the release image
+  carries a build provenance and an SBOM. Dependabot proposes updates to all three weekly.
 
 ## 1.0.12
 

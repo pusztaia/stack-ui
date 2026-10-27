@@ -2,13 +2,17 @@
 # podman-remote runs as `podman` (podman-compose takes only that bare name or a full path); CONTAINER_HOST makes
 # it talk to the mounted Podman socket. The image runs as root: with a rootful socket it must (the socket is
 # root's); with a rootless one, rootless Podman maps root in the container to your user.
-FROM python:3.13-slim-trixie
+# The base image is pinned by digest (Dependabot proposes the next one); the tag says which release it is.
+FROM python:3.13-slim-trixie@sha256:b3575dcf816cdacc5292df77a6e3e59b8941631078373a045efa2ac1e9c5c3b2
 
+# requirements.txt lists the exact files (with their hashes) pip may install
+COPY requirements.txt /tmp/requirements.txt
 RUN apt-get update \
     && apt-get install -y --no-install-recommends podman-remote \
     && ln -s /usr/bin/podman-remote /usr/local/bin/podman \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir pyyaml==6.0.2 podman-compose==1.6.0
+    && pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 WORKDIR /app
 COPY stack_ui/ ./stack_ui/
