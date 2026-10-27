@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.12
+
+- *Check for updates*: a registry can no longer send the page somewhere else. The address it names for an anonymous
+  pull token, and every redirect it answers with, must be https and either the registry's own host or a host that
+  resolves only to public addresses; otherwise the check of that image fails with a message
+  ("the registry named a token address that is not allowed"). Before, any URL was fetched (`file:`, plain http,
+  localhost, the LAN, a cloud metadata address).
+
 ## 1.0.11
 
 Security fixes from an audit.

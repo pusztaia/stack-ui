@@ -30,6 +30,7 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import sys
 import threading
 import time
@@ -542,10 +543,37 @@ def parse_ref(ref: str) -> tuple[str, str, str] | None:
     return registry, name, tag
 
 
+def target_ok(url: str, trusted_host: str) -> bool:
+    """Whether the page may ask a registry's token address or redirect: https, and either the registry's own host
+    or a host that resolves only to public addresses (a registry cannot send the page to localhost, the LAN or a
+    cloud metadata address, nor to a file: URL)."""
+    parts = urlsplit(url)
+    host = (parts.hostname or '').lower()
+    if parts.scheme != REGISTRY_SCHEME or not host:
+        return False
+    if host == trusted_host.lower():
+        return True
+    try:
+        found = {plain_address(info[4][0]) for info in socket.getaddrinfo(host, parts.port or 443, proto=socket.IPPROTO_TCP)}
+    except (OSError, UnicodeError, ValueError):
+        return False
+    return bool(found) and all(a is not None and a.is_global for a in found)
+
+
+class SafeRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not target_ok(newurl, urlsplit(req.full_url).hostname or ''):
+            raise urllib.error.URLError(f'a redirect to {urlsplit(newurl).netloc or newurl} is not followed')
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+REGISTRY_OPENER = urllib.request.build_opener(SafeRedirect)
+
+
 def registry_fetch(url: str, token: str, method: str) -> tuple[str, str, bytes]:
     """(digest, media type, body: only for GET) of a manifest request."""
     headers = {'Accept': MANIFEST_TYPES, **({'Authorization': f'Bearer {token}'} if token else {})}
-    with urllib.request.urlopen(urllib.request.Request(url, method=method, headers=headers), timeout=15) as resp:
+    with REGISTRY_OPENER.open(urllib.request.Request(url, method=method, headers=headers), timeout=15) as resp:
         return (resp.headers.get('Docker-Content-Digest', ''), resp.headers.get('Content-Type', '').split(';')[0].strip(),
                 resp.read() if method == 'GET' else b'')
 
@@ -555,8 +583,10 @@ def registry_token(challenge: str, registry: str, repo: str) -> str:
     params = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
     if not challenge.lower().startswith('bearer') or 'realm' not in params:
         raise ValueError('the registry asks for a login')
+    if not target_ok(params['realm'], urlsplit(f'//{registry}').hostname or ''):
+        raise ValueError('the registry named a token address that is not allowed (not https, or not a public host)')
     query = urlencode({'service': params.get('service', registry), 'scope': params.get('scope', f'repository:{repo}:pull')})
-    with urllib.request.urlopen(f'{params["realm"]}?{query}', timeout=15) as resp:
+    with REGISTRY_OPENER.open(f'{params["realm"]}?{query}', timeout=15) as resp:
         data = json.loads(resp.read().decode('utf-8'))
     return data.get('token') or data.get('access_token') or ''
 
