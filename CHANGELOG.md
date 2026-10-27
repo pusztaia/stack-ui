@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.11
+
+Security fixes from an audit.
+
+- A connection can no longer hold a thread for good: a missing, negative or non-numeric `Content-Length` is refused
+  at once (413), a connection silent for 30 seconds is dropped, and at most 64 connections are served at a time
+  (the rest are closed), so a flood of open connections cannot use up the container's process limit.
+- `stack.json` can only name plain files of the stack's own folder (`compose`, `env`): a path outside it makes the
+  folder no stack. A link (symlink) in a stack's folder is never followed: it is not listed, read, or written
+  over, and a save or restore that meets one stops before writing anything.
+- The login throttle (5 wrong passwords, a few minutes) counts every attempt, also parallel ones. Behind a reverse
+  proxy every client used to be the proxy's address; `STACK_UI_TRUSTED_PROXIES` names the proxies whose
+  `X-Forwarded-For` is believed, so each client is counted on its own.
+
 ## 1.0.10
 
 - *Check for updates*: an image built on the host (`localhost/…`, which Podman gives a digest too) or pinned to a

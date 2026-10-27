@@ -49,6 +49,17 @@ class StackError(Exception):
 
 # ---------- which folders are stacks ----------
 
+def plain_file(path: Path) -> bool:
+    """A regular file that is not a link: a link in a stack's folder (planted by a container that mounts it) must
+    not make the page read or write a file elsewhere."""
+    return path.is_file() and not path.is_symlink()
+
+
+def plain_name(name: str) -> bool:
+    """A bare file name of the stack's own folder (no path, so stack.json cannot point outside it)."""
+    return FILE_NAME.match(name) is not None or name == '.env'
+
+
 def stack_files(folder: Path) -> tuple[str, str | None] | None:
     """(compose file, env file or None) of a folder, or None when it is not a stack."""
     manifest = folder / MANIFEST
@@ -58,16 +69,19 @@ def stack_files(folder: Path) -> tuple[str, str | None] | None:
             compose, env = str(m['compose']), m.get('env')
         except (ValueError, KeyError, TypeError):
             return None
-        return (compose, str(env) if env else None) if (folder / compose).is_file() else None
-    compose = next((n for n in COMPOSE_NAMES if (folder / n).is_file()), None)
+        env = str(env) if env else None
+        if not plain_name(compose) or (env is not None and not plain_name(env)):
+            return None
+        return (compose, env) if plain_file(folder / compose) else None
+    compose = next((n for n in COMPOSE_NAMES if plain_file(folder / n)), None)
     if compose is None:
-        yamls = sorted(p.name for p in folder.iterdir() if p.is_file() and p.suffix in ('.yaml', '.yml'))
+        yamls = sorted(p.name for p in folder.iterdir() if plain_file(p) and p.suffix in ('.yaml', '.yml'))
         if len(yamls) != 1:
             return None
         compose = yamls[0]
-    if (folder / '.env').is_file():
+    if plain_file(folder / '.env'):
         return compose, '.env'
-    envs = sorted(p.name for p in folder.glob('*.env') if p.is_file())
+    envs = sorted(p.name for p in folder.glob('*.env') if plain_file(p))
     return compose, envs[0] if len(envs) == 1 else None
 
 
@@ -80,7 +94,7 @@ def is_stack_file_name(name: str) -> bool:
 def stack_file_names(folder: Path, compose_file: str, env_file: str | None) -> list[str]:
     """The stack's other files (scripts, configs, dashboards): every regular file with an allowed name, except
     the compose and env file."""
-    return sorted(p.name for p in folder.iterdir() if p.is_file() and is_stack_file_name(p.name)
+    return sorted(p.name for p in folder.iterdir() if plain_file(p) and is_stack_file_name(p.name)
                   and p.name not in (compose_file, env_file) and not p.name.startswith('.'))
 
 
@@ -94,7 +108,7 @@ def discover() -> list[tuple[Path, str, str | None]]:
             continue
         try:
             files = stack_files(folder)
-            if files and (files[1] is None or (folder / files[1]).is_file()):
+            if files and (files[1] is None or plain_file(folder / files[1])):
                 found.append((folder, *files))
         except OSError:  # an unreadable folder (e.g. another user's 0700) is not a stack; the others still are
             continue

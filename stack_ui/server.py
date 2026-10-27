@@ -62,6 +62,8 @@ PROTECTED_SECRETS = {'stack-ui-password'} | {x.strip() for x in os.environ.get('
 DEPLOY_LOCK = threading.Lock()   # one change (deploy, start, stop, delete, restart, pull, ...) at a time
 FILES_LOCK = threading.Lock()    # one save or upload at a time
 MAX_BODY = 1024 * 1024
+MAX_CONNECTIONS = 64     # open connections at once (each is a thread)
+REQUEST_TIMEOUT = 30
 SESSION_HOURS = 12
 HASH_ITERATIONS = 300_000
 FILE_NAME = st.FILE_NAME
@@ -385,6 +387,8 @@ def backup(path: Path) -> None:
 def write_file(path: Path, text: str) -> None:
     """Keep the previous version in .history/, then replace the file atomically (owners: see st.match_owner);
     a .sh file is executable."""
+    if path.is_symlink():
+        raise ValueError(f'"{path.name}" is a link: remove the link on the host first')
     if path.is_file():
         backup(path)
     tmp = path.with_name(f'.{path.name}.tmp')
@@ -448,6 +452,9 @@ def save_files(name: str, data: dict) -> dict:
     extra = incoming_files(data, compose_file, env_file)
     pairs += sorted(extra.items())
     with FILES_LOCK:
+        for fname, _ in pairs:  # before anything is written
+            if (module / fname).is_symlink():
+                raise ValueError(f'"{fname}" is a link: remove the link on the host first')
         if extra:
             pin_manifest(module, compose_file, env_file)
         changed = []
@@ -1376,6 +1383,7 @@ def restart(name: str, data: dict) -> dict:
 class Config:
     password_hash = ''        # empty: no login (workstation mode)
     allowed_hosts: set[str] = {'127.0.0.1', 'localhost'}
+    trusted_proxies: list = []   # networks whose X-Forwarded-For is believed (STACK_UI_TRUSTED_PROXIES)
     local_token = secrets.token_urlsafe(24)
 
 
@@ -1387,6 +1395,22 @@ COOKIE = 'stack_ui_session'
 COOKIE_RE = re.compile(r'(?:^|;\s*)' + COOKIE + r'=([A-Za-z0-9_-]+)')
 FAILURES: dict[str, list[float]] = {}          # client address -> recent failed logins
 LOGIN_LOCK = threading.Lock()
+LOGIN_WINDOW = 300     # seconds a failed login counts
+LOGIN_TRIES = 5
+
+
+def parse_proxies(text: str) -> list:
+    """The networks of a comma separated list of addresses / CIDRs (ValueError for a bad one)."""
+    return [ipaddress.ip_network(x.strip(), strict=False) for x in text.split(',') if x.strip()]
+
+
+def plain_address(text: str):
+    """An ip_address of text (an IPv4-mapped IPv6 one as IPv4); None when it is not an address."""
+    try:
+        addr = ipaddress.ip_address(text.strip())
+    except ValueError:
+        return None
+    return addr.ipv4_mapped if addr.version == 6 and addr.ipv4_mapped else addr
 
 
 def new_session() -> tuple[str, str]:
@@ -1421,8 +1445,30 @@ if(s.signedIn){location.replace('/');}else{document.getElementById('err').textCo
 </body></html>'''
 
 
+class Server(ThreadingHTTPServer):
+    """A thread per request, at most MAX_CONNECTIONS at once: a flood of open connections must not use up the
+    container's process limit (and with it podman-compose); the surplus is closed at once."""
+    daemon_threads = True
+
+    def __init__(self, *args, **kw):
+        super().__init__(*args, **kw)
+        self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):
+            return self.shutdown_request(request)
+        super().process_request(request, client_address)
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = 'stack-ui'
+    timeout = REQUEST_TIMEOUT   # seconds a connection may stay silent: no thread waits forever for a body
 
     def log_message(self, fmt, *args):
         sys.stderr.write('  %s %s\n' % (self.client_address[0], fmt % args))
@@ -1443,15 +1489,34 @@ class Handler(BaseHTTPRequestHandler):
     def json(self, code: int, obj, headers: dict | None = None) -> None:
         self.send(code, json.dumps(obj).encode('utf-8'), 'application/json; charset=utf-8', headers)
 
+    def client_ip(self) -> str:
+        """Who is asking, for the login throttle: the connection's address, or, when it is a trusted proxy, the
+        last X-Forwarded-For address that is not a trusted proxy itself (the ones before it are the client's claim)."""
+        peer = self.client_address[0]
+        nets = Config.trusted_proxies
+        addr = plain_address(peer)
+        if not nets or addr is None or not any(addr in n for n in nets):
+            return peer
+        hops = ','.join(self.headers.get_all('X-Forwarded-For') or []).split(',')
+        for hop in reversed([h for h in hops if h.strip()]):
+            addr = plain_address(hop)
+            if addr is None:
+                return peer
+            if not any(addr in n for n in nets):
+                return str(addr)
+        return peer
+
     def host_ok(self) -> bool:
         host = (self.headers.get('Host') or '').strip().lower()
         host = host[1:host.index(']')] if host.startswith('[') else host.rsplit(':', 1)[0] if host.count(':') == 1 else host
         return host in Config.allowed_hosts
 
     def read_body(self) -> bytes | None:
-        """The body, read before any answer (an unread body makes Windows reset the connection); None if too large."""
-        n = int(self.headers.get('Content-Length') or 0)
-        if n > MAX_BODY:
+        """The body, read before any answer (an unread body makes Windows reset the connection); None if its
+        Content-Length is too large or not a plain number (a negative one would read until the client hangs up)."""
+        length = (self.headers.get('Content-Length') or '0').strip()
+        n = int(length) if length.isascii() and length.isdigit() else -1
+        if not 0 <= n <= MAX_BODY:
             self.close_connection = True
             return None
         return self.rfile.read(n) if n else b''
@@ -1468,22 +1533,29 @@ class Handler(BaseHTTPRequestHandler):
         return entry[1]
 
     def login(self, raw: bytes) -> None:
-        ip = self.client_address[0]
+        ip = self.client_ip()
         now = time.time()
-        with LOGIN_LOCK:
-            recent = [t for t in FAILURES.get(ip, []) if now - t < 300]
-            FAILURES[ip] = recent
-        if len(recent) >= 5:
+        with LOGIN_LOCK:  # the attempt is counted before the password is checked: parallel guesses count too
+            for k in [k for k, v in FAILURES.items() if not v or v[-1] < now - LOGIN_WINDOW]:
+                del FAILURES[k]
+            recent = [t for t in FAILURES.get(ip, []) if now - t < LOGIN_WINDOW]
+            if len(recent) >= LOGIN_TRIES:
+                FAILURES[ip] = recent
+                recent = None
+            else:
+                FAILURES[ip] = [*recent, now]
+        if recent is None:
             return self.json(429, {'error': 'too many attempts: wait a few minutes'})
         try:
             password = str(json.loads(raw or b'{}').get('password') or '')
         except ValueError:
             password = ''
         if not check_password(password, Config.password_hash):
-            with LOGIN_LOCK:
-                FAILURES.setdefault(ip, []).append(now)
             time.sleep(1)
             return self.json(401, {'error': 'wrong password'})
+        with LOGIN_LOCK:  # a right password does not count against the address
+            if now in FAILURES.get(ip, []):
+                FAILURES[ip].remove(now)
         sid, _ = new_session()
         cookie = f'{COOKIE}={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_HOURS * 3600}'
         return self.json(200, {'ok': True}, {'Set-Cookie': cookie})
@@ -1491,7 +1563,7 @@ class Handler(BaseHTTPRequestHandler):
     def dispatch(self, method: str) -> None:
         raw = self.read_body()
         if raw is None:
-            return self.json(413, {'error': 'request too large'})
+            return self.json(413, {'error': 'request too large, or its Content-Length is not valid'})
         if not self.host_ok():
             return self.json(403, {'error': 'this host name is not allowed (STACK_UI_ALLOWED_HOSTS)'})
         path = urlsplit(self.path).path
@@ -1641,6 +1713,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--bind', default=env('STACK_UI_BIND', '127.0.0.1'))
     parser.add_argument('--port', type=int, default=int(env('STACK_UI_PORT', '8770')))
+    parser.add_argument('--trusted-proxies', default=env('STACK_UI_TRUSTED_PROXIES', ''),
+                        help='addresses / networks of reverse proxies whose X-Forwarded-For names the real client '
+                             '(comma separated); without it every client behind a proxy is the proxy to the login throttle')
     parser.add_argument('--allowed-hosts', default=env('STACK_UI_ALLOWED_HOSTS', ''),
                         help='extra host names / addresses the page may be opened as (comma separated)')
     default_password = env('STACK_UI_PASSWORD_FILE', '/run/secrets/stack-ui-password')
@@ -1674,10 +1749,15 @@ def main(argv: list[str] | None = None) -> int:
         print('ERROR: listening beyond this computer needs a password (--password-file / STACK_UI_PASSWORD_FILE)',
               file=sys.stderr)
         return 1
+    try:
+        Config.trusted_proxies = parse_proxies(args.trusted_proxies)
+    except ValueError as exc:
+        print(f'ERROR: STACK_UI_TRUSTED_PROXIES: {exc}', file=sys.stderr)
+        return 1
     Config.allowed_hosts = {'127.0.0.1', 'localhost'} | {h.strip().lower() for h in args.allowed_hosts.split(',') if h.strip()}
     if not pa.configured():
         print(f'Note: no Podman socket at {pa.SOCKET}: mount it (see compose.example.yaml)', file=sys.stderr)
-    server = ThreadingHTTPServer((args.bind, args.port), Handler)
+    server = Server((args.bind, args.port), Handler)
     url = f'http://{"127.0.0.1" if args.bind in ("0.0.0.0", "::") else args.bind}:{args.port}/'
     podman = f'socket {pa.API_URL or pa.SOCKET}' if pa.configured() else 'not available'
     print(f'Stack UI {__version__}: {url}  (stacks in {st.STACKS_DIR}; settings in {SETTINGS_FILE}; Podman {podman}; '

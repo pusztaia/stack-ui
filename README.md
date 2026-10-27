@@ -117,6 +117,7 @@ devices or ports below 1024 — and then remember that this page is as powerful 
 | `STACK_UI_PROTECTED` | — | more containers or compose projects that are never stopped or removed |
 | `STACK_UI_PROTECTED_NETWORKS` | `podman` | networks that are never removed |
 | `STACK_UI_PROTECTED_SECRETS` | — | Podman secrets that are never removed (besides `stack-ui-password`) |
+| `STACK_UI_TRUSTED_PROXIES` | — | addresses / networks of the reverse proxies in front of the page (e.g. `172.18.0.0/16`): their `X-Forwarded-For` tells the login throttle who the client is; without it every client behind a proxy counts as the proxy |
 | `STACK_UI_IGNORE` | — | folders of `STACKS_DIR` that are not stacks |
 | `STACK_UI_HIDE_UNDEPLOYED` | `false` | `true`: the Stacks page lists only the stacks that have containers (a new one shows up once created; its own page opens after *Add stack*) |
 | `STACK_UI_DATA` | `/data` | where the settings (the API token's hash) are kept |

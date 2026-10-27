@@ -15,6 +15,8 @@ services:
       # the host names / addresses the page is opened as (comma separated)
       STACK_UI_ALLOWED_HOSTS: ${STACK_UI_ALLOWED_HOSTS:-127.0.0.1,localhost}
       STACK_UI_SELF: stack-ui
+      # behind a reverse proxy: its address / network, so the login throttle counts each client (README, Configuration)
+      # STACK_UI_TRUSTED_PROXIES: 172.18.0.0/16
       TZ: ${TZ:-UTC}
     volumes:
       # the stacks, at the same path as on the host: podman-compose resolves ./paths there
