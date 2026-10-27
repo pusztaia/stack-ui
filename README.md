@@ -94,7 +94,7 @@ devices or ports below 1024 — and then remember that this page is as powerful 
 
 - Whoever controls the page controls your containers: with a rootful socket that is root on the host.
 - Off loopback the page needs a password (its PBKDF2 hash in the `stack-ui-password` Podman secret), a session
-  cookie (HttpOnly, SameSite=Strict, 12 h), the page's token, and an allowed Host header
+  cookie (HttpOnly, SameSite=Strict, 12 h; Secure behind a trusted https proxy), the page's token, and an allowed Host header
   (`STACK_UI_ALLOWED_HOSTS`). Five wrong passwords lock an address out for a few minutes.
 - The port binds to `127.0.0.1` by default. Use HTTPS (a reverse proxy) when you open it on a network.
 - Env files must not hold secrets: a save or an upload with a non-empty `*TOKEN` / `*PASSWORD` / `*SECRET` /

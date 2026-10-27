@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.13
+
+- The session cookie is `Secure` when a trusted proxy (`STACK_UI_TRUSTED_PROXIES`) says the browser came in over
+  https (`X-Forwarded-Proto`); on a direct plain-http connection it stays as it was.
+- New password hashes use 600 000 PBKDF2 iterations (was 300 000, below today's recommendation). A hash made
+  earlier keeps working with its own count; sign-in takes correspondingly longer on a small board.
+- `client/stack-ui-client.py` warns once when `STACK_UI_URL` is plain http to another machine: the API token and
+  the stack files would cross the network unencrypted.
+
 ## 1.0.12
 
 - *Check for updates*: a registry can no longer send the page somewhere else. The address it names for an anonymous

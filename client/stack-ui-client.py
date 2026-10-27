@@ -16,10 +16,12 @@ or --token-file (one line). Python 3.9+, standard library only.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from urllib.parse import quote
@@ -67,10 +69,31 @@ def token() -> str:
     return t
 
 
+WARNED = False
+
+
+def warn_if_plain(base: str) -> bool:
+    """Say once that the API token travels unencrypted (plain http to another machine); True when it warned."""
+    global WARNED
+    parts = urllib.parse.urlsplit(base)
+    host = parts.hostname or ''
+    try:
+        local = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        local = host == 'localhost'
+    if parts.scheme != 'http' or local or WARNED:
+        return False
+    WARNED = True
+    print(f'WARNING: {base} is plain http: the API token and the stack files cross the network unencrypted. '
+          'Use https (a reverse proxy) or an SSH tunnel to localhost.', file=sys.stderr)
+    return True
+
+
 def call(method: str, path: str, body: dict | None = None, timeout: float = 2400) -> dict:
     base = os.environ.get('STACK_UI_URL', '').rstrip('/')
     if not base:
         raise ClientError('set STACK_UI_URL, e.g. http://my-host:8770')
+    warn_if_plain(base)
     data = json.dumps(body).encode('utf-8') if body is not None else None
     if data is not None and len(data) > MAX_BODY:
         raise ClientError(f'the request is larger than 1 MiB ({len(data) // 1024} KiB): Stack UI refuses it '

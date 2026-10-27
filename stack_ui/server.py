@@ -66,7 +66,7 @@ MAX_BODY = 1024 * 1024
 MAX_CONNECTIONS = 64     # open connections at once (each is a thread)
 REQUEST_TIMEOUT = 30
 SESSION_HOURS = 12
-HASH_ITERATIONS = 300_000
+HASH_ITERATIONS = 600_000   # new hashes; an older hash keeps the count it was made with
 FILE_NAME = st.FILE_NAME
 UPLOAD_SUFFIXES = st.ALLOWED_SUFFIXES
 SECRET_VAR = re.compile(r'(TOKEN|PASSWORD|PASSWD|SECRET|API_KEY|APIKEY)$', re.IGNORECASE)
@@ -1519,13 +1519,23 @@ class Handler(BaseHTTPRequestHandler):
     def json(self, code: int, obj, headers: dict | None = None) -> None:
         self.send(code, json.dumps(obj).encode('utf-8'), 'application/json; charset=utf-8', headers)
 
+    def from_trusted_proxy(self) -> bool:
+        addr = plain_address(self.client_address[0])
+        return addr is not None and any(addr in n for n in Config.trusted_proxies)
+
+    def secure_cookie(self) -> str:
+        """'; Secure' when a trusted proxy says the browser came in over https (the page itself speaks plain http)."""
+        if not self.from_trusted_proxy():
+            return ''
+        protos = ','.join(self.headers.get_all('X-Forwarded-Proto') or []).split(',')
+        return '; Secure' if protos[-1].strip().lower() == 'https' else ''
+
     def client_ip(self) -> str:
         """Who is asking, for the login throttle: the connection's address, or, when it is a trusted proxy, the
         last X-Forwarded-For address that is not a trusted proxy itself (the ones before it are the client's claim)."""
         peer = self.client_address[0]
         nets = Config.trusted_proxies
-        addr = plain_address(peer)
-        if not nets or addr is None or not any(addr in n for n in nets):
+        if not self.from_trusted_proxy():
             return peer
         hops = ','.join(self.headers.get_all('X-Forwarded-For') or []).split(',')
         for hop in reversed([h for h in hops if h.strip()]):
@@ -1587,7 +1597,7 @@ class Handler(BaseHTTPRequestHandler):
             if now in FAILURES.get(ip, []):
                 FAILURES[ip].remove(now)
         sid, _ = new_session()
-        cookie = f'{COOKIE}={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_HOURS * 3600}'
+        cookie = f'{COOKIE}={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_HOURS * 3600}{self.secure_cookie()}'
         return self.json(200, {'ok': True}, {'Set-Cookie': cookie})
 
     def dispatch(self, method: str) -> None:
@@ -1612,7 +1622,7 @@ class Handler(BaseHTTPRequestHandler):
             m = COOKIE_RE.search(self.headers.get('Cookie') or '')
             if m:
                 SESSIONS.pop(m.group(1), None)
-            return self.json(200, {'ok': True}, {'Set-Cookie': f'{COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'})
+            return self.json(200, {'ok': True}, {'Set-Cookie': f'{COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0{self.secure_cookie()}'})
         if method == 'GET' and path == '/session':  # did the browser keep the cookie? (the sign-in page asks)
             return self.json(200, {'signedIn': token is not None})
         if method == 'GET' and path in ('/icon.svg', '/favicon.ico'):  # public: the sign-in page shows it too
