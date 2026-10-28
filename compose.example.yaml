@@ -30,6 +30,19 @@ services:
       - stack-ui-password
     security_opt:
       - no-new-privileges:true
+    # Hardening, tested with rootful Podman 5.7 (sign-in, upload, create, update, start, stop, delete, files owned
+    # like their folder; rootless not tried). The three capabilities let the page write into stack folders of
+    # other owners and give new files their folder's owner; everything else is dropped. If something fails with
+    # "permission denied", comment these lines out to see whether they are the cause.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    read_only: true
+    tmpfs:
+      - /tmp
     mem_limit: 192m
     cpus: 0.5
     pids_limit: 256
