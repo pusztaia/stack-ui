@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.14
+
+- The page now stops on SIGTERM (`podman stop`, `podman-compose up --force-recreate`, systemd) at once, and waits up
+  to 8 seconds for a change in progress (a deploy, a pull) to finish. Before, a container's main process ignored
+  SIGTERM, so every stop or recreate waited the full 10 seconds and ended with SIGKILL
+  ("StopSignal SIGTERM failed to stop container stack-ui in 10 seconds").
+
 ## 1.0.13
 
 - The session cookie is `Secure` when a trusted proxy (`STACK_UI_TRUSTED_PROXIES`) says the browser came in over

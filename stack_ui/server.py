@@ -30,6 +30,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import socket
 import sys
 import threading
@@ -65,6 +66,7 @@ FILES_LOCK = threading.Lock()    # one save or upload at a time
 MAX_BODY = 1024 * 1024
 MAX_CONNECTIONS = 64     # open connections at once (each is a thread)
 REQUEST_TIMEOUT = 30
+SHUTDOWN_WAIT = 8        # seconds a stop waits for a change (deploy, pull, ...) in progress; podman kills after 10
 SESSION_HOURS = 12
 HASH_ITERATIONS = 600_000   # new hashes; an older hash keeps the count it was made with
 FILE_NAME = st.FILE_NAME
@@ -1804,11 +1806,19 @@ def main(argv: list[str] | None = None) -> int:
           f'{"password" if Config.password_hash else "no password, this computer only"}; Ctrl+C stops it)', flush=True)
     if not args.no_browser:
         threading.Timer(0.5, webbrowser.open, (url,)).start()
+    def stop(*_):  # a thread: serve_forever runs in this one, and shutdown() waits for it to return
+        threading.Thread(target=server.shutdown, daemon=True).start()
+    try:
+        signal.signal(signal.SIGTERM, stop)   # podman stop, systemd: leave at once instead of waiting for SIGKILL
+    except ValueError:                        # not the main thread
+        pass
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+        if DEPLOY_LOCK.acquire(timeout=SHUTDOWN_WAIT):   # a change in progress gets a moment to finish
+            DEPLOY_LOCK.release()
     return 0
 
