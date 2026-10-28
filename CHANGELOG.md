@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.15
+
+- *Images*: remove several images at once. Every image no container uses has a tick box (and one in the header for
+  all of them); a bar shows how many are ticked and their size, and *Delete…* lists them for a last check. An image
+  that a container uses has no tick box, and it is checked again on the host when you confirm: a used one is
+  skipped and named, the others are still removed. *Select untagged* ticks the old images that pulls leave
+  behind; it replaces the *Clean up* button (the dialog after *Update several stacks* still offers it).
+- API: `POST /api/images/delete` also takes `{ids: [...]}` and answers `{removed, freed, errors}`.
+
 ## 1.0.14
 
 - The page now stops on SIGTERM (`podman stop`, `podman-compose up --force-recreate`, systemd) at once, and waits up

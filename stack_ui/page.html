@@ -103,7 +103,7 @@
   .tr[data-row] { cursor: pointer; }
   .tr[data-row]:hover { background: var(--hover); }
   .tr.selected { background: var(--accent-soft); }
-  .images .tr { grid-template-columns: minmax(220px, 2fr) 84px 110px minmax(150px, 1.4fr) 130px 44px; }
+  .images .tr { grid-template-columns: 22px minmax(220px, 2fr) 84px 110px minmax(150px, 1.4fr) 130px 44px; }
   .conts .tr { grid-template-columns: minmax(120px, 1fr) minmax(140px, 1.6fr) minmax(100px, .9fr) 64px 130px 130px 170px; }
   .c-name { display: flex; flex-direction: column; min-width: 0; }
   .name { color: var(--text); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
@@ -234,8 +234,8 @@
     .c-sel { grid-area: sel; } .c-state { grid-area: state; } .c-name { grid-area: name; } .c-cont { grid-area: cont; }
     .c-drift { grid-area: drift; } .c-img { grid-area: img; justify-self: start; } .c-act { grid-area: act; } .c-mem { grid-area: mem; }
     .c-drift > .muted, .c-img > .muted, .c-mem > .muted { display: none; }
-    .images .tr { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "iname iupd iact" "iused iused iused" "isize icreated icreated"; gap: 4px 10px; }
-    .i-act { grid-area: iact; }
+    .images .tr { grid-template-columns: 22px minmax(0, 1fr) auto auto; grid-template-areas: "isel iname iupd iact" "isel iused iused iused" "isel isize icreated icreated"; gap: 4px 10px; }
+    .i-sel { grid-area: isel; } .i-act { grid-area: iact; }
     .i-name { grid-area: iname; } .i-upd { grid-area: iupd; } .i-used { grid-area: iused; } .i-size { grid-area: isize; }
     .i-created { grid-area: icreated; justify-self: end; }
     .conts .tr { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "kname kact" "kimg kimg" "kstat kupd" "kcpu kmem"; gap: 4px 10px; }
@@ -320,6 +320,7 @@ let LOAD_ERROR = '';
 let DRIFT = {}; let DRIFT_LOADED = false;        // name -> {state: same | differs | unknown, changes: [{file, added, removed}]}
 let UPDATES = { checkedAt: '', stacks: {} };     // the last image-update check
 let IMAGES = null;                               // /api/images
+let IMG_SEL = new Set();                         // the images ticked on the Images page (ids)
 let FILTER = 'all'; let QUERY = '';
 let RES = null;                                  // /api/resources: {host, containers, error}
 let RES_BUSY = false; let RES_TIMER = null;
@@ -764,6 +765,12 @@ $('view').addEventListener('change', (ev) => {
   } else if (t.dataset.sel) {
     if (t.checked) SELECTED.add(t.dataset.sel); else SELECTED.delete(t.dataset.sel);
     renderTable();
+  } else if (t.matches('[data-img-all]')) {
+    IMAGES.images.filter((i) => !i.usedBy.length).forEach((i) => (t.checked ? IMG_SEL.add(i.id) : IMG_SEL.delete(i.id)));
+    renderImages();
+  } else if (t.dataset.imgSel) {
+    if (t.checked) IMG_SEL.add(t.dataset.imgSel); else IMG_SEL.delete(t.dataset.imgSel);
+    renderImages();
   }
 });
 
@@ -1584,17 +1591,21 @@ async function viewSecrets() {
 function viewImages() {
   $('view').innerHTML = `
     <div class="page-head">
-      <div><h1>Images</h1><p class="sub">The images on this host. <i>Clean up</i> removes only untagged images that no container uses:
-        the old images that pulls leave behind.</p></div>
+      <div><h1>Images</h1><p class="sub">The images on this host. Tick the ones no container uses to remove several at once;
+        <i>Select untagged</i> ticks the old images that pulls leave behind.</p></div>
       <div class="head-actions">
         <button id="img-pull" ${INFO.podman ? '' : 'hidden'}>${icon('plus')}<span>Pull image</span></button>
         <button id="img-check">${icon('update')}<span>Check for updates</span></button>
-        <button class="primary" id="img-clean" disabled>${icon('trash')}<span>Clean up</span></button>
+        <button id="img-untagged" disabled><span>Select untagged</span></button>
       </div>
     </div>
-    <div id="img-body"><p class="muted pad">Loading…</p></div>`;
+    <div id="img-body"><p class="muted pad">Loading…</p></div>
+    <div id="img-selbar"></div>`;
   $('img-check').addEventListener('click', () => checkUpdates($('img-check')));
-  $('img-clean').addEventListener('click', showCleanup);
+  $('img-untagged').addEventListener('click', () => {
+    IMAGES.images.filter((i) => i.removable).forEach((i) => IMG_SEL.add(i.id));
+    renderImages();
+  });
   $('img-pull').addEventListener('click', showPull);
   if (IMAGES) renderImages();
   loadImages();
@@ -1607,9 +1618,11 @@ async function loadImages() {
 function renderImages() {
   if (ROUTE.view !== 'images' || !IMAGES || !$('img-body')) return;
   $('img-pull').hidden = !INFO.podman;
-  const removable = IMAGES.images.filter((i) => i.removable);
-  $('img-clean').disabled = !removable.length;
-  $('img-clean').querySelector('span').textContent = removable.length ? `Clean up ${fmtBytes(IMAGES.reclaimable)}` : 'Nothing to clean up';
+  const deletable = IMAGES.images.filter((i) => !i.usedBy.length);
+  for (const id of [...IMG_SEL]) if (!deletable.some((i) => i.id === id)) IMG_SEL.delete(id);
+  const untagged = IMAGES.images.filter((i) => i.removable);
+  $('img-untagged').disabled = !INFO.podman || !untagged.length || untagged.every((i) => IMG_SEL.has(i.id));
+  const all = INFO.podman && deletable.length && deletable.every((i) => IMG_SEL.has(i.id));
   const status = {};
   for (const u of Object.values(UPDATES.stacks)) for (const i of u.images) status[i.image] = i;
   const modules = new Set(STACKS.map((s) => s.name));
@@ -1622,7 +1635,8 @@ function renderImages() {
     const used = img.usedBy.length
       ? img.usedBy.map((u) => (modules.has(u) ? `<a href="#/stacks/${enc(u)}/summary">${esc(u)}</a>` : esc(u))).join(', ')
       : img.removable ? '<span class="tag t-idle">Unused, can be removed</span>' : '<span class="muted small">Unused</span>';
-    return `<div class="tr">
+    return `<div class="tr${IMG_SEL.has(img.id) ? ' selected' : ''}">
+      <span class="i-sel">${INFO.podman && !img.usedBy.length ? `<input type="checkbox" data-img-sel="${esc(img.id)}" aria-label="Select ${esc(img.tags[0] || img.id.slice(0, 12))}" ${IMG_SEL.has(img.id) ? 'checked' : ''}>` : ''}</span>
       <span class="i-name c-name"><span class="name">${img.tags[0] ? esc(img.tags[0]) : '<span class="muted">Untagged</span>'}</span>
         <span class="files">${esc(img.id.slice(0, 12))}${img.tags.length > 1 ? `, also ${img.tags.slice(1).map(esc).join(', ')}` : ''}</span></span>
       <span class="i-size small">${fmtBytes(img.size)}</span>
@@ -1632,7 +1646,7 @@ function renderImages() {
       <span class="i-act r">${INFO.podman ? `<button class="icon-btn" data-im="${esc(img.id)}" title="More" aria-label="More actions for ${esc(img.tags[0] || img.id.slice(0, 12))}" aria-haspopup="menu">${icon('more', 'fill')}</button>` : ''}</span></div>`;
   };
   $('img-body').innerHTML = IMAGES.images.length
-    ? `<div class="table images"><div class="tr th"><span>Image</span><span>Size</span><span>Created</span><span>Used by</span><span>Update</span><span></span></div>${IMAGES.images.map(row).join('')}</div>`
+    ? `<div class="table images"><div class="tr th"><span><input type="checkbox" data-img-all aria-label="Select every image no container uses" ${all ? 'checked' : ''} ${INFO.podman && deletable.length ? '' : 'disabled'}></span><span>Image</span><span>Size</span><span>Created</span><span>Used by</span><span>Update</span><span></span></div>${IMAGES.images.map(row).join('')}</div>`
     : '<div class="table"><div class="empty">No image on this host.</div></div>';
   $('img-body').querySelectorAll('[data-im]').forEach((b) => b.addEventListener('click', () => {
     const img = IMAGES.images.find((i) => i.id === b.dataset.im);
@@ -1643,6 +1657,34 @@ function renderImages() {
       { label: img.usedBy.length ? 'Remove (in use)' : 'Remove…', danger: true, disabled: Boolean(img.usedBy.length), run: () => showImageRemove(img) },
     ]);
   }));
+  const picked = IMAGES.images.filter((i) => IMG_SEL.has(i.id));
+  $('img-selbar').innerHTML = picked.length
+    ? `<div class="selbar" role="region" aria-label="Selection"><span><b>${picked.length}</b> selected, ${fmtBytes(picked.reduce((a, i) => a + i.size, 0))}</span>
+        <button data-img-clear>Clear</button><button class="danger" data-img-delete>${icon('trash')}<span>Delete…</span></button></div>` : '';
+  $('img-selbar').querySelector('[data-img-clear]')?.addEventListener('click', () => { IMG_SEL.clear(); renderImages(); });
+  $('img-selbar').querySelector('[data-img-delete]')?.addEventListener('click', () => showImagesRemove(picked));
+}
+function showImagesRemove(list) {
+  const total = list.reduce((a, i) => a + i.size, 0);
+  const label = (i) => i.tags[0] || i.id.slice(0, 12);
+  const go = `Remove ${plural(list.length, 'image')}`;
+  openDialog(go, `<p>Removes these ${plural(list.length, 'image')} with their other names and frees up to ${fmtBytes(total)} (what other
+      images share stays). No container uses them: that is checked again when you confirm, and a used one is skipped.</p>
+    <ul class="plain">${list.map((i) => `<li><code>${esc(label(i))}</code>${i.tags.length > 1 ? ` (also ${i.tags.slice(1).map(esc).join(', ')})` : ''}, ${fmtBytes(i.size)}</li>`).join('')}</ul>
+    <div id="dlg-err"></div>`, `<button data-close>Cancel</button><button class="danger" id="irm-go">${go}</button>`);
+  $('irm-go').addEventListener('click', async () => {
+    $('irm-go').disabled = true; $('irm-go').textContent = 'Removing…';
+    try {
+      const r = await api('/api/images/delete', { method: 'POST', body: JSON.stringify({ ids: list.map((i) => i.id) }) });
+      closeDialog();
+      r.removed.forEach((id) => IMG_SEL.delete(id));
+      toast(`Removed ${plural(r.removed.length, 'image')}, freed ${fmtBytes(r.freed)}`);
+      if (r.errors.length) toast(`Not removed: ${r.errors.join('; ')}`, 'bad');
+    } catch (e) {
+      $('dlg-err').innerHTML = errBox(e.message); $('irm-go').disabled = false; $('irm-go').textContent = go;
+    }
+    if (ROUTE.view === 'images') loadImages();
+  });
 }
 
 function showPull() {

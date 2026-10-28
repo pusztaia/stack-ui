@@ -24,3 +24,10 @@ class PageTest(Base):
         self.assertIn(f'<title>Stack UI {srv.__version__}</title>', page)
         self.assertIn(f'>v{srv.__version__}</div>', page)
         self.assertNotIn('__VERSION__', page)
+
+    def test_the_images_page_has_tick_boxes_instead_of_a_clean_up_button(self):
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('data-img-sel', 'data-img-all', 'img-selbar', 'img-untagged', 'showImagesRemove'):
+            self.assertIn(name, page)
+        self.assertNotIn('id="img-clean"', page)

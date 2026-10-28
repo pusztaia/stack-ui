@@ -17,7 +17,8 @@ One container, Python standard library + PyYAML, no database.
   tag and marks the stacks.
 - **Containers**: every container, its stack, state and published ports (as links); start, stop, restart, logs,
   details (the inspect, secret-looking values masked), remove (only outside a stack).
-- **Images**: sizes and users; pull, tag, remove (only unused), clean up the untagged leftovers of pulls.
+- **Images**: sizes and users; pull, tag, remove (only unused: tick several to remove them at once, *Select untagged*
+  ticks the leftovers of pulls).
 - **Resources**: the CPU and memory of every running container and of the host; also on the Stacks list (a
   *Memory* column and a line with the host's RAM and CPU) and on a stack's Summary tab. A container near its
   memory limit turns yellow (80 %), then red (95 %). Refreshed every 10 seconds by default; *Settings* has the

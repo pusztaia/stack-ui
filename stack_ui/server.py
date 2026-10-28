@@ -940,18 +940,54 @@ def image_tag(data: dict) -> dict:
     return {'tagged': f'{repo}:{tag}'}
 
 
+def remove_image_row(row: dict) -> None:
+    """Remove the image name by name, without force: Podman itself refuses if a container started using it
+    meanwhile (force would remove that container too)."""
+    for tag in row['tags'][1:]:
+        pa.remove_image(tag)
+    pa.remove_image(row['tags'][0] if row['tags'] else row['id'])
+
+
+def image_label(row: dict) -> str:
+    return row['tags'][0] if row['tags'] else row['id'][:12]
+
+
+def images_remove(ids) -> dict:
+    """Remove several images: {removed: [ids], freed, errors: [...]}. One that is unknown or used by a container
+    (checked again here) is reported and skipped; the others are still removed."""
+    if not isinstance(ids, list) or not ids or not all(isinstance(x, str) for x in ids):
+        raise ValueError('ids: a list of image ids')
+    removed, errors, freed = [], [], 0
+    with DEPLOY_LOCK:
+        rows = {r['id']: r for r in all_images()}
+        for iid in dict.fromkeys(short_id(x) for x in ids):
+            row = rows.get(iid)
+            if row is None:
+                errors.append(f'{iid[:12]}: no such image')
+            elif row['usedBy']:
+                errors.append(f'{image_label(row)}: used by {", ".join(row["usedBy"])}')
+            else:
+                try:
+                    remove_image_row(row)
+                except pa.PodmanError as exc:
+                    errors.append(f'{image_label(row)}: {exc}')
+                    continue
+                removed.append(row['id'])
+                freed += row['size']
+    return {'removed': removed, 'freed': freed, 'errors': errors}
+
+
 def image_remove(data: dict) -> dict:
-    """{id}: remove one image, only if no container (running or stopped) uses it, checked again here."""
+    """{id}: remove one image, only if no container (running or stopped) uses it, checked again here.
+    {ids: [...]}: remove several (see images_remove)."""
     require_podman()
+    if 'ids' in data:
+        return images_remove(data['ids'])
     with DEPLOY_LOCK:
         row = find_image(str(data.get('id') or ''))
         if row['usedBy']:
             raise ValueError(f'the image is used by {", ".join(row["usedBy"])}')
-        # without force, name by name: Podman itself refuses if a container started using it meanwhile
-        # (force would remove that container too)
-        for tag in row['tags'][1:]:
-            pa.remove_image(tag)
-        pa.remove_image(row['tags'][0] if row['tags'] else row['id'])
+        remove_image_row(row)
     return {'removed': row['id'], 'freed': row['size']}
 
 

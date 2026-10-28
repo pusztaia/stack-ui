@@ -30,6 +30,54 @@ class ImagesTest(Base):
         self.assertEqual((r['removed'], r['freed']), (['old1'], 50))
         self.assertEqual([i['Id'] for i in self.mock.images], ['used1'])
 
+    def add_free_images(self):
+        self.mock.images += [
+            {'Id': 'free1', 'RepoTags': ['localhost/alpine:3', 'localhost/alpine:latest'], 'RepoDigests': [], 'Size': 30, 'Created': 3},
+            {'Id': 'free2', 'RepoTags': ['localhost/busybox:1'], 'RepoDigests': [], 'Size': 20, 'Created': 4},
+        ]
+
+    def test_several_images_are_removed_at_once(self):
+        self.add_free_images()
+        r = self.ui.image_remove({'ids': ['free1', 'free2', 'old1']})
+        self.assertEqual((sorted(r['removed']), r['freed'], r['errors']), (['free1', 'free2', 'old1'], 100, []))
+        self.assertEqual([i['Id'] for i in self.mock.images], ['used1'])
+        deletes = [q for m, path, q in self.mock.calls if m == 'DELETE']
+        self.assertTrue(deletes)
+        self.assertTrue(all(q.get('force') != 'true' for q in deletes))     # never force: Podman refuses a used one
+
+    def test_a_used_or_unknown_image_is_skipped_and_named_the_rest_still_go(self):
+        self.add_free_images()
+        r = self.ui.image_remove({'ids': ['used1', 'free2', 'nope', 'free2']})
+        self.assertEqual((r['removed'], r['freed']), (['free2'], 20))
+        self.assertEqual(len(r['errors']), 2)
+        self.assertIn('docker.io/library/nginx:latest: used by web', r['errors'])
+        self.assertTrue(any(e.startswith('nope: no such image') for e in r['errors']))
+        self.assertEqual(sorted(i['Id'] for i in self.mock.images), ['free1', 'old1', 'used1'])
+
+    def test_one_that_podman_refuses_is_reported_and_the_others_go(self):
+        self.add_free_images()
+        real = self.ui.pa.remove_image
+
+        def refuse(name, force=False):
+            if name == 'localhost/busybox:1':      # the image is removed by its name
+                raise pa.PodmanError('image is in use by a container', 409)
+            return real(name, force)
+        self.patch(self.ui.pa, 'remove_image', refuse)
+        r = self.ui.image_remove({'ids': ['free2', 'old1']})
+        self.assertEqual(r['removed'], ['old1'])
+        self.assertEqual(r['errors'], ['localhost/busybox:1: image is in use by a container'])
+
+    def test_bad_ids_are_refused(self):
+        for bad in ({'ids': []}, {'ids': 'free1'}, {'ids': [1]}, {'ids': None}):
+            with self.assertRaises(ValueError):
+                self.ui.image_remove(bad)
+        self.assertEqual(len(self.mock.images), 2)
+
+    def test_the_single_form_is_unchanged(self):
+        self.add_free_images()
+        r = self.ui.image_remove({'id': 'free2'})
+        self.assertEqual(r, {'removed': 'free2', 'freed': 20})
+
     def test_updates_compare_digests(self):
         self.patch(self.ui, 'check_ref', lambda ref, local, platform: (('sha256:bbb',), ''))
         data = self.ui.updates(check=True)
