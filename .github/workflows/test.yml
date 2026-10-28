@@ -5,7 +5,8 @@ on:
   workflow_call: {}
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # not ubuntu-latest: on Ubuntu 26.04 setup-python has no Python 3.9 (this project supports it)
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python: ["3.9", "3.13"]
