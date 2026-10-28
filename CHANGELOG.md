@@ -11,8 +11,12 @@
 - The image is built from pinned parts: the base image by digest, the Python packages by hash
   (`requirements.txt`, `pip --require-hashes`), and the release workflow's actions by commit; the release image
   carries a build provenance and an SBOM. Dependabot proposes updates to all three weekly.
+- `tools/install-pi.py` installs (or updates) Stack UI on a Podman host over SSH from Windows PowerShell, macOS or
+  Linux: socket, password secret (only a hash is sent), compose file, start; it changes nothing when a `stack-ui`
+  container already runs. See the README.
 - `compose.example.yaml` runs the page with all capabilities dropped except `CHOWN`, `DAC_OVERRIDE` and `FOWNER`
-  (it writes into stack folders of other owners), a read-only root file system and a `/tmp` tmpfs. Tried with
+  (it writes into stack folders of other owners), a read-only root file system and tmpfs on `/tmp` and `/run/secrets` (a
+  read-only root file system cannot mount a Podman secret without the latter). Tried with
   rootful Podman 5.7; with an existing install, add the lines to your copy of the compose file.
 
 ## 1.0.12

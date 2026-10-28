@@ -77,6 +77,22 @@ the commented socket line (`/run/user/<your UID>/podman/podman.sock`).
 Updates: `podman-compose -f compose.example.yaml pull && podman-compose -f compose.example.yaml up -d`. The tag
 `:1` follows every 1.x release; pin `:1.0.0` for a fixed version.
 
+### From another computer (Windows PowerShell, macOS, Linux)
+
+`tools/install-pi.py` does the steps above over SSH, with the `ssh` of your computer (Windows 11 has it):
+
+```powershell
+python tools\install-pi.py ubuntu@192.168.50.3 --dry-run   # the plan and the script, nothing is sent
+python tools\install-pi.py ubuntu@192.168.50.3             # install: asks the page's password, then the host's
+python tools\install-pi.py ubuntu@192.168.50.3 --update    # pull and recreate an install made by it
+```
+
+It finds out whether the host runs Podman rootful or rootless (`--rootful` / `--rootless` to say it), enables the
+socket, creates the `stack-ui-password` secret from a hash made on your computer (the password itself is never
+sent), writes `~/stack-ui/compose.yaml` (with the hardening of `compose.example.yaml`) and starts it. It changes
+nothing when a container named `stack-ui` already runs. `--build` builds the image on the host from this
+repository; `--trusted-proxies`, `--allowed-hosts`, `--stacks-dir`, `--loopback` and the rest: `--help`.
+
 ## Rootful or rootless?
 
 | | Rootful | Rootless |
