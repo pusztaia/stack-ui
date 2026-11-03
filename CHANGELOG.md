@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.18
 
 - *Health*: a new page for the Pi in one place - CPU temperature, load against the cores, memory, uptime, disk use
   and what Podman holds. The Stacks list shows the temperature next to the host's RAM and CPU, and a disk that is
