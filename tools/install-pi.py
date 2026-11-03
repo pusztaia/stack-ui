@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Install (or update) Stack UI on a Podman host over SSH, from Windows PowerShell, macOS or Linux.
 
+    python tools\\install-pi.py                                   # interactive: asks everything, then logs in over ssh
     python tools\\install-pi.py ubuntu@192.168.50.3 --dry-run     # only show the plan and the script it would run
     python tools\\install-pi.py ubuntu@192.168.50.3               # install; asks the page's password here
     python tools\\install-pi.py ubuntu@192.168.50.3 --build       # build the image on the host from the repository
     python tools\\install-pi.py ubuntu@192.168.50.3 --update      # pull and recreate an install made by this script
 
+Without arguments it is interactive: it asks for the host, what to do, Podman rootful or rootless, the address and
+port of the page and (if you want) the advanced settings, shows the equivalent command, and then goes on as below.
 It uses the ssh of your computer (Windows 11 has it); ssh asks for the host's password unless you set up a key.
 The page's password is hashed here (PBKDF2, the same format Stack UI checks) and only the hash is sent: the host
 keeps it as the Podman secret stack-ui-password. Leave the password empty to keep the secret that is there.
@@ -18,6 +21,7 @@ import argparse
 import base64
 import getpass
 import hashlib
+import os
 import re
 import secrets
 import shlex
@@ -208,7 +212,7 @@ def build_remote_script(args, pwhash: str, compose: str) -> str:
 
 def parse(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description='Install Stack UI on a Podman host over SSH.')
-    p.add_argument('target', help='user@host, e.g. ubuntu@192.168.50.3')
+    p.add_argument('target', nargs='?', help='user@host, e.g. ubuntu@192.168.50.3 (omit it to be asked everything)')
     mode = p.add_mutually_exclusive_group()
     mode.add_argument('--rootful', dest='mode', action='store_const', const='rootful', help='the host runs rootful Podman')
     mode.add_argument('--rootless', dest='mode', action='store_const', const='rootless', help='the host runs rootless Podman')
@@ -227,6 +231,8 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument('--dry-run', action='store_true', help='show the plan and the script; connect to nothing')
     p.add_argument('--yes', action='store_true', help='do not ask "Proceed?"')
     args = p.parse_args(argv)
+    if not args.target:
+        raise InstallError('give user@host, or run without arguments to be asked')
     host = args.target.split('@', 1)[-1]
     if not TARGET.match(args.target):
         raise InstallError('the target must look like user@host')
@@ -250,6 +256,98 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     return args
 
 
+def _ask(prompt: str, default: str = '') -> str:
+    answer = input(f'{prompt}{f" [{default}]" if default else ""}: ').strip()
+    return answer or default
+
+
+def _yes(prompt: str, default: bool) -> bool:
+    while True:
+        answer = input(f'{prompt} [{"Y/n" if default else "y/N"}] ').strip().lower()
+        if not answer:
+            return default
+        if answer in ('y', 'yes'):
+            return True
+        if answer in ('n', 'no'):
+            return False
+        print('Answer y or n.')
+
+
+def _choose(prompt: str, options: list[str], default: int = 1) -> int:
+    print(prompt)
+    for number, label in enumerate(options, 1):
+        print(f'  {number}) {label}')
+    while True:
+        answer = input(f'Choice [{default}]: ').strip() or str(default)
+        if answer.isdigit() and 1 <= int(answer) <= len(options):
+            return int(answer)
+        print(f'Type a number from 1 to {len(options)}.')
+
+
+def _ask_port(default: str) -> str:
+    while True:
+        answer = _ask('Port of the Stack UI page on the host', default)
+        if answer.isdigit() and 1 <= int(answer) <= 65535:
+            return answer
+        print('The port must be 1-65535.')
+
+
+def interactive_argv() -> list[str]:
+    """Asks for everything and returns the command line that does it; parse() checks it, a mistake asks again."""
+    print('Stack UI installer: answers in [brackets] are used when you just press Enter.\n')
+    last: dict[str, str] = {}
+    while True:
+        user = _ask('SSH user on the host', last.get('user', 'ubuntu'))
+        host = _ask('Host name or IP address of the Pi', last.get('host', ''))
+        last.update(user=user, host=host)
+        argv: list[str] = [f'{user}@{host}']
+
+        update = _choose('\nWhat to do:', ['Install Stack UI', 'Update an install made by this script (pull and recreate)']) == 2
+        if update:
+            argv.append('--update')
+        mode = _choose('\nPodman on the host:', ['Find out (rootful if more containers run as root, else rootless)',
+                                                  'Rootful (the root user\'s Podman, sudo)',
+                                                  'Rootless (this SSH user\'s own Podman)'])
+        if mode > 1:
+            argv.append(('--rootful', '--rootless')[mode - 2])
+
+        listen = _choose('\nThe page listens on:', [f'The host\'s address {host} (the LAN)',
+                                                     '127.0.0.1 only (an SSH tunnel or a reverse proxy on the host)',
+                                                     'Another address'])
+        if listen == 2:
+            argv.append('--loopback')
+        elif listen == 3:
+            argv.append(f'--bind={_ask("Address to listen on", last.get("bind", ""))}')
+        port = _ask_port(last.get('port', '8770'))
+        last['port'] = port
+        if port != '8770':
+            argv.append(f'--port={port}')
+
+        if _yes('\nBuild the image on the host from the GitHub repository instead of pulling the published one?', False):
+            argv.append('--build')
+        if _yes('Change advanced settings (image, folders, host names, trusted proxies, hardening)?', False):
+            for flag, prompt in (('image', 'Image (empty = the default)'),
+                                 ('stacks-dir', 'Stacks folder on the host (absolute, or $HOME/...; empty = ~/stacks)'),
+                                 ('install-dir', 'Folder of the compose file on the host (empty = ~/stack-ui)'),
+                                 ('allowed-hosts', 'More names the page is opened as (comma separated)'),
+                                 ('trusted-proxies', 'Reverse proxy addresses / networks (comma separated)')):
+                value = _ask(prompt)
+                if value:
+                    argv.append(f'--{flag}={value}')
+            if not _yes('Hardening (drop capabilities, read-only root file system)?', True):
+                argv.append('--no-hardening')
+        if _yes('\nOnly show the plan and the script (dry run, nothing is sent)?', False):
+            argv.append('--dry-run')
+
+        try:
+            parse(argv)
+        except InstallError as exc:
+            print(f'\nERROR: {exc}\nLet us try again.\n')
+            continue
+        print(f'\nSame as: python tools{os.sep}install-pi.py {shlex.join(argv)}\n')
+        return argv
+
+
 def ask_password() -> str:
     while True:
         first = getpass.getpass("Stack UI page password (at least 10 characters; empty = keep the host's current one): ")
@@ -270,7 +368,16 @@ def run_ssh(args, remote_args: list[str], stdin: str | None = None, tty: bool = 
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
     try:
+        if not argv:
+            if not sys.stdin.isatty():
+                raise InstallError('give user@host (there is no terminal to ask in)')
+            try:
+                argv = interactive_argv()
+            except (EOFError, KeyboardInterrupt):
+                print('\nNothing was done.')
+                return 1
         args = parse(argv)
     except InstallError as exc:
         print(f'ERROR: {exc}', file=sys.stderr)

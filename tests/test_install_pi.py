@@ -1,3 +1,4 @@
+import builtins
 import contextlib
 import importlib.util
 import io
@@ -73,6 +74,51 @@ class InstallPiTest(Base):
         for target in ('nohost', 'a b@c', 'u@h;x', '@h'):
             with self.assertRaises(ip.InstallError, msg=target):
                 ip.parse([target])
+
+    def answers(self, *lines):
+        it = iter(lines)
+        self.patch(builtins, 'input', lambda _prompt='': next(it))
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            return ip.interactive_argv(), out.getvalue()
+
+    def test_interactive_defaults_make_a_plain_install(self):
+        # user, host, install, auto mode, LAN address, port, no build, no advanced settings, no dry run
+        argv, out = self.answers('', '192.168.50.3', '', '', '', '', '', '', '', '')
+        self.assertEqual(argv, ['ubuntu@192.168.50.3'])
+        self.assertEqual(ip.parse(argv).bind, '192.168.50.3')
+        self.assertIn('Same as: python tools', out)
+
+    def test_interactive_asks_every_option(self):
+        argv, _ = self.answers('pi', 'raspberrypi.local', '2', '3', '2', '8771', 'y', 'y',
+                               'localhost/stack-ui:dev', '$HOME/s', '', 'stackui.lan', '172.18.0.0/16', 'n', 'y')
+        self.assertEqual(argv, ['pi@raspberrypi.local', '--update', '--rootless', '--loopback', '--port=8771', '--build',
+                                '--image=localhost/stack-ui:dev', '--stacks-dir=$HOME/s', '--allowed-hosts=stackui.lan',
+                                '--trusted-proxies=172.18.0.0/16', '--no-hardening', '--dry-run'])
+        a = ip.parse(argv)
+        self.assertEqual((a.mode, a.bind, a.port, a.update, a.build), ('rootless', '127.0.0.1', 8771, True, True))
+
+    def test_interactive_asks_again_after_a_mistake_and_a_bad_number(self):
+        # a bad host first (the whole round is repeated), a letter where a number is wanted, a port out of range
+        argv, out = self.answers('ubuntu', 'bad host', '99', '', '', '', '70000', '', '', '', '',
+                                 'ubuntu', 'good-host', '', '', '', '', '', '', '')
+        self.assertEqual(argv, ['ubuntu@good-host'])
+        self.assertIn('ERROR', out)
+        self.assertIn('Type a number', out)
+        self.assertIn('The port must be 1-65535', out)
+
+    def test_no_arguments_and_no_terminal_is_an_error(self):
+        self.patch(ip.sys.stdin, 'isatty', lambda: False)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(ip.main([]), 2)
+        self.assertIn('no terminal', err.getvalue())
+
+    def test_interrupt_in_the_wizard_does_nothing(self):
+        self.patch(ip.sys.stdin, 'isatty', lambda: True)
+        self.patch(ip, 'interactive_argv', lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
+        self.patch(ip.subprocess, 'run', lambda *a, **k: self.fail('ssh must not run'))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ip.main([]), 1)
 
     def test_dry_run_connects_to_nothing_and_leaves_the_hash_out(self):
         self.patch(ip.subprocess, 'run', lambda *a, **k: self.fail('ssh must not run'))
