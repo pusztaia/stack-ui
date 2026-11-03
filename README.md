@@ -24,6 +24,11 @@ One container, Python standard library + PyYAML, no database.
   memory limit turns yellow (80 %), then red (95 %). Refreshed every 10 seconds by default; *Settings* has the
   choice (off, 5, 10, 30, 60 seconds), kept in the browser. The page asks Podman for the numbers; nothing is
   stored.
+- **Health**: the Pi in one place - CPU temperature (yellow from 70 °C, red from 80 °C, where a Raspberry Pi 4 slows
+  down), load against the number of cores, memory, uptime, the file systems that hold the root, the stacks folder and
+  any `STACK_UI_HEALTH_PATHS` (each file system once; yellow from 80 % full, red from 90 %), and what Podman holds.
+  The Stacks list shows the temperature, and a disk that is filling up, next to the host's RAM and CPU. What the
+  container cannot read (no thermal zone in a virtual machine) shows as not available; the rest still works.
 - **Checks before a deploy**: the dialog (and `stack-ui-client.py deploy`, also with `--dry-run`) stops with a plain
   message when an external network of the compose file does not exist, a host port is already published by another
   running container, or a Podman secret is missing; it only warns about an image name without a registry
@@ -139,6 +144,7 @@ devices or ports below 1024 — and then remember that this page is as powerful 
 | `STACK_UI_SELF` | the container's `HOSTNAME` | this page's container name (protected) |
 | `STACK_UI_PROTECTED` | — | more containers or compose projects that are never stopped or removed |
 | `STACK_UI_PROTECTED_NETWORKS` | `podman` | networks that are never removed |
+| `STACK_UI_HEALTH_PATHS` | — | More paths whose file system the Health page shows (comma separated; they must be mounted into the container) |
 | `STACK_UI_PROTECTED_SECRETS` | — | Podman secrets that are never removed (besides `stack-ui-password`) |
 | `STACK_UI_TRUSTED_PROXIES` | — | addresses / networks of the reverse proxies in front of the page (e.g. `172.18.0.0/16`): their `X-Forwarded-For` tells the login throttle who the client is; without it every client behind a proxy counts as the proxy |
 | `STACK_UI_IGNORE` | — | folders of `STACKS_DIR` that are not stacks |

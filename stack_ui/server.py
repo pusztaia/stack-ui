@@ -47,6 +47,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 import yaml
 
 from . import __version__
+from . import health as hl
 from . import podman_api as pa
 from . import stacks as st
 
@@ -832,6 +833,16 @@ def resources() -> dict:
                             'limit': limit if 0 < limit and not (host and limit >= host['memTotal']) else None,
                             'pids': int(s.get('PIDs') or 0)}
     return {'host': host, 'containers': containers, 'error': '; '.join(dict.fromkeys(errors))}
+
+
+# ---------- health: temperature, load, disks and Podman's own numbers ----------
+
+def health_info() -> dict:
+    """The host's health (see health.py). The disks: the root file system, the stacks folder and every path named in
+    STACK_UI_HEALTH_PATHS (comma separated); a file system shows once."""
+    paths = ['/', *([str(st.STACKS_DIR)] if st.STACKS_DIR else [])]
+    paths += [x.strip() for x in os.environ.get('STACK_UI_HEALTH_PATHS', '').split(',') if x.strip()]
+    return hl.health(paths, os.cpu_count() or 1)
 
 
 # ---------- images: what is on this host, and removing the untagged leftovers of pulls ----------
@@ -1700,6 +1711,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, drift())
             if method == 'GET' and parts == ['api', 'resources']:
                 return self.json(200, resources())
+            if method == 'GET' and parts == ['api', 'health']:
+                return self.json(200, health_info())
             if method == 'GET' and parts == ['api', 'containers']:
                 return self.json(200, container_table())
             if method == 'POST' and parts == ['api', 'containers', 'action']:

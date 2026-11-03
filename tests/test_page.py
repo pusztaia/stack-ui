@@ -40,3 +40,12 @@ class PageTest(Base):
         # an error leaves no way to go on: the dialog returns before the deploy button is built
         start = page.index('async function startDeploy')
         self.assertLess(page.index('p.errors?.length', start), page.index("id=\"pull\"", start))
+
+    def test_the_health_page_and_the_chips_in_the_stacks_header(self):
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('data-nav="health"', "['health', 'Health']", 'function viewHealth', 'function renderHealth',
+                     '/api/health', 'function healthChips', 'let HEALTH'):
+            self.assertIn(name, page)
+        # the numbers come with the resources reading, and the page is redrawn when they arrive
+        self.assertIn("ROUTE.view === 'health'", page)

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- *Health*: a new page for the Pi in one place - CPU temperature, load against the cores, memory, uptime, disk use
+  and what Podman holds. The Stacks list shows the temperature next to the host's RAM and CPU, and a disk that is
+  filling up (yellow from 80 %, red from 90 %). The temperature is yellow from 70 °C and red from 80 °C.
+- API: `GET /api/health`. Setting: `STACK_UI_HEALTH_PATHS` names more paths whose file system is shown.
+
 ## 1.0.17
 
 - *Checks before a deploy*: the plan now lists `errors` and `warnings`. An external network that does not exist and

@@ -146,6 +146,8 @@
   .b-ok > i { background: var(--ok); } .b-warn > i { background: var(--warn); } .b-bad > i { background: var(--bad); } .b-idle > i { background: var(--idle); }
   .muted { color: var(--muted); } .small { font-size: 12.5px; } .pad { padding: 18px 2px; }
   .empty { padding: 28px 18px; text-align: center; color: var(--muted); }
+  .sec-title { margin: 20px 0 8px; font: 600 15px/1.2 var(--head); letter-spacing: .01em; }
+  a.tag { text-decoration: none; }
 
   /* selection bar */
   .selbar { position: sticky; bottom: 18px; display: flex; gap: 10px; align-items: center; width: fit-content;
@@ -266,6 +268,7 @@
     <a class="nav-a" href="#/stacks" data-nav="stacks"></a>
     <a class="nav-a" href="#/containers" data-nav="containers"></a>
     <a class="nav-a" href="#/resources" data-nav="resources"></a>
+    <a class="nav-a" href="#/health" data-nav="health"></a>
     <a class="nav-a" href="#/images" data-nav="images"></a>
     <a class="nav-a" href="#/logs" data-nav="logs"></a>
     <a class="nav-a" href="#/networks" data-nav="networks"></a>
@@ -317,6 +320,7 @@ const ICON = {
   logs: '<path d="M5 6h14M5 10h14M5 14h9M5 18h11"/>',
   containers: '<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M7 7V5h10v2M7 11v4M11 11v4M15 11v4"/>',
   resources: '<path d="M4 20V11M10 20V4M16 20v-6M22 20H2"/>',
+  health: '<path d="M3 12h4l2.5-6 4 12 2.5-6H21"/>',
   networks: '<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5m0 0-6 5m6-5 6 5"/>',
   volumes: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/>',
   secrets: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
@@ -333,6 +337,7 @@ let IMAGES = null;                               // /api/images
 let IMG_SEL = new Set();                         // the images ticked on the Images page (ids)
 let FILTER = 'all'; let QUERY = '';
 let RES = null;                                  // /api/resources: {host, containers, error}
+let HEALTH = null;                               // /api/health: {temperature, load, uptime, disks, podman, level}
 let RES_BUSY = false; let RES_TIMER = null;
 const REFRESH_CHOICES = [0, 5, 10, 30, 60];      // seconds between resource readings; 0: only when asked
 let REFRESH = 10;
@@ -458,7 +463,7 @@ function parseHash() {
   if (p[0] === 'containers') return { view: 'containers' };
   if (p[0] === 'resources') return { view: 'resources' };
   if (p[0] === 'logs') return { view: 'logs', container: p[1] || '' };
-  if (['networks', 'volumes', 'secrets'].includes(p[0])) return { view: p[0] };
+  if (['networks', 'volumes', 'secrets', 'health'].includes(p[0])) return { view: p[0] };
   if (p[0] === 'stacks' && p[1]) return { view: 'detail', name: p[1], tab: TABS[p[2]] ? p[2] : 'summary' };
   return { view: 'stacks' };
 }
@@ -485,7 +490,7 @@ function render() {
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   renderBanner();
-  ({ stacks: viewStacks, detail: viewDetail, images: viewImages, settings: viewSettings, containers: viewContainers, resources: viewResources, logs: viewLogs,
+  ({ stacks: viewStacks, detail: viewDetail, images: viewImages, settings: viewSettings, containers: viewContainers, resources: viewResources, health: viewHealth, logs: viewLogs,
      networks: viewNetworks, volumes: viewVolumes, secrets: viewSecrets })[ROUTE.view]();
   if (previous !== ROUTE.view) window.scrollTo(0, 0);
   if (usesResources()) loadResources();
@@ -509,6 +514,7 @@ function refreshViews() {
   }
   if (ROUTE.view === 'images') renderImages();
   if (ROUTE.view === 'resources') renderResources();
+  if (ROUTE.view === 'health') renderHealth();
 }
 
 // ---------- data ----------
@@ -589,14 +595,30 @@ function memCell(s) {
   }).filter(Boolean).join('\n');
   return `<span title="${esc(title)}">${memTag(u)}</span>`;
 }
+const LEVEL_TAG = { ok: '', warn: 't-warn', bad: 't-bad' };
+// the temperature always, a disk only when it is filling up: coloured only when something is wrong
+function healthChips() {
+  const h = HEALTH;
+  if (!h || h.error) return '';
+  const parts = [];
+  if (h.temperature) {
+    const cls = LEVEL_TAG[h.temperature.level];
+    parts.push(`<a href="#/health" class="${cls ? `tag ${cls}` : 'small muted'}" title="CPU temperature">${Math.round(h.temperature.celsius)} °C</a>`);
+  }
+  for (const d of h.disks.filter((x) => x.level !== 'ok')) {
+    parts.push(`<a href="#/health" class="tag ${LEVEL_TAG[d.level]}" title="${esc(d.path)}">Disk ${Math.round(d.percent)} % full</a>`);
+  }
+  return parts.join(' ');
+}
 function hostLine() {
   const h = RES && RES.host;
-  if (!h) return '';
+  const chips = healthChips();
+  if (!h) return chips;
   const cls = memClass(h.memUsed, h.memTotal);
   return `<span>RAM <span class="${cls ? `tag ${cls}` : 'small'}">${fmtMem(h.memUsed)} / ${fmtMem(h.memTotal)}</span></span>
-    <span>CPU ${fmtCpu(h.cpu)} of ${h.cpus} cores</span>`;
+    <span>CPU ${fmtCpu(h.cpu)} of ${h.cpus} cores</span>${chips ? `<span>${chips}</span>` : ''}`;
 }
-const usesResources = () => ROUTE.view === 'stacks' || ROUTE.view === 'resources' || (ROUTE.view === 'detail' && ROUTE.tab === 'summary');
+const usesResources = () => ROUTE.view === 'stacks' || ROUTE.view === 'resources' || ROUTE.view === 'health' || (ROUTE.view === 'detail' && ROUTE.tab === 'summary');
 // new numbers without redrawing the view: a redraw every few seconds would take the keyboard focus and a text selection away
 function refreshResourceCells() {
   if (ROUTE.view === 'stacks' && $('hostline')) {
@@ -619,7 +641,10 @@ function refreshResourceCells() {
 async function loadResources() {
   if (RES_BUSY) return;
   RES_BUSY = true;
-  try { RES = await api('/api/resources'); } catch (e) { RES = { host: null, containers: {}, error: e.message }; }
+  [RES, HEALTH] = await Promise.all([
+    api('/api/resources').catch((e) => ({ host: null, containers: {}, error: e.message })),
+    api('/api/health').catch((e) => ({ error: e.message })),
+  ]);
   RES_BUSY = false;
   refreshResourceCells();
 }
@@ -1788,6 +1813,52 @@ async function showCleanup() {
 }
 
 // ---------- settings ----------
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400); const h = Math.floor((s % 86400) / 3600); const m = Math.floor((s % 3600) / 60);
+  return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m} min`;
+}
+function viewHealth() {
+  $('view').innerHTML = `
+    <div class="page-head">
+      <div><h1>Health</h1><p class="sub">The Pi in one place: temperature, load, memory, disks and what Podman holds. Yellow or red means look at it.</p></div>
+      <div class="head-actions"><button class="icon-btn" id="hl-reload" title="Reload" aria-label="Reload">${icon('refresh')}</button></div>
+    </div>
+    <div id="hl-body"><p class="muted pad">Loading…</p></div>`;
+  $('hl-reload').addEventListener('click', loadResources);
+  renderHealth();
+}
+function renderHealth() {
+  if (ROUTE.view !== 'health' || !$('hl-body') || !HEALTH) return;
+  if (HEALTH.error) { $('hl-body').innerHTML = errBox(HEALTH.error); return; }
+  const h = HEALTH; const host = RES && RES.host;
+  const barOf = (level) => BAR_CLASS[LEVEL_TAG[level] || 't-ok'];
+  const tagOf = (level) => (LEVEL_TAG[level] ? `tag ${LEVEL_TAG[level]}` : '');
+  const na = '<span class="muted">not available here</span>';
+  const rows = [];
+  rows.push(['Temperature', h.temperature
+    ? `${usageBar(h.temperature.celsius, 100, barOf(h.temperature.level))} <span class="${tagOf(h.temperature.level)}">${h.temperature.celsius.toFixed(1)} °C</span> <span class="muted small">(slows down at 80 °C)</span>` : na]);
+  rows.push(['Load', h.load
+    ? `<span class="${tagOf(h.load.level)}">${h.load.one.toFixed(2)}</span> <span class="muted small">1 min · ${h.load.five.toFixed(2)} 5 min · ${h.load.fifteen.toFixed(2)} 15 min · ${h.load.cpus} cores</span>` : na]);
+  if (host) {
+    rows.push(['Memory', `${usageBar(host.memUsed, host.memTotal, BAR_CLASS[memClass(host.memUsed, host.memTotal)])} ${fmtMem(host.memUsed)} / ${fmtMem(host.memTotal)}`]);
+    rows.push(['CPU', `${usageBar(host.cpu || 0, 100, 'b-idle')} ${fmtCpu(host.cpu)} of ${host.cpus} cores`]);
+  }
+  rows.push(['Uptime', h.uptime === null ? na : esc(fmtUptime(h.uptime))]);
+  const disks = h.disks.length ? `<div class="table usage"><div class="tr th"><span>Disk</span><span>Used</span><span>Free</span><span>Size</span></div>${
+    h.disks.map((d) => `<div class="tr"><span><b>${esc(d.path)}</b></span>
+      <span class="small">${usageBar(d.percent, 100, barOf(d.level))} <span class="${tagOf(d.level)}">${d.percent.toFixed(1)} %</span></span>
+      <span class="small">${fmtMem(d.free)}</span><span class="small">${fmtMem(d.total)}</span></div>`).join('')}</div>`
+    : '<div class="empty">No disk could be read.</div>';
+  const p = h.podman;
+  const podman = p.error ? errBox(`Podman could not be read: ${p.error}`) : `<dl class="kv">
+      <dt>Version</dt><dd>${esc(p.version || '—')}</dd>
+      <dt>Containers</dt><dd>${p.containers.running} running of ${p.containers.total}</dd>
+      <dt>Images</dt><dd>${p.images.count} · ${fmtMem(p.images.size)}</dd></dl>`;
+  $('hl-body').innerHTML = `<section class="panel"><dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></section>
+    <h2 class="sec-title">Disks</h2>${disks}
+    <h2 class="sec-title">Podman</h2><section class="panel">${podman}</section>`;
+}
+
 function viewResources() {
   $('view').innerHTML = `
     <div class="page-head">
@@ -1865,7 +1936,7 @@ async function viewSettings() {
 document.querySelector('[data-nav="stacks"]').innerHTML = `${icon('stacks')}<span>Stacks</span>`;
 document.querySelector('[data-nav="images"]').innerHTML = `${icon('images')}<span>Images</span>`;
 document.querySelector('[data-nav="settings"]').innerHTML = `${icon('settings')}<span>Settings</span>`;
-for (const [k, label] of [['containers', 'Containers'], ['resources', 'Resources'], ['logs', 'Logs'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['secrets', 'Secrets']]) {
+for (const [k, label] of [['containers', 'Containers'], ['resources', 'Resources'], ['health', 'Health'], ['logs', 'Logs'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['secrets', 'Secrets']]) {
   document.querySelector(`[data-nav="${k}"]`).innerHTML = `${icon(k)}<span>${label}</span>`;
 }
 $('theme').innerHTML = `${icon('theme')}<span>Theme</span>`;
