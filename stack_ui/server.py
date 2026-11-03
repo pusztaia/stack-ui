@@ -1494,11 +1494,11 @@ def new_session() -> tuple[str, str]:
 LOGIN_PAGE = '''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Stack UI</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
-<style>:root{--bg:#26262c;--panel:#2f2f37;--text:#ececf1;--muted:#a1a1ad;--line:#3d3d47;--accent:#7c3aed;--bad:#f87171;color-scheme:dark}
-@media (prefers-color-scheme:light){:root{--bg:#f4f4f7;--panel:#fff;--text:#1f1f26;--muted:#5f5f6b;--line:#e3e3ea;--accent:#7c3aed;--bad:#dc2626;color-scheme:light}}
+<style>:root{--bg:#17222d;--panel:#1f2d3a;--text:#e8eef3;--muted:#a3b3c2;--line:#34485a;--accent:#2b73d8;--bad:#f26b6b;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--bg:#f2f5f7;--panel:#fff;--text:#14212c;--muted:#50626f;--line:#d3dde5;--accent:#1f6fd1;--bad:#c93a3a;color-scheme:light}}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,sans-serif}
-form{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px;width:min(340px,calc(100vw - 32px));box-sizing:border-box}
-h1{margin:0 0 4px;font-size:19px}form>img{display:block;width:48px;height:48px;margin:0 0 14px}p{margin:0 0 16px;color:var(--muted);font-size:13px}
+form{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:24px;width:min(340px,calc(100vw - 32px));box-sizing:border-box}
+h1{margin:0 0 4px;font:600 24px/1.15 Bahnschrift,"DIN Alternate",system-ui,sans-serif}form>img{display:block;width:48px;height:48px;margin:0 0 14px}p{margin:0 0 16px;color:var(--muted);font-size:13px}
 input,button{font:inherit;width:100%;box-sizing:border-box;padding:9px 11px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
 button{margin-top:12px;background:var(--accent);border-color:var(--accent);color:#fff;cursor:pointer}#err{color:var(--bad);font-size:13px;min-height:18px;margin-top:8px}</style>
 </head><body><form id="f"><img src="/icon.svg" alt=""><h1>Stack UI</h1><p>Compose stacks on this host</p>

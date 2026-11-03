@@ -83,6 +83,7 @@ Updates: `podman-compose -f compose.example.yaml pull && podman-compose -f compo
 `tools/install-pi.py` does the steps above over SSH, with the `ssh` of your computer (Windows 11 has it):
 
 ```powershell
+python tools\install-pi.py                                 # interactive: asks the host, rootful / rootless, port ... then goes on
 python tools\install-pi.py ubuntu@192.168.50.3 --dry-run   # the plan and the script, nothing is sent
 python tools\install-pi.py ubuntu@192.168.50.3             # install: asks the page's password, then the host's
 python tools\install-pi.py ubuntu@192.168.50.3 --update    # pull and recreate an install made by it

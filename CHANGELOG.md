@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- New look: slate-blue enamel with one signal-blue accent instead of purple (dark and light), a DIN-like face for titles
+  and figures, a lit lamp marks the current page in the side bar, and a row's state runs down its left edge in the
+  tables (running, partly running, stopped, failed). The sign-in page and the icon match. Layout, texts and
+  behaviour are unchanged.
+- `tools/install-pi.py` without arguments is interactive: it asks for the SSH user and host, install or update,
+  rootful / rootless, the page's address and port, a build on the host and (optionally) the advanced settings, shows
+  the equivalent command line and then logs in over SSH as before. The arguments still work.
+
 ## 1.0.15
 
 - *Images*: remove several images at once. Every image no container uses has a tick box (and one in the header for
