@@ -1340,10 +1340,11 @@ def blocking_rows(containers: list[dict]) -> list[dict]:
 
 
 def plan(name: str) -> dict:
-    folder, compose_file, _ = find_module(name)
+    folder, compose_file, env_file = find_module(name)
     require_podman_state()
-    p = st.plan(folder, compose_file)
-    return {'action': p['action'], 'blocking': blocking_rows(p['blocking']), 'missingSecrets': p['missing_secrets']}
+    p = st.plan(folder, compose_file, env_file)
+    return {'action': p['action'], 'blocking': blocking_rows(p['blocking']), 'missingSecrets': p['missing_secrets'],
+            'errors': p['errors'], 'warnings': p['warnings']}
 
 
 def run_deploy(name: str, pull: bool, remove: list[str], only_update: bool = False, recreate: bool = False) -> dict:

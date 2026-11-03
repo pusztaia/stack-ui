@@ -31,3 +31,12 @@ class PageTest(Base):
         for name in ('data-img-sel', 'data-img-all', 'img-selbar', 'img-untagged', 'showImagesRemove'):
             self.assertIn(name, page)
         self.assertNotIn('id="img-clean"', page)
+
+    def test_the_deploy_dialog_shows_the_preflight_errors_and_warnings(self):
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('p.errors?.length', 'p.warnings?.length', 'warn-note'):
+            self.assertIn(name, page)
+        # an error leaves no way to go on: the dialog returns before the deploy button is built
+        start = page.index('async function startDeploy')
+        self.assertLess(page.index('p.errors?.length', start), page.index("id=\"pull\"", start))

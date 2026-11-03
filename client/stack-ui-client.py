@@ -162,6 +162,11 @@ def deploy(folder: Path, *, dry_run: bool = False, pull: bool = True, log=print,
     log(f'{p["action"]} with podman-compose')
     if p.get('missingSecrets'):
         raise ClientError('missing Podman secrets: ' + ', '.join(p['missingSecrets']) + ' (create them on the page, Secrets)')
+    if p.get('errors'):
+        raise ClientError('not deployed: ' + '; '.join(p['errors']))
+    if dry_run:   # a real deploy prints the warnings itself, in the log
+        for warning in p.get('warnings') or []:
+            log('warning: ' + warning)
     blocking = p.get('blocking') or []
     for c in blocking:
         log(f'  in the way: "{c["name"]}" ({c.get("image")}, {c.get("state")}); its data on the host is not touched')

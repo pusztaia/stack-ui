@@ -1019,7 +1019,7 @@ async function updateAfterSave(name) {
   try { p = await api(`/api/stacks/${enc(name)}/plan`); }
   catch (e) { return openDialog(`Update ${name}`, errBox(e.message)); }
   // a new stack, a container in the way or a missing secret: the usual dialog, which asks or explains
-  if (p.action !== 'update' || p.blocking.length || p.missingSecrets?.length) return startDeploy(name);
+  if (p.action !== 'update' || p.blocking.length || p.missingSecrets?.length || p.errors?.length || p.warnings?.length) return startDeploy(name);
   openDialog(`Updating ${name}`, `<p class="muted">Deploying the saved files with podman-compose…</p>`, '<button disabled>Working…</button>');
   try {
     const r = await api(`/api/stacks/${enc(name)}/deploy`, { method: 'POST', body: JSON.stringify({ pull: false, remove: [] }) });
@@ -1196,12 +1196,19 @@ async function startDeploy(name) {
     return openDialog(title, `${errBox(`These Podman secrets do not exist yet: ${p.missingSecrets.join(', ')}.`)}
       <p>Create them under <a href="#/secrets">Secrets</a>, then try again.</p>`);
   }
+  if (p.errors?.length) {
+    return openDialog(title, `${errBox('This stack cannot be deployed yet:')}<ul class="plain">${
+      p.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul><p class="muted">Fix this, then try again.</p>`);
+  }
   const where = 'with podman-compose';
   let body = create
     ? `<p>Creates <b>${esc(name)}</b> ${where} from the compose file and variables stored here.
          The host directories must exist: create them before the first deploy.</p>`
     : `<p>Updates <b>${esc(name)}</b> ${where} with the compose file and variables stored here.</p>
        <label class="check"><input type="checkbox" id="pull" checked> <span>Pull the newest images first</span></label>`;
+  if (p.warnings?.length) {
+    body += `<div class="warn-note">Worth a look:<ul class="plain">${p.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>`;
+  }
   if (p.blocking.length) {
     body += `<p><b>In the way</b> (containers of the same name that are not part of this stack):</p><ul class="plain">${
       p.blocking.map((c) => `<li>${esc(c.name)}, ${esc(c.state)} · <span class="muted">${esc(c.image)}</span></li>`).join('')}</ul>

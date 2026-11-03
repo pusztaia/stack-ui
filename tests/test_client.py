@@ -12,6 +12,9 @@ sc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sc)
 
 
+NL = chr(10)
+
+
 class ClientTest(Base):
     def setUp(self):
         super().setUp()
@@ -50,6 +53,22 @@ class ClientTest(Base):
         self.assertEqual((self.stacks / 'web' / '.env').read_text(), 'TZ=UTC\n')
         self.assertEqual(self.compose_calls(), [])
         self.assertTrue(any('+TZ=Europe/Budapest' in line for line in log))
+
+    def test_preflight_error_stops_the_deploy_even_as_a_dry_run(self):
+        net = compose_yaml('lan') + ('networks:' + NL + '  proxy:' + NL + '    name: proxy-net' + NL + '    external: true' + NL)
+        net = net.replace('image: docker.io/library/nginx:latest' + NL, 'image: docker.io/library/nginx:latest' + NL + '    networks:' + NL + '      - proxy' + NL)
+        folder = make_stack(self.repo, 'lan', net)
+        for dry in (False, True):   # the first run uploads the new stack; a dry run can only plan a stack Stack UI has
+            with self.assertRaises(sc.ClientError) as ctx:
+                sc.deploy(folder, dry_run=dry, log=lambda _: None)
+            self.assertIn('proxy-net', str(ctx.exception))
+        self.assertEqual(self.compose_calls(), [])
+
+    def test_preflight_warning_is_logged_and_the_deploy_goes_on(self):
+        folder = make_stack(self.repo, 'short', compose_yaml('short').replace('docker.io/library/nginx:latest', 'jc21/x:1'))
+        log = []
+        self.assertTrue(sc.deploy(folder, pull=False, log=log.append))
+        self.assertTrue(any(line.startswith('warning:') and 'docker.io/jc21/x' in line for line in log))
 
     def test_env_less_folder(self):
         local = make_stack(self.repo, 'noenv', compose_yaml('noenv'), env=None)

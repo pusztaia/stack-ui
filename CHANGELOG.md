@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- *Checks before a deploy*: the plan now lists `errors` and `warnings`. An external network that does not exist and
+  a host port that another running container publishes stop the deploy with a plain message (the dialog, the API
+  client and `--dry-run` alike); an image name without a registry and a `${VARIABLE}` with no value and no default
+  only warn. The stack's own containers never count as holding its ports.
+- API: `GET /api/stacks/<name>/plan` also answers `{errors, warnings}`.
+
 ## 1.0.16
 
 - New look: slate-blue enamel with one signal-blue accent instead of purple (dark and light), a DIN-like face for titles

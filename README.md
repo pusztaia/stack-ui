@@ -24,6 +24,11 @@ One container, Python standard library + PyYAML, no database.
   memory limit turns yellow (80 %), then red (95 %). Refreshed every 10 seconds by default; *Settings* has the
   choice (off, 5, 10, 30, 60 seconds), kept in the browser. The page asks Podman for the numbers; nothing is
   stored.
+- **Checks before a deploy**: the dialog (and `stack-ui-client.py deploy`, also with `--dry-run`) stops with a plain
+  message when an external network of the compose file does not exist, a host port is already published by another
+  running container, or a Podman secret is missing; it only warns about an image name without a registry
+  (`jc21/nginx-proxy-manager` instead of `docker.io/jc21/nginx-proxy-manager`) and a `${VARIABLE}` that has no value
+  and no default. The env file's values and the `${VAR:-default}` forms are applied first.
 - **Logs**, **Networks**, **Volumes** and **Secrets** (Podman secrets: a value goes in and is never shown again).
 - An **API token** for scripts, and `client/stack-ui-client.py` that deploys a folder through the API.
 

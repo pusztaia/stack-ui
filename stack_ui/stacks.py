@@ -25,6 +25,7 @@ from pathlib import Path
 import yaml
 
 from . import podman_api as pa
+from . import preflight
 
 STACKS_DIR = Path(os.environ['STACKS_DIR']).resolve() if os.environ.get('STACKS_DIR') else None
 IGNORE = {x.strip() for x in os.environ.get('STACK_UI_IGNORE', '').split(',') if x.strip()}
@@ -187,12 +188,19 @@ def match_owner(*paths: Path) -> None:
 
 # ---------- podman-compose ----------
 
-def plan(folder: Path, compose_file: str) -> dict:
+def plan(folder: Path, compose_file: str, env_file: str | None = None) -> dict:
     compose = (folder / compose_file).read_text(encoding='utf-8')
+    try:
+        env = (folder / env_file).read_text(encoding='utf-8') if env_file else None
+    except OSError:
+        env = None
     containers = pa.containers()
+    names = container_names(compose)
+    checks = preflight.check(compose, env, [c for c in containers if not belongs(c, folder.name, names)],
+                             [str(n.get('name')) for n in pa.networks()])
     return {'action': 'update' if project_containers(folder.name, containers) else 'create',
             'blocking': blocking(folder.name, compose, containers),
-            'missing_secrets': missing_secrets(compose)}
+            'missing_secrets': missing_secrets(compose), **checks}
 
 
 def in_pod_args(folder: Path, compose_file: str) -> list[str]:
@@ -249,10 +257,14 @@ def deploy(folder: Path, compose_file: str, env_file: str | None, *, approve, dr
     """Create or update the stack. approve(containers) decides about containers in its way. pull pulls first
     (before anything is removed) and recreates every container; recreate does it without a pull (after a
     secret changed). Returns 'create' or 'update'."""
-    p = plan(folder, compose_file)
+    p = plan(folder, compose_file, env_file)
     if p['missing_secrets']:
         raise StackError('these Podman secrets do not exist yet: ' + ', '.join(p['missing_secrets'])
                          + ' (create them under Secrets first)')
+    if p['errors']:
+        raise StackError('not deployed: ' + '; '.join(p['errors']))
+    for warning in p['warnings']:
+        log('warning: ' + warning)
     if dry_run:
         log(f'would {p["action"]} the stack "{folder.name}"'
             + (f'; first it asks to remove {", ".join(cname(c) for c in p["blocking"])}' if p['blocking'] else ''))
