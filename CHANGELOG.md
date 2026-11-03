@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.16
 
 - New look: slate-blue enamel with one signal-blue accent instead of purple (dark and light), a DIN-like face for titles
   and figures, a lit lamp marks the current page in the side bar, and a row's state runs down its left edge in the
