@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.17
 
 - *Checks before a deploy*: the plan now lists `errors` and `warnings`. An external network that does not exist and
   a host port that another running container publishes stop the deploy with a plain message (the dialog, the API
