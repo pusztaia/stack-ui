@@ -29,6 +29,8 @@ One container, Python standard library + PyYAML, no database.
   any `STACK_UI_HEALTH_PATHS` (each file system once; yellow from 80 % full, red from 90 %), and what Podman holds.
   The Stacks list shows the temperature, and a disk that is filling up, next to the host's RAM and CPU. What the
   container cannot read (no thermal zone in a virtual machine) shows as not available; the rest still works.
+  On a Raspberry Pi it also reads the firmware's flags: under-voltage and throttling right now (red) or since boot
+  (yellow), the usual sign of a weak power supply; the Stacks list shows a *Power problem* tag only then.
 - **Checks before a deploy**: the dialog (and `stack-ui-client.py deploy`, also with `--dry-run`) stops with a plain
   message when an external network of the compose file does not exist, a host port is already published by another
   running container, or a Podman secret is missing; it only warns about an image name without a registry

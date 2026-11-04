@@ -43,6 +43,56 @@ class ReaderTest(Base):
         self.assertIsNone(hl.read_uptime())
 
 
+class PowerTest(Base):
+    def write(self, name, text):
+        f = self.tmp / name
+        f.write_text(text, encoding='utf-8')
+        return f
+
+    def setUp(self):
+        super().setUp()
+        self.patch(hl, 'THROTTLED_ROOT', self.tmp / 'platform')
+
+    def test_the_value_is_hex_with_or_without_a_prefix(self):
+        self.patch(hl, 'THROTTLED', self.write('t1', '50005\n'))
+        self.assertEqual(hl.read_throttled(), 0x50005)
+        self.patch(hl, 'THROTTLED', self.write('t2', '0x50005\n'))
+        self.assertEqual(hl.read_throttled(), 0x50005)
+        self.patch(hl, 'THROTTLED', self.write('t3', '0\n'))
+        self.assertEqual(hl.read_throttled(), 0)
+
+    def test_an_unreadable_value_is_none(self):
+        self.patch(hl, 'THROTTLED', self.tmp / 'missing')
+        self.assertIsNone(hl.read_throttled())
+        self.patch(hl, 'THROTTLED', self.write('junk', 'throttled\n'))
+        self.assertIsNone(hl.read_throttled())
+
+    def test_another_firmware_device_is_tried(self):
+        self.patch(hl, 'THROTTLED', self.tmp / 'missing')
+        (self.tmp / 'platform' / 'firmware').mkdir(parents=True)
+        (self.tmp / 'platform' / 'firmware' / 'get_throttled').write_text('5\n', encoding='utf-8')
+        self.assertEqual(hl.read_throttled(), 5)
+
+    def test_nothing_wrong(self):
+        self.assertEqual(hl.power(0), {'value': 0, 'now': [], 'since_boot': [], 'level': 'ok'})
+
+    def test_what_is_wrong_now_is_bad(self):
+        p = hl.power(0x50005)   # under-voltage and throttled now, and since boot
+        self.assertEqual(p['now'], ['undervoltage', 'throttled'])
+        self.assertEqual(p['since_boot'], [])      # not listed twice
+        self.assertEqual(p['level'], 'bad')
+
+    def test_what_happened_since_boot_is_a_warning(self):
+        p = hl.power(0x50000)
+        self.assertEqual((p['now'], p['since_boot'], p['level']), ([], ['undervoltage', 'throttled'], 'warn'))
+
+    def test_every_flag_has_its_bit(self):
+        self.assertEqual(hl.power(0x2)['now'], ['freq_capped'])
+        self.assertEqual(hl.power(0x8)['now'], ['soft_temp_limit'])
+        self.assertEqual(hl.power(0x20000)['since_boot'], ['freq_capped'])
+        self.assertEqual(hl.power(0x80000)['since_boot'], ['soft_temp_limit'])
+
+
 class LevelTest(Base):
     def test_temperature(self):
         self.assertEqual([hl.temperature_level(t) for t in (40, 69.9, 70, 79.9, 80, 90)],
@@ -88,9 +138,20 @@ class HealthTest(Base):
         self.patch(hl, 'THERMAL', self.tmp / 'no-temp')
         self.patch(hl, 'LOADAVG', self.tmp / 'no-load')
         self.patch(hl, 'UPTIME', self.tmp / 'no-uptime')
+        self.patch(hl, 'THROTTLED', self.tmp / 'no-throttled')
+        self.patch(hl, 'THROTTLED_ROOT', self.tmp / 'no-platform')
+
+    def test_a_weak_power_supply_makes_the_whole_health_bad(self):
+        (self.tmp / 'thr').write_text('1\n', encoding='utf-8')
+        self.patch(hl, 'THROTTLED', self.tmp / 'thr')
+        self.patch(hl.shutil, 'disk_usage', fake_disk_usage(1000, 900))
+        h = hl.health([str(self.tmp)], cpus=4)
+        self.assertEqual(h['power'], {'value': 1, 'now': ['undervoltage'], 'since_boot': [], 'level': 'bad'})
+        self.assertEqual(h['level'], 'bad')
 
     def test_what_cannot_be_read_is_none_and_the_rest_works(self):
         h = hl.health([str(self.tmp)], cpus=4)
+        self.assertIsNone(h['power'])
         self.assertIsNone(h['temperature'])
         self.assertIsNone(h['load'])
         self.assertIsNone(h['uptime'])
@@ -153,7 +214,7 @@ class ApiTest(Base):
         token = ui.api_token({})['token']
         with urllib.request.urlopen(urllib.request.Request(url, headers={'Authorization': f'Bearer {token}'}), timeout=10) as r:
             body = json.loads(r.read().decode('utf-8'))
-        self.assertEqual(sorted(body), ['disks', 'level', 'load', 'podman', 'temperature', 'uptime'])
+        self.assertEqual(sorted(body), ['disks', 'level', 'load', 'podman', 'power', 'temperature', 'uptime'])
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             urllib.request.urlopen(url, timeout=10)
         ctx.exception.close()

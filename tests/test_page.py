@@ -49,3 +49,9 @@ class PageTest(Base):
             self.assertIn(name, page)
         # the numbers come with the resources reading, and the page is redrawn when they arrive
         self.assertIn("ROUTE.view === 'health'", page)
+
+    def test_the_power_row_and_the_power_chip(self):
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('h.power', 'function powerLines', 'Under-voltage', 'throttled'):
+            self.assertIn(name, page)

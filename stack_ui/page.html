@@ -596,6 +596,22 @@ function memCell(s) {
   return `<span title="${esc(title)}">${memTag(u)}</span>`;
 }
 const LEVEL_TAG = { ok: '', warn: 't-warn', bad: 't-bad' };
+// what the Raspberry Pi firmware's flags say, as sentences: what is so right now first, then what was so since boot
+const POWER_NOW = {
+  undervoltage: 'Under-voltage right now: the power supply is too weak',
+  freq_capped: 'The CPU speed is capped right now',
+  throttled: 'The CPU is throttled right now',
+  soft_temp_limit: 'The soft temperature limit is active right now',
+};
+const POWER_SINCE = {
+  undervoltage: 'Under-voltage happened since boot',
+  freq_capped: 'The CPU speed was capped since boot',
+  throttled: 'The CPU was throttled since boot',
+  soft_temp_limit: 'The soft temperature limit was reached since boot',
+};
+function powerLines(pw) {
+  return [...pw.now.map((k) => POWER_NOW[k]), ...pw.since_boot.map((k) => POWER_SINCE[k])];
+}
 // the temperature always, a disk only when it is filling up: coloured only when something is wrong
 function healthChips() {
   const h = HEALTH;
@@ -604,6 +620,9 @@ function healthChips() {
   if (h.temperature) {
     const cls = LEVEL_TAG[h.temperature.level];
     parts.push(`<a href="#/health" class="${cls ? `tag ${cls}` : 'small muted'}" title="CPU temperature">${Math.round(h.temperature.celsius)} °C</a>`);
+  }
+  if (h.power && h.power.level !== 'ok') {
+    parts.push(`<a href="#/health" class="tag ${LEVEL_TAG[h.power.level]}" title="${esc(powerLines(h.power).join('. '))}">${h.power.level === 'bad' ? 'Power problem' : 'Power dipped'}</a>`);
   }
   for (const d of h.disks.filter((x) => x.level !== 'ok')) {
     parts.push(`<a href="#/health" class="tag ${LEVEL_TAG[d.level]}" title="${esc(d.path)}">Disk ${Math.round(d.percent)} % full</a>`);
@@ -1837,6 +1856,9 @@ function renderHealth() {
   const rows = [];
   rows.push(['Temperature', h.temperature
     ? `${usageBar(h.temperature.celsius, 100, barOf(h.temperature.level))} <span class="${tagOf(h.temperature.level)}">${h.temperature.celsius.toFixed(1)} °C</span> <span class="muted small">(slows down at 80 °C)</span>` : na]);
+  rows.push(['Power', !h.power ? na : h.power.level === 'ok'
+    ? '<span class="tag t-ok">OK</span> <span class="muted small">no under-voltage or throttling since boot</span>'
+    : `<span class="${tagOf(h.power.level)}">${h.power.level === 'bad' ? 'Problem' : 'Dipped'}</span> ${powerLines(h.power).map((l) => `<div class="small">${esc(l)}</div>`).join('')}`]);
   rows.push(['Load', h.load
     ? `<span class="${tagOf(h.load.level)}">${h.load.one.toFixed(2)}</span> <span class="muted small">1 min · ${h.load.five.toFixed(2)} 5 min · ${h.load.fifteen.toFixed(2)} 15 min · ${h.load.cpus} cores</span>` : na]);
   if (host) {

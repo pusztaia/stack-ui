@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- *Health*: a Raspberry Pi's power and throttling flags (from the firmware's `get_throttled`). Under-voltage, a capped
+  CPU speed, throttling or the soft temperature limit right now is red, one that only happened since boot is yellow;
+  the sentences say which, and the Stacks list shows a *Power problem* / *Power dipped* tag only then. Where the file
+  is not there (not a Raspberry Pi, or not shown in the container) the row says so.
+
 ## 1.0.18
 
 - *Health*: a new page for the Pi in one place - CPU temperature, load against the cores, memory, uptime, disk use

@@ -13,10 +13,14 @@ from . import podman_api as pa
 THERMAL = Path('/sys/class/thermal/thermal_zone0/temp')   # millidegrees Celsius
 LOADAVG = Path('/proc/loadavg')
 UPTIME = Path('/proc/uptime')
+THROTTLED = Path('/sys/devices/platform/soc/soc:firmware/get_throttled')   # the Raspberry Pi firmware's flags (hex)
+THROTTLED_ROOT = Path('/sys/devices/platform')                            # where another firmware device is looked for
 
 TEMP_WARN, TEMP_BAD = 70.0, 80.0    # a Raspberry Pi 4 starts to slow itself down at 80 °C
 DISK_WARN, DISK_BAD = 80.0, 90.0    # percent of the filesystem in use
 RANK = {'ok': 0, 'warn': 1, 'bad': 2}
+# (name, bit while it is so, bit when it has been so since boot) of the firmware's get_throttled value
+POWER_FLAGS = (('undervoltage', 0, 16), ('freq_capped', 1, 17), ('throttled', 2, 18), ('soft_temp_limit', 3, 19))
 
 
 def read_temperature() -> float | None:
@@ -39,6 +43,28 @@ def read_uptime() -> int | None:
         return int(float(UPTIME.read_text(encoding='utf-8').split()[0]))
     except (OSError, ValueError, IndexError):
         return None
+
+
+def read_throttled() -> int | None:
+    """The firmware's get_throttled value; None when this host has no such file (not a Raspberry Pi, or not shown)."""
+    candidates = [THROTTLED]
+    try:
+        candidates += sorted(THROTTLED_ROOT.glob('*/get_throttled'))
+    except OSError:
+        pass
+    for path in candidates:
+        try:
+            return int(path.read_text(encoding='utf-8').strip(), 16)
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def power(value: int) -> dict:
+    """What the flags say: now (bad), or only since boot (warn). A flag that is on now is not listed twice."""
+    now = [name for name, bit, _ in POWER_FLAGS if value >> bit & 1]
+    since = [name for name, _, bit in POWER_FLAGS if value >> bit & 1 and name not in now]
+    return {'value': value, 'now': now, 'since_boot': since, 'level': 'bad' if now else 'warn' if since else 'ok'}
 
 
 def temperature_level(celsius: float) -> str:
@@ -99,13 +125,15 @@ def podman_info() -> dict:
 
 
 def health(paths: list[str], cpus: int) -> dict:
-    """{temperature, load, uptime, disks, podman, level}: level is the worst of the others (None: nothing to judge)."""
+    """{temperature, load, power, uptime, disks, podman, level}: level is the worst of the others (None: nothing to judge)."""
     celsius, load, uptime = read_temperature(), read_load(), read_uptime()
+    throttled = read_throttled()
+    supply = power(throttled) if throttled is not None else None
     temperature = {'celsius': celsius, 'level': temperature_level(celsius)} if celsius is not None else None
     loaded = ({'one': load[0], 'five': load[1], 'fifteen': load[2], 'cpus': cpus, 'level': load_level(load[0], cpus)}
               if load else None)
     rows = disks(paths)
     podman = podman_info()
-    levels = [x['level'] for x in (temperature, loaded) if x] + [d['level'] for d in rows] + (['bad'] if 'error' in podman else [])
-    return {'temperature': temperature, 'load': loaded, 'uptime': uptime, 'disks': rows, 'podman': podman,
-            'level': worst(levels)}
+    levels = [x['level'] for x in (temperature, loaded, supply) if x] + [d['level'] for d in rows] + (['bad'] if 'error' in podman else [])
+    return {'temperature': temperature, 'load': loaded, 'power': supply, 'uptime': uptime, 'disks': rows,
+            'podman': podman, 'level': worst(levels)}
