@@ -159,6 +159,14 @@ class NotDeployed(LookupError):
     pass
 
 
+class NoContainer(LookupError):
+    pass
+
+
+class Busy(Exception):
+    pass
+
+
 def find_module(name: str) -> tuple[Path, str, str | None]:
     for stack in st.discover():
         if stack[0].name == name:
@@ -1015,6 +1023,11 @@ def image_details(iid: str) -> dict:
 # ---------- Podman: containers, logs, networks, volumes, secrets ----------
 
 LOG_TAILS = (200, 500, 2000)
+MAX_LOG_STREAMS = 4         # log streams open at once: each holds a thread and a connection
+LOG_LINE_MAX = 8 * 1024     # a longer log line is cut
+LOG_HEARTBEAT = 15.0        # seconds of quiet before a heartbeat line (it also finds a client that left)
+LOG_SINCE = re.compile(r'^[0-9TZ:.+-]{1,40}$')     # a time stamp, as Podman writes them
+LOG_STREAMS = threading.BoundedSemaphore(MAX_LOG_STREAMS)
 
 
 def require_podman() -> None:
@@ -1145,6 +1158,36 @@ def container_logs(name: str, tail: int) -> dict:
     if found is None:
         raise ValueError(f'no container "{name}"')
     return {'container': name, 'lines': pa.logs(str(found['Id']), tail)}
+
+
+def open_log_stream(name: str, tail: int, since: str) -> tuple[pa.LogStream, threading.BoundedSemaphore]:
+    """Follow a container's log: the arguments checked, a stream slot taken, Podman asked. Returns the stream and
+    the semaphore the slot came from; the caller closes the stream and releases that slot. ValueError /
+    NoContainer / Busy / PodmanError before any byte is sent."""
+    require_podman()
+    if tail not in LOG_TAILS:
+        raise ValueError(f'lines: one of {", ".join(map(str, LOG_TAILS))}')
+    if since and not LOG_SINCE.match(since):
+        raise ValueError('since: a time stamp like 2026-11-07T10:00:00Z')
+    found = next((c for c in pa.containers() if st.cname(c) == name), None)
+    if found is None:
+        raise NoContainer(name)
+    slots = LOG_STREAMS
+    if not slots.acquire(blocking=False):
+        raise Busy(f'too many log streams are open (at most {MAX_LOG_STREAMS}): close another one first')
+    try:
+        return pa.LogStream(str(found['Id']), tail, since), slots
+    except BaseException:
+        slots.release()
+        raise
+
+
+def cut_line(line: str) -> str:
+    return line if len(line) <= LOG_LINE_MAX else line[:LOG_LINE_MAX - 1] + '\u2026'
+
+
+def json_line(obj: dict) -> bytes:
+    return (json.dumps(obj) + '\n').encode('utf-8')
 
 
 def network_list() -> dict:
@@ -1553,14 +1596,45 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         sys.stderr.write('  %s %s\n' % (self.client_address[0], fmt % args))
 
-    def send(self, code: int, body: bytes, ctype: str, headers: dict | None = None) -> None:
-        self.send_response(code)
-        self.send_header('Content-Type', ctype)
-        self.send_header('Content-Length', str(len(body)))
+    def security_headers(self) -> None:
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Referrer-Policy', 'no-referrer')
+
+    def send_stream_headers(self) -> None:
+        """200 for an answer of unknown length: it lasts until the connection closes (HTTP/1.0)."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/x-ndjson; charset=utf-8')
+        self.send_header('X-Accel-Buffering', 'no')    # a reverse proxy must not hold the lines back
+        self.security_headers()
+        self.end_headers()
+        self.wfile.flush()
+
+    def stream_logs(self, name: str, query: dict) -> None:
+        """GET /api/containers/<name>/logs/stream: the log as it is written, one JSON object per line."""
+        tail = (query.get('tail') or ['200'])[0]
+        stream, slots = open_log_stream(name, int(tail) if tail.isdigit() else 0, (query.get('since') or [''])[0])
+        try:
+            self.send_stream_headers()
+            try:
+                for line in stream.lines(LOG_HEARTBEAT):
+                    self.wfile.write(json_line({'hb': 1} if line is None else {'l': cut_line(line)}))
+                self.wfile.write(json_line({'end': 'the container stopped'}))
+            except pa.PodmanError as exc:
+                self.wfile.write(json_line({'error': str(exc)}))
+        except OSError:
+            pass                                       # the client went away: a write failed
+        finally:
+            stream.close()
+            slots.release()
+            self.close_connection = True
+
+    def send(self, code: int, body: bytes, ctype: str, headers: dict | None = None) -> None:
+        self.send_response(code)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(len(body)))
+        self.security_headers()
         for k, v in (headers or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -1719,6 +1793,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, container_do(data))
             if method == 'GET' and len(parts) == 4 and parts[1] == 'containers' and parts[3] == 'inspect':
                 return self.json(200, container_details(parts[2]))
+            if method == 'GET' and len(parts) == 5 and parts[1] == 'containers' and parts[3:] == ['logs', 'stream']:
+                return self.stream_logs(parts[2], query)
             if method == 'GET' and len(parts) == 4 and parts[1] == 'containers' and parts[3] == 'logs':
                 tail = (query.get('tail') or ['200'])[0]
                 return self.json(200, container_logs(parts[2], int(tail) if tail.isdigit() else 0))
@@ -1771,6 +1847,10 @@ class Handler(BaseHTTPRequestHandler):
                 if method == 'POST' and action == 'restore':
                     return self.json(200, restore(name, data))
             return self.json(404, {'error': 'not found'})
+        except Busy as exc:
+            return self.json(429, {'error': str(exc)})
+        except NoContainer as exc:
+            return self.json(404, {'error': f'no container "{exc}"'})
         except FileExistsError as exc:
             return self.json(409, {'error': f'a stack "{exc}" already exists'})
         except NotDeployed as exc:

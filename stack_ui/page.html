@@ -221,6 +221,11 @@
   /* logs, networks, volumes, secrets */
   .head-actions select { width: auto; }
   pre.logs { max-height: 70vh; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 12.5px; }
+  pre.logs .ln { display: block; min-height: 1.4em; }
+  pre.logs .ln.err { color: var(--bad); }
+  pre.logs .ln.warn { color: var(--warn); }
+  pre.logs mark { background: var(--accent-soft); color: inherit; border-radius: 2px; }
+  .logbar { display: flex; gap: 12px; align-items: center; margin-top: 8px; min-height: 28px; }
   .res .tr { grid-template-columns: minmax(160px, 1.2fr) minmax(120px, 1fr) minmax(160px, 1.4fr) 170px; }
   .bk { margin-left: 6px; vertical-align: 1px; }
   .ctab .tr { grid-template-columns: minmax(150px, 1.2fr) minmax(170px, 1.4fr) 110px minmax(120px, 1fr) 330px; }
@@ -484,6 +489,7 @@ function render() {
   const previous = ROUTE.view;
   lastHash = location.hash || '#/stacks';
   ROUTE = parseHash();
+  if (ROUTE.view !== 'logs') stopLogStream();
   closeMenu();
   document.querySelectorAll('[data-nav]').forEach((a) => {
     const on = a.dataset.nav === (ROUTE.view === 'detail' ? 'stacks' : ROUTE.view);
@@ -1451,34 +1457,179 @@ async function viewContainers() {
 }
 
 // ---------- logs ----------
-let LOG_TIMER = null;
+// ---- Logs: follow a container's log as it is written ----
+const LOG_MAX = 5000;                                  // lines the page keeps; older ones are dropped
+const LOG_ERR = /\b(error|fatal|panic|exception|failed)\b/i;
+const LOG_WARN = /\bwarn(ing)?\b/i;
+let LOG_STREAM = null;                                 // the open follow: { abort }
+function stopLogStream() { if (LOG_STREAM) { LOG_STREAM.abort.abort(); LOG_STREAM = null; } }
+
+// the text with every match of q (lower case) in <mark>; everything is escaped
+function markHtml(text, q) {
+  if (!q) return esc(text);
+  const low = text.toLowerCase();
+  let out = ''; let i = 0;
+  for (let j = low.indexOf(q); j !== -1; j = low.indexOf(q, i)) {
+    out += `${esc(text.slice(i, j))}<mark>${esc(text.slice(j, j + q.length))}</mark>`;
+    i = j + q.length;
+  }
+  return out + esc(text.slice(i));
+}
+const logLine = (text, q) => `<span class="ln${LOG_ERR.test(text) ? ' err' : LOG_WARN.test(text) ? ' warn' : ''}">${markHtml(text, q)}</span>`;
+
+function downloadLog(name, lines) {
+  const stamp = new Date().toISOString().replace(/\..*$/, '').replace(/[-:]/g, '').replace('T', '-');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([`${lines.join('\n')}\n`], { type: 'text/plain;charset=utf-8' }));
+  a.download = `${name.replace(/[^\w.-]/g, '_')}-${stamp}.log`;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// calls onMessage(object) for every JSON line of a fetch body
+async function readNdjson(body, onMessage) {
+  const reader = body.getReader(); const decoder = new TextDecoder(); let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
+      const raw = buf.slice(0, i); buf = buf.slice(i + 1);
+      if (raw) onMessage(JSON.parse(raw));
+    }
+  }
+}
+const sleep = (ms, signal) => new Promise((resolve) => {
+  const t = setTimeout(resolve, ms);
+  signal?.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+});
+
+// <log-dedupe>
+// Skips the lines a reconnect replays (Podman's `since` includes the last time stamp), never the live flow.
+function newLogDedupe() {
+  let lastStamp = '';
+  let seen = new Map();          // the lines seen at lastStamp, and how many times
+  let replay = null;             // while a replay runs: what is still to be skipped
+  return {
+    stamp: () => lastStamp,
+    startReplay() { replay = lastStamp ? new Map(seen) : null; },
+    // true when the line is to be shown, false when it repeats the replay
+    accept(text) {
+      const m = /^(\S+) /.exec(text);             // Podman puts the time stamp first
+      const stamp = m ? m[1] : '';
+      if (replay) {
+        const left = stamp === lastStamp ? replay.get(text) || 0 : 0;
+        if (left > 0) { replay.set(text, left - 1); return false; }
+        replay = null;                            // the first line that is no repeat: the replay is over
+      }
+      if (stamp !== lastStamp) { lastStamp = stamp; seen = new Map(); }
+      seen.set(text, (seen.get(text) || 0) + 1);
+      return true;
+    },
+  };
+}
+// </log-dedupe>
+
 async function viewLogs() {
-  clearInterval(LOG_TIMER);
+  stopLogStream();
   const current = ROUTE.container;
   $('view').innerHTML = `
     <div class="page-head">
-      <div><h1>Logs</h1><p class="sub">The last lines a container wrote (stdout and stderr), with their time.</p></div>
+      <div><h1>Logs</h1><p class="sub">What a container writes (stdout and stderr), with the time. <i>Follow</i> shows new lines as they come.</p></div>
       <div class="head-actions">
         <select id="lg-c" aria-label="Container"><option>Loading…</option></select>
         <select id="lg-n" aria-label="Lines">${[200, 500, 2000].map((n) => `<option value="${n}">${n} lines</option>`).join('')}</select>
         <label class="search">${icon('search')}<input id="lg-q" type="search" placeholder="Filter lines" autocomplete="off" aria-label="Filter lines"></label>
-        <label class="check"><input type="checkbox" id="lg-auto"> <span>Every 5 s</span></label>
-        <button class="icon-btn" id="lg-r" title="Refresh" aria-label="Refresh">${icon('refresh')}</button>
+        <label class="check"><input type="checkbox" id="lg-follow" checked> <span>Follow</span></label>
+        <button id="lg-pause" disabled>Pause</button>
+        <button id="lg-dl">Download</button>
+        <button id="lg-clear">Clear</button>
+        <button class="icon-btn" id="lg-r" title="Reload" aria-label="Reload">${icon('refresh')}</button>
       </div>
     </div>
-    <div id="lg-body"><p class="muted pad">Loading…</p></div>`;
-  let lines = [];
-  const show = () => {
-    const q = $('lg-q').value.toLowerCase();
-    const shown = q ? lines.filter((l) => l.toLowerCase().includes(q)) : lines;
-    $('lg-body').innerHTML = shown.length ? `<pre class="logs">${esc(shown.join('\n'))}</pre>` : '<div class="empty">No line.</div>';
-    const pre = $('lg-body').querySelector('pre');
-    if (pre) pre.scrollTop = pre.scrollHeight;
+    <div id="lg-body"><p class="muted pad">Loading…</p></div>
+    <div class="logbar"><span id="lg-status" class="muted small" role="status"></span><button class="small" id="lg-latest" hidden>Jump to latest</button></div>`;
+  let lines = [];                          // the buffer: at most LOG_MAX lines
+  let pending = [];                        // arrived, not drawn yet
+  let paused = false; let missed = 0; let stick = true; let dropped = false; let flushTimer = null;
+  let dedupe = newLogDedupe();             // what a reconnect replays is skipped, the live flow never
+  const filter = () => $('lg-q').value.toLowerCase();
+  const status = (text) => { $('lg-status').textContent = text; };
+  const pre = () => $('lg-pre');
+  const atBottom = () => { const p = pre(); return !p || p.scrollTop + p.clientHeight >= p.scrollHeight - 24; };
+  const toEnd = () => { const p = pre(); if (p && stick) p.scrollTop = p.scrollHeight; $('lg-latest').hidden = stick; };
+  const draw = () => {                     // the whole buffer, filtered and highlighted
+    const p = pre(); if (!p) return;
+    const f = filter();
+    const shown = f ? lines.filter((l) => l.toLowerCase().includes(f)) : lines;
+    p.innerHTML = shown.length ? shown.map((l) => logLine(l, f)).join('') : '<span class="muted">No line.</span>';
+    toEnd();
   };
-  const fetchLogs = async () => {
-    if (ROUTE.view !== 'logs' || !$('lg-c').value) return;
-    try { lines = (await api(`/api/containers/${enc($('lg-c').value)}/logs?tail=${$('lg-n').value}`)).lines; show(); }
-    catch (e) { $('lg-body').innerHTML = errBox(e.message); }
+  const flush = () => {
+    flushTimer = null;
+    if (!pending.length) return;
+    const fresh = pending; pending = [];
+    if (paused) { missed += fresh.length; $('lg-pause').textContent = `Resume (+${missed} new)`; return; }
+    const p = pre(); if (!p) return;
+    if (filter()) return draw();
+    if (p.querySelector('.muted')) p.innerHTML = '';
+    p.insertAdjacentHTML('beforeend', fresh.map((l) => logLine(l, '')).join(''));
+    while (p.childElementCount > LOG_MAX) p.firstElementChild.remove();
+    toEnd();
+  };
+  const add = (text) => {                  // true when the line was added
+    if (!dedupe.accept(text)) return false;
+    lines.push(text);
+    if (lines.length > LOG_MAX) {
+      lines.splice(0, lines.length - LOG_MAX);
+      if (!dropped) { dropped = true; status(`Older lines were dropped: the page keeps the last ${LOG_MAX}.`); }
+    }
+    pending.push(text);
+    if (!flushTimer) flushTimer = setTimeout(flush, 100);
+    return true;
+  };
+  const reset = () => {
+    stopLogStream();
+    lines = []; pending = []; missed = 0; dropped = false; paused = false; dedupe = newLogDedupe();
+    $('lg-pause').textContent = 'Pause'; status('');
+    draw();
+  };
+  const follow = async () => {
+    stopLogStream();
+    const name = $('lg-c').value;
+    if (!$('lg-follow').checked || !name) return;
+    const ctl = new AbortController();
+    LOG_STREAM = { abort: ctl };
+    let wait = 2000;
+    while (!ctl.signal.aborted && ROUTE.view === 'logs') {
+      let got = false; let ended = '';
+      try {
+        dedupe.startReplay();
+        const url = `/api/containers/${enc(name)}/logs/stream?tail=${$('lg-n').value}${dedupe.stamp() ? `&since=${enc(dedupe.stamp())}` : ''}`;
+        const res = await fetch(url, { headers: { 'X-UI-Token': TOKEN }, signal: ctl.signal });
+        if (res.status === 401 && AUTH) { location.replace('/'); return; }
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `HTTP ${res.status}`); }
+        status('Following.');
+        await readNdjson(res.body, (m) => {
+          if (m.l !== undefined) { if (add(m.l)) got = true; }
+          else if (m.error) throw new Error(m.error);
+          else if (m.end) ended = m.end;
+        });
+        status(`${ended || 'The log ended'}: waiting for it to run again…`);
+      } catch (e) {
+        if (ctl.signal.aborted) return;
+        status(`The stream stopped (${e.message}): trying again…`);
+      }
+      await sleep(wait, ctl.signal);
+      wait = got ? 2000 : Math.min(wait * 2, 10000);
+    }
+  };
+  const reload = async () => {
+    reset();
+    $('lg-pause').disabled = !$('lg-follow').checked;
+    if ($('lg-follow').checked) return follow();
+    try { (await api(`/api/containers/${enc($('lg-c').value)}/logs?tail=${$('lg-n').value}`)).lines.forEach(add); }
+    catch (e) { toast(e.message, 'bad'); }
   };
   let list;
   try { list = (await api('/api/containers')).containers; }
@@ -1487,15 +1638,25 @@ async function viewLogs() {
   if (!list.length) { $('lg-c').innerHTML = ''; $('lg-body').innerHTML = '<div class="empty">No container.</div>'; return; }
   $('lg-c').innerHTML = list.map((c) => `<option value="${esc(c.name)}" ${c.name === current ? 'selected' : ''}>${
     esc(c.stack ? `${c.stack} / ${c.name}` : c.name)}${c.state !== 'running' ? ` (${esc(c.state)})` : ''}</option>`).join('');
-  $('lg-c').addEventListener('change', () => { history.replaceState(null, '', `#/logs/${enc($('lg-c').value)}`); fetchLogs(); });
-  $('lg-n').addEventListener('change', fetchLogs);
-  $('lg-q').addEventListener('input', show);
-  $('lg-r').addEventListener('click', fetchLogs);
-  $('lg-auto').addEventListener('change', () => {
-    clearInterval(LOG_TIMER);
-    if ($('lg-auto').checked) LOG_TIMER = setInterval(() => (ROUTE.view === 'logs' ? fetchLogs() : clearInterval(LOG_TIMER)), 5000);
+  $('lg-body').innerHTML = '<pre class="logs" id="lg-pre" tabindex="0" aria-label="Log lines"></pre>';
+  pre().addEventListener('scroll', () => { stick = atBottom(); $('lg-latest').hidden = stick; });
+  $('lg-latest').addEventListener('click', () => { stick = true; toEnd(); });
+  $('lg-c').addEventListener('change', () => { history.replaceState(null, '', `#/logs/${enc($('lg-c').value)}`); reload(); });
+  $('lg-n').addEventListener('change', reload);
+  $('lg-r').addEventListener('click', reload);
+  $('lg-q').addEventListener('input', draw);
+  $('lg-follow').addEventListener('change', () => {
+    $('lg-pause').disabled = !$('lg-follow').checked;
+    if ($('lg-follow').checked) { reset(); follow(); } else { stopLogStream(); status('Not following.'); }
   });
-  fetchLogs();
+  $('lg-pause').addEventListener('click', () => {
+    paused = !paused;
+    if (paused) { $('lg-pause').textContent = 'Resume'; return; }
+    missed = 0; $('lg-pause').textContent = 'Pause'; stick = true; draw();
+  });
+  $('lg-dl').addEventListener('click', () => (lines.length ? downloadLog($('lg-c').value, lines) : toast('Nothing to download yet', 'bad')));
+  $('lg-clear').addEventListener('click', () => { lines = []; pending = []; missed = 0; dropped = false; draw(); });
+  reload();
 }
 
 // ---------- networks, volumes, secrets ----------

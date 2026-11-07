@@ -25,6 +25,14 @@ class PageTest(Base):
         self.assertIn(f'>v{srv.__version__}</div>', page)
         self.assertNotIn('__VERSION__', page)
 
+    def test_the_logs_page_follows_the_log_instead_of_polling(self):
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('lg-follow', 'lg-pause', 'lg-dl', 'lg-clear', 'lg-latest', 'logs/stream', 'stopLogStream', 'LOG_MAX'):
+            self.assertIn(name, page)
+        self.assertNotIn('Every 5 s', page)
+        self.assertNotIn('LOG_TIMER', page)
+
     def test_the_images_page_has_tick_boxes_instead_of_a_clean_up_button(self):
         with urllib.request.urlopen(self.base + '/', timeout=10) as r:
             page = r.read().decode('utf-8')

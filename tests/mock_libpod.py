@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import queue
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -17,6 +18,7 @@ class MockPodman:
         self.volumes: list[dict] = []      # Name, Driver, Mountpoint
         self.secrets: dict[str, bytes] = {}
         self.logs: dict[str, bytes] = {}   # container id -> raw log answer
+        self.log_queues: dict[str, queue.Queue] = {}   # container id -> chunks a followed log sends (None ends it)
         self.calls: list[tuple[str, str, dict]] = []
         self.fail: dict[tuple[str, str], tuple[int, str]] = {}  # (method, path) -> (status, message)
         self.pull_errors: dict[str, str] = {}  # image reference -> the error the pull stream reports
@@ -33,6 +35,17 @@ class MockPodman:
     def stop(self) -> None:
         self.server.shutdown()
         self.server.server_close()
+
+    def log_queue(self, cid: str) -> queue.Queue:
+        return self.log_queues.setdefault(cid, queue.Queue())
+
+    def push_log(self, cid: str, raw: bytes) -> None:
+        """A chunk a followed log of that container sends now."""
+        self.log_queue(cid).put(raw)
+
+    def end_log(self, cid: str) -> None:
+        """Ends the followed log (the answer closes)."""
+        self.log_queue(cid).put(None)
 
     def add_container(self, name: str, project: str = '', state: str = 'running', image: str = 'docker.io/library/nginx:latest',
                       image_id: str = 'img1', networks=(), volumes=(), labels: dict | None = None,
@@ -80,6 +93,8 @@ def route(mock: MockPodman, h, method: str, seg: list[str], q: dict, body: bytes
             c['State'] = 'exited' if seg[2] == 'stop' else 'running'
             return h.reply(204)
         if method == 'GET' and seg[2:] == ['logs']:
+            if q.get('follow') == 'true':
+                return h.follow(mock.logs.get(c['Id'], b''), mock.log_queue(c['Id']))
             return h.reply(200, raw=mock.logs.get(c['Id'], b''))
         if method == 'GET' and seg[2:] == ['json']:
             return h.reply(200, {'Id': c['Id'], 'Name': c['Names'][0], 'State': {'Status': c['State']},
@@ -172,6 +187,24 @@ def make_handler(mock: MockPodman):
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def follow(self, first: bytes, chunks) -> None:
+            """A followed log: the history, then every chunk pushed, until None; the answer has no length and ends
+            when the connection closes (HTTP/1.0)."""
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/vnd.docker.raw-stream')
+            self.end_headers()
+            try:
+                self.wfile.write(first)
+                self.wfile.flush()
+                while True:
+                    chunk = chunks.get()
+                    if chunk is None:
+                        return
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+            except OSError:
+                return
 
         def handle_any(self, method: str):
             parts = urlsplit(self.path)

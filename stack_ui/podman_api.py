@@ -11,8 +11,10 @@ import http.client
 import ipaddress
 import json
 import os
+import queue
 import re
 import socket
+import threading
 from urllib.parse import quote, urlencode, urlsplit
 
 SOCKET = os.environ.get('PODMAN_SOCKET', '/run/podman/podman.sock')
@@ -143,6 +145,154 @@ def demux(raw: bytes) -> str:
             i += 8 + size
         raw = b''.join(out)
     return raw.decode('utf-8', 'replace')
+
+
+class LogFrames:
+    """Turns the chunks of a followed log answer into lines, wherever the chunks end. Without a TTY Podman frames
+    every piece of output (8-byte header: stream, 0, 0, 0, size) and a chunk may end inside a header or a body; with
+    a TTY the answer is plain text. The first byte tells which (0, 1 or 2 is a frame header), as in demux()."""
+
+    LINE_LIMIT = 32 * 1024   # bytes of one line kept; a program that redraws a progress line with \r and never
+                             # prints a newline must not grow the page container's memory without bound
+
+    def __init__(self):
+        self.framed = None   # unknown until the first byte arrives
+        self.raw = b''       # framed bytes that are not a whole frame yet
+        self.text = b''      # output of an unfinished line (at most LINE_LIMIT)
+        self.discard = False  # the unfinished line is over the limit: its rest is dropped up to the next newline
+
+    def _lines(self, payload: bytes) -> list[str]:
+        """Adds output to the unfinished line; the lines it finishes are returned. One pass, bounded memory."""
+        done, pos, size = [], 0, len(payload)
+        while pos < size:
+            nl = payload.find(b'\n', pos)
+            end = size if nl < 0 else nl
+            if not self.discard:
+                room = self.LINE_LIMIT - len(self.text)
+                self.text += payload[pos:min(end, pos + room)]
+                if end - pos > room:
+                    self.discard = True
+            if nl < 0:
+                break
+            done.append(self.text.decode('utf-8', 'replace').rstrip('\r'))
+            self.text, self.discard = b'', False
+            pos = nl + 1
+        return done
+
+    def feed(self, data: bytes) -> list[str]:
+        """The complete lines these bytes finish."""
+        if self.framed is None and data:
+            self.framed = data[0] in (0, 1, 2)
+        if not self.framed:
+            return self._lines(data)
+        self.raw += data
+        done = []
+        while len(self.raw) >= 8:
+            size = int.from_bytes(self.raw[4:8], 'big')
+            if len(self.raw) < 8 + size:
+                break
+            done += self._lines(self.raw[8:8 + size])
+            self.raw = self.raw[8 + size:]
+        return done
+
+    def rest(self) -> list[str]:
+        """The unfinished last line, when the stream has ended."""
+        line, self.text, self.discard = self.text, b'', False
+        return [line.decode('utf-8', 'replace').rstrip('\r')] if line else []
+
+
+_END = object()           # what the reader hands over when the log has ended
+
+
+class _Failure:
+    def __init__(self, message: str):
+        self.message = message
+
+
+def _pump(response, put, stopped) -> None:
+    """The reader thread's loop: every complete line goes to put(); the end is _END, a broken read a _Failure."""
+    frames = LogFrames()
+    try:
+        while not stopped():
+            chunk = response.read1(65536)
+            if not chunk:
+                break
+            for line in frames.feed(chunk):
+                put(line)
+        for line in frames.rest():
+            put(line)
+        put(_END)
+    except (OSError, http.client.HTTPException, ValueError) as exc:
+        put(_END if stopped() else _Failure(f'the Podman log stream broke: {exc}'))
+
+
+class LogStream:
+    """A followed container log: opened at once (PodmanError if Podman refuses), read by a thread, handed out by
+    lines(). close() ends it and frees the thread and the connection."""
+    QUEUE_MAX = 1000    # lines waiting for the consumer: a slow one slows the reader instead of filling memory
+
+    def __init__(self, cid: str, tail: int = 200, since: str = ''):
+        query = {'stdout': 'true', 'stderr': 'true', 'timestamps': 'true', 'follow': 'true', 'tail': str(int(tail))}
+        if since:
+            query['since'] = since
+        self.queue = queue.Queue(maxsize=self.QUEUE_MAX)
+        self.closed = False
+        self.conn = _connection(10)
+        self.sock = None
+        path = f'/containers/{quote(cid, safe="")}/logs'
+        try:
+            self.conn.request('GET', PREFIX + path + '?' + urlencode(query), headers={})
+            self.sock = self.conn.sock           # kept here: for an answer without a length http.client hands the
+            self.response = self.conn.getresponse()      # socket to the response and forgets it
+            self.sock.settimeout(None)           # a quiet log is not an error: lines() does the timing
+        except (OSError, http.client.HTTPException) as exc:
+            self.conn.close()
+            raise PodmanError(f'the Podman API ({API_URL or SOCKET}) cannot be reached: {exc}') from None
+        if self.response.status >= 400:
+            raw = self.response.read()
+            self.conn.close()
+            raise PodmanError(f'Podman GET {path}: HTTP {self.response.status} {_message(raw)[:300]}',
+                              self.response.status)
+        self.thread = threading.Thread(target=_pump, args=(self.response, self._put, lambda: self.closed), daemon=True)
+        self.thread.start()
+
+    def _put(self, item) -> None:
+        while not self.closed:
+            try:
+                self.queue.put(item, timeout=0.5)
+                return
+            except queue.Full:
+                continue
+
+    def lines(self, idle: float = 15.0):
+        """Each line as it arrives (str); None after `idle` quiet seconds; ends with the log or after close().
+        PodmanError when the stream broke."""
+        while True:
+            try:
+                item = self.queue.get(timeout=idle)
+            except queue.Empty:
+                if self.closed:
+                    return
+                yield None
+                continue
+            if item is _END:
+                return
+            if isinstance(item, _Failure):
+                raise PodmanError(item.message)
+            yield item
+
+    def close(self) -> None:
+        self.closed = True
+        try:
+            self.sock.shutdown(socket.SHUT_RDWR)         # Linux: wakes a read that waits for the next line
+        except (OSError, AttributeError):
+            pass
+        try:
+            socket.socket(fileno=self.sock.detach()).close()     # Windows: only closing the handle wakes it
+        except (OSError, AttributeError, ValueError):
+            pass
+        self.response.close()
+        self.conn.close()
 
 
 def logs(cid: str, tail: int = 200) -> list[str]:

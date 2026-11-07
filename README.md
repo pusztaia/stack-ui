@@ -36,7 +36,9 @@ One container, Python standard library + PyYAML, no database.
   running container, or a Podman secret is missing; it only warns about an image name without a registry
   (`jc21/nginx-proxy-manager` instead of `docker.io/jc21/nginx-proxy-manager`) and a `${VARIABLE}` that has no value
   and no default. The env file's values and the `${VAR:-default}` forms are applied first.
-- **Logs**, **Networks**, **Volumes** and **Secrets** (Podman secrets: a value goes in and is never shown again).
+- **Logs**: a container's log, followed as it is written (*Follow*; *Pause*, *Jump to latest*, a filter that marks
+  its matches, errors red and warnings yellow, *Download* of what the page holds: its last 5000 lines),
+  **Networks**, **Volumes** and **Secrets** (Podman secrets: a value goes in and is never shown again).
 - An **API token** for scripts, and `client/stack-ui-client.py` that deploys a folder through the API.
 
 ## How stacks are found

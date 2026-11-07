@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- *Logs*: follow a container's log as it is written. *Follow* (on by default) streams new lines at once instead of
+  reloading the whole tail every 5 seconds; *Pause* freezes the view (with a count of the lines that came in),
+  scrolling up stops the follow (*Jump to latest* goes back), the filter marks its matches, error lines are red and
+  warnings yellow, and *Download* saves what the page holds (at most 5000 lines) as a `.log` file. A stopped or
+  restarted container is picked up again by itself. At most 4 logs can be followed at once. API:
+  `GET /api/containers/<name>/logs/stream` (newline-delimited JSON; read-only, the same sign-in as the rest).
 - *Health*: a Raspberry Pi's power and throttling flags (from the firmware's `get_throttled`). Under-voltage, a capped
   CPU speed, throttling or the soft temperature limit right now is red, one that only happened since boot is yellow;
   the sentences say which, and the Stacks list shows a *Power problem* / *Power dipped* tag only then. Where the file
