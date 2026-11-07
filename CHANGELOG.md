@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.19
 
 - *Logs*: follow a container's log as it is written. *Follow* (on by default) streams new lines at once instead of
   reloading the whole tail every 5 seconds; *Pause* freezes the view (with a count of the lines that came in),
