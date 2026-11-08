@@ -19,7 +19,9 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
+import threading
 from pathlib import Path
 
 import yaml
@@ -40,7 +42,14 @@ COMPOSE_PROJECT_LABELS = ('com.docker.compose.project', 'io.podman.compose.proje
 DEPLOYED = '.deployed'
 COMPOSE_CMD = os.environ.get('PODMAN_COMPOSE', 'podman-compose')
 PODMAN_PATH = os.environ.get('PODMAN_PATH', 'podman')
-LONG_TIMEOUT = 900
+LONG_TIMEOUT = 900          # pull
+try:                        # up, start, stop, down: a command that does not finish in this time is ended
+    OP_TIMEOUT = max(30, int(os.environ.get('STACK_UI_UP_TIMEOUT') or 300))
+except ValueError:
+    OP_TIMEOUT = 300
+KILL_GRACE = 3.0            # seconds between SIGTERM and SIGKILL when a command is ended
+CANCELLED = 'cancelled: the command was stopped on request; what it had already created is still there'
+RUNNING = threading.local()   # .op: the operation (server.py) the calling thread runs; run_compose registers with it
 chown = getattr(os, 'chown', None)
 
 
@@ -214,23 +223,125 @@ def in_pod_args(folder: Path, compose_file: str) -> list[str]:
     return [] if isinstance(x_podman, dict) and 'in_pod' in x_podman else ['--in-pod', 'false']
 
 
+def duration(seconds: float) -> str:
+    seconds = int(seconds)
+    if seconds < 60:
+        return f'{seconds} second{"" if seconds == 1 else "s"}'
+    minutes = seconds // 60
+    return f'{minutes} minute{"" if minutes == 1 else "s"}'
+
+
+def kill_tree(proc, grace: float | None = None) -> None:
+    """End a command and everything it started. POSIX: its process group (it has one of its own), also when the
+    leader has already exited: a child that outlived it keeps the group, and the output pipe, alive. SIGTERM, a
+    moment for the leader, then SIGKILL for whatever is left. Elsewhere (development): the process itself."""
+    if not hasattr(os, 'killpg'):
+        if proc.poll() is None:
+            proc.kill()
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        return                                      # nothing of the group is left
+    try:
+        proc.wait(KILL_GRACE if grace is None else grace)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)         # what outlived the SIGTERM
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def not_ready(project: str) -> list[str]:
+    """The project's containers that are unhealthy or still starting, as 'name (unhealthy)'; [] when unknown."""
+    try:
+        rows = project_containers(project)
+    except (pa.PodmanError, OSError):
+        return []
+    found = []
+    for c in rows:
+        status = str(c.get('Status') or '').lower()
+        if 'unhealthy' in status:
+            found.append(f'{cname(c)} (unhealthy)')
+        elif 'starting' in status:
+            found.append(f'{cname(c)} (starting)')
+    return found
+
+
+def canonical(ref: str) -> str:
+    """An image reference as Podman lists it: docker.io/library/nginx:latest for nginx."""
+    first, _, rest = ref.partition('/')
+    if not rest:
+        ref = f'docker.io/library/{ref}'
+    elif '.' not in first and ':' not in first and first != 'localhost':
+        ref = f'docker.io/{ref}'
+    return ref if ':' in ref.rsplit('/', 1)[-1] else ref + ':latest'
+
+
+def images_ready(folder: Path, compose_file: str) -> bool:
+    """Whether every service's image is already on the host, so that `up` has nothing to download or build. False
+    when unsure (a variable or digest in the reference, build:, Podman not answering): `up` then gets the long limit."""
+    try:
+        data = yaml.safe_load((folder / compose_file).read_text(encoding='utf-8')) or {}
+        have = {tag for image in pa.images() for tag in image.get('RepoTags') or []}
+    except (OSError, ValueError, yaml.YAMLError, pa.PodmanError, AttributeError, TypeError):
+        return False
+    services = data.get('services') if isinstance(data, dict) else None
+    if not isinstance(services, dict) or not services:
+        return False
+    for service in services.values():
+        ref = service.get('image') if isinstance(service, dict) else None
+        if not isinstance(ref, str) or '$' in ref or '@' in ref or service.get('build'):
+            return False
+        if canonical(ref) not in have:
+            return False
+    return True
+
+
 def run_compose(folder: Path, compose_file: str, env_file: str | None, args: list[str], log,
-                timeout: int = LONG_TIMEOUT) -> None:
+                timeout: int | None = None) -> None:
     cmd = [*shlex.split(COMPOSE_CMD), '--podman-path', PODMAN_PATH, *in_pod_args(folder, compose_file),
            '-p', folder.name, '-f', compose_file, *(['--env-file', env_file] if env_file else []), *args]
+    if timeout is None:
+        timeout = LONG_TIMEOUT if args[0] == 'pull' else OP_TIMEOUT
     log('$ podman-compose ' + ' '.join(args))
+    op = getattr(RUNNING, 'op', None)
     try:
-        r = subprocess.run(cmd, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                           encoding='utf-8', errors='replace', timeout=timeout, check=False)
+        proc = subprocess.Popen(cmd, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                encoding='utf-8', errors='replace',
+                                **({'start_new_session': True} if hasattr(os, 'killpg') else {}))
     except FileNotFoundError:
         raise StackError(f'podman-compose is not installed ({COMPOSE_CMD})') from None
+    if op is not None:
+        op.proc = proc                  # cancel ends it from another thread
+        if op.cancelled:                # cancelled before it had started
+            kill_tree(proc)
+    try:
+        out, _ = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        raise StackError(f'podman-compose {args[0]} did not finish in {timeout // 60} minutes') from None
-    for line in r.stdout.splitlines():
+        kill_tree(proc)
+        try:
+            proc.communicate(timeout=KILL_GRACE + 2)    # bounded: a process outside the group may still hold the pipe
+        except subprocess.TimeoutExpired:
+            proc.stdout.close()
+        if op is not None and op.cancelled:
+            raise StackError(CANCELLED) from None
+        waiting = not_ready(folder.name)
+        raise StackError(f'podman-compose {args[0]} did not finish in {duration(timeout)}'
+                         + (f'; not ready: {", ".join(waiting)}' if waiting else '')) from None
+    except BaseException:
+        kill_tree(proc)
+        raise
+    finally:
+        if op is not None:
+            op.proc = None
+    if op is not None and op.cancelled:
+        raise StackError(CANCELLED)
+    for line in out.splitlines():
         log(line)
-    if r.returncode:
-        raise StackError(f'podman-compose {args[0]} failed (exit code {r.returncode})')
-
+    if proc.returncode:
+        raise StackError(f'podman-compose {args[0]} failed (exit code {proc.returncode})')
 
 def check_config(folder: Path, compose_file: str, env_file: str | None) -> None:
     """podman-compose reads the compose and env file (read-only, `config`); StackError when it cannot."""
@@ -276,7 +387,11 @@ def deploy(folder: Path, compose_file: str, env_file: str | None, *, approve, dr
     for c in p['blocking']:
         pa.remove_container(str(c['Id']))
         log(f'  removed {cname(c)}')
-    run_compose(folder, compose_file, env_file, ['up', '-d', *(['--force-recreate'] if pull or recreate else [])], log)
+    # `up` downloads (and builds) what is not on the host yet, which may take long: it keeps the long limit then;
+    # with everything present a command that does not finish soon is hung (an unhealthy dependency)
+    up_limit = None if pull or images_ready(folder, compose_file) else LONG_TIMEOUT
+    run_compose(folder, compose_file, env_file, ['up', '-d', *(['--force-recreate'] if pull or recreate else [])], log,
+                timeout=up_limit)
     save_deployed(folder, compose_file, env_file)
     log(f'Stack "{folder.name}" {"created" if p["action"] == "create" else "updated"}.')
     return p['action']

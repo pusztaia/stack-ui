@@ -40,6 +40,13 @@ class ClientTest(Base):
         self.assertFalse((self.stacks / 'web' / 'deploy.py').exists())
         self.assertEqual(self.compose_calls()[-1][-2:], ['up', '-d'])
 
+    def test_a_busy_page_gives_the_409_text(self):
+        with self.ui.operation('deploy', 'web', cancellable=True):
+            with self.assertRaises(sc.ClientError) as ctx:
+                sc.call('POST', '/api/secrets', {'name': 's', 'value': 'v'}, timeout=10)
+        self.assertIn('HTTP 409', str(ctx.exception))
+        self.assertIn('Busy: the deploy of web has been running for', str(ctx.exception))
+
     def test_existing_folder_files_are_saved(self):
         make_stack(self.stacks, 'web', compose_yaml('web'), env='TZ=UTC\n')
         sc.deploy(self.local, pull=False, log=lambda _: None)

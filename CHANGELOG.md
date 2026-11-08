@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.20
+
+- *A change that hangs no longer freezes the page.* Only one change runs at a time, as before, but a second one is
+  now refused at once with the running one named ("Busy: the deploy of crownsec has been running for 3 minutes ...")
+  instead of waiting behind it without a word. A bar on every page shows what runs and for how long, and a
+  `podman-compose` command (deploy, start, stop, delete) can be cancelled from it: the command and the processes it
+  started are stopped, the containers it already created stay, and *Stop* or *Delete* work again. A command that does
+  not finish in 5 minutes (`STACK_UI_UP_TIMEOUT`; a pull still 15) is ended, and the error names the containers
+  that are not healthy yet. API: `GET /api/operation`, `POST /api/operation/cancel`; a refused change answers `409`.
+  Quick changes (a secret, a network, a volume, an image, a container) also get the `409` while a deploy runs.
+
 ## 1.0.19
 
 - *Logs*: follow a container's log as it is written. *Follow* (on by default) streams new lines at once instead of

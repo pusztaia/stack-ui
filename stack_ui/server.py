@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import difflib
 import getpass
 import hashlib
@@ -165,6 +166,86 @@ class NoContainer(LookupError):
 
 class Busy(Exception):
     pass
+
+
+class Conflict(Exception):
+    """A change cannot be made now (409): another change holds the lock, or there is nothing to cancel."""
+    def __init__(self, message: str, operation: dict | None = None):
+        super().__init__(message)
+        self.operation = operation
+
+
+class Operation:
+    """The change that holds DEPLOY_LOCK: what it is, since when, and (for a podman-compose command) its process."""
+    TEXT = {'deploy': 'the deploy of {t}', 'stack-start': 'starting {t}', 'stack-stop': 'stopping {t}',
+            'stack-delete': 'deleting {t}', 'restart': 'restarting {t}', 'container': 'the container action "{t}"',
+            'image-pull': 'pulling {t}', 'image-tag': 'tagging image {t}', 'image-remove': 'removing image {t}',
+            'images-remove': 'removing {t}', 'images-prune': 'removing {t}', 'network': 'the change of {t}',
+            'volume': 'the change of {t}', 'secret': 'the change of {t}'}
+
+    def __init__(self, kind: str, target: str = '', cancellable: bool = False):
+        self.kind, self.target, self.cancellable = kind, target, cancellable
+        self.started = time.time()
+        self.cancelled = False
+        self.proc = None                    # the podman-compose process, set by stacks.run_compose
+
+    def text(self) -> str:
+        what = self.TEXT.get(self.kind, '{t}').format(t=self.target)
+        return f'{what} has been running for {st.duration(time.time() - self.started)}'
+
+    def view(self) -> dict:
+        return {'kind': self.kind, 'target': self.target, 'since': int(self.started),
+                'seconds': int(time.time() - self.started), 'cancellable': self.cancellable, 'text': self.text()}
+
+
+CURRENT: Operation | None = None     # what holds DEPLOY_LOCK now
+
+
+def busy_text(running: Operation | None) -> str:
+    if running is None:
+        return 'Busy: another change is running. Wait for it to finish.'
+    return f'Busy: {running.text()}. Wait for it to finish' + (', or cancel it on the page.' if running.cancellable else '.')
+
+
+@contextlib.contextmanager
+def operation(kind: str, target: str = '', cancellable: bool = False):
+    """Holds the one change lock for a change. It never waits: when the lock is taken, Conflict says what holds it.
+    stacks.run_compose finds the operation through stacks.RUNNING, so it can be cancelled from another thread."""
+    global CURRENT
+    if not DEPLOY_LOCK.acquire(blocking=False):
+        running = CURRENT
+        raise Conflict(busy_text(running), running.view() if running else None)
+    op = Operation(kind, target, cancellable)
+    CURRENT = op
+    st.RUNNING.op = op
+    try:
+        yield op
+    finally:
+        CURRENT = None
+        st.RUNNING.op = None
+        DEPLOY_LOCK.release()
+
+
+def current_operation() -> dict | None:
+    op = CURRENT
+    return op.view() if op is not None else None
+
+
+def cancel_operation(data: dict | None = None) -> dict:
+    """End the running podman-compose command (and what it started); what it already created stays. data may name
+    the change the caller saw ({since, kind, target}): another one now running is left alone."""
+    op = CURRENT
+    if op is None:
+        raise Conflict('nothing is running')
+    want = data or {}
+    if want and (want.get('since') != int(op.started) or want.get('kind') != op.kind or want.get('target') != op.target):
+        raise Conflict(f'that change has already finished; now running: {op.text()}', op.view())
+    if not op.cancellable:
+        raise Conflict(f'{op.text()}: it is a quick change and cannot be cancelled', op.view())
+    op.cancelled = True
+    if op.proc is not None:            # not yet started: run_compose sees op.cancelled right after it starts
+        st.kill_tree(op.proc)
+    return {'cancelled': op.view()}
 
 
 def find_module(name: str) -> tuple[Path, str, str | None]:
@@ -910,7 +991,7 @@ def prune(data: dict) -> dict:
     """Remove the chosen images, but only those that are still removable (untagged and unused) right now."""
     wanted = {str(x) for x in data.get('ids') or []}
     removed, errors, freed = [], [], 0
-    with DEPLOY_LOCK:
+    with operation('images-prune', f'{len(wanted)} images'):
         for r in all_images():
             if r['id'] not in wanted or not r['removable']:
                 continue
@@ -940,7 +1021,7 @@ def image_pull(data: dict) -> dict:
     ref = str(data.get('reference') or '').strip()
     if not IMAGE_REF.match(ref):
         raise ValueError('the image: e.g. docker.io/library/nginx:1.27 (lowercase, no spaces)')
-    with DEPLOY_LOCK:
+    with operation('image-pull', ref):
         pa.pull_image(ref)
     return {'pulled': ref}
 
@@ -953,7 +1034,7 @@ def image_tag(data: dict) -> dict:
         raise ValueError('the repository: e.g. localhost/nginx (lowercase, no tag)')
     if not IMAGE_TAG.match(tag):
         raise ValueError('the tag: letters, digits, _ . - (e.g. 1.27 or keep)')
-    with DEPLOY_LOCK:
+    with operation('image-tag', str(data.get('id') or '')):
         row = find_image(str(data.get('id') or ''))
         pa.tag_image(row['id'], repo, tag)
     return {'tagged': f'{repo}:{tag}'}
@@ -977,7 +1058,7 @@ def images_remove(ids) -> dict:
     if not isinstance(ids, list) or not ids or not all(isinstance(x, str) for x in ids):
         raise ValueError('ids: a list of image ids')
     removed, errors, freed = [], [], 0
-    with DEPLOY_LOCK:
+    with operation('images-remove', f'{len(ids)} images'):
         rows = {r['id']: r for r in all_images()}
         for iid in dict.fromkeys(short_id(x) for x in ids):
             row = rows.get(iid)
@@ -1002,7 +1083,7 @@ def image_remove(data: dict) -> dict:
     require_podman()
     if 'ids' in data:
         return images_remove(data['ids'])
-    with DEPLOY_LOCK:
+    with operation('image-remove', str(data.get('id') or '')):
         row = find_image(str(data.get('id') or ''))
         if row['usedBy']:
             raise ValueError(f'the image is used by {", ".join(row["usedBy"])}')
@@ -1136,7 +1217,7 @@ def container_do(data: dict) -> dict:
     name, action = str(data.get('name') or ''), str(data.get('action') or '')
     if action not in CONTAINER_ACTIONS:
         raise ValueError(f'unknown container action "{action}"')
-    with DEPLOY_LOCK:
+    with operation('container', f'{name} {action}'):
         row = find_container(name)
         if row['protected'] and action != 'start':
             raise ValueError(f'"{name}" is protected (this page itself, or STACK_UI_PROTECTED): it is not stopped, '
@@ -1204,7 +1285,7 @@ def network_list() -> dict:
 
 def network_create(data: dict) -> dict:
     require_podman()
-    with DEPLOY_LOCK:
+    with operation('network', f'network {data.get("name") or ""}'):
         pa.create_network(str(data.get('name') or ''), str(data.get('subnet') or '').strip(),
                           str(data.get('gateway') or '').strip())
     return {'created': data.get('name')}
@@ -1213,7 +1294,7 @@ def network_create(data: dict) -> dict:
 def network_delete(data: dict) -> dict:
     """Only an unused network that is not protected (STACK_UI_PROTECTED_NETWORKS)."""
     name = str(data.get('name') or '')
-    with DEPLOY_LOCK:
+    with operation('network', f'network {name}'):
         row = next((r for r in network_list()['networks'] if r['name'] == name), None)
         if row is None:
             raise ValueError(f'no network "{name}"')
@@ -1234,7 +1315,7 @@ def volume_list() -> dict:
 
 def volume_create(data: dict) -> dict:
     require_podman()
-    with DEPLOY_LOCK:
+    with operation('volume', f'volume {data.get("name") or ""}'):
         pa.create_volume(str(data.get('name') or ''))
     return {'created': data.get('name')}
 
@@ -1243,7 +1324,7 @@ def volume_delete(data: dict) -> dict:
     """{names: [...]}: removes those that no container (running or stopped) uses, checked again here."""
     wanted = [str(x) for x in data.get('names') or []]
     removed, errors = [], []
-    with DEPLOY_LOCK:
+    with operation('volume', f'{len(wanted)} volumes'):
         rows = {r['name']: r for r in volume_list()['volumes']}
         for name in wanted:
             row = rows.get(name)
@@ -1289,7 +1370,7 @@ def secret_save(data: dict) -> dict:
     value = data.get('value')
     if not isinstance(value, str):
         raise ValueError('the secret value must be text')
-    with DEPLOY_LOCK:
+    with operation('secret', f'secret {name}'):
         pa.create_secret(name, value.encode('utf-8'), bool(data.get('replace')))
     return {'name': name, 'usedBy': secret_refs().get(name, [])}
 
@@ -1302,7 +1383,7 @@ def secret_delete(data: dict) -> dict:
     used = secret_refs().get(name)
     if used:
         raise ValueError(f'"{name}" is used by {", ".join(used)}: remove it from their compose files first')
-    with DEPLOY_LOCK:
+    with operation('secret', f'secret {name}'):
         pa.remove_secret(name)
     return {'removed': name}
 
@@ -1415,7 +1496,7 @@ def run_deploy(name: str, pull: bool, remove: list[str], only_update: bool = Fal
         log.append('Not removed, because the page did not confirm: ' + ', '.join(sorted(wanted - set(remove))))
         return False
 
-    with DEPLOY_LOCK:
+    with operation('deploy', name, cancellable=True):
         try:
             refuse_protected(name)
             snap = require_podman_state()
@@ -1477,7 +1558,7 @@ def stack_action(name: str, action: str, data: dict) -> dict:
         raise ValueError(f'type the stack name "{name}" to delete it')
     refuse_protected(name)
     remove_folder = action == 'delete' and data.get('deleteFolder') is True
-    with DEPLOY_LOCK:
+    with operation(f'stack-{action}', name, cancellable=True):
         live = deployed(name, require_podman_state())
         if not live and not remove_folder:
             raise NotDeployed(name)
@@ -1493,7 +1574,7 @@ def restart(name: str, data: dict) -> dict:
     folder, compose_file, _ = find_module(name)
     wanted = str(data.get('container') or '')
     names = st.container_names((folder / compose_file).read_text(encoding='utf-8'))
-    with DEPLOY_LOCK:
+    with operation('restart', f'{wanted} of {name}'):
         found = next((c for c in pa.containers() if st.cname(c) == wanted and st.belongs(c, name, names)), None)
         if found is None:
             raise ValueError(f'"{wanted}" is not a container of {name}')
@@ -1777,6 +1858,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, settings_view())
             if method == 'POST' and parts == ['api', 'settings', 'token']:
                 return self.json(200, api_token(data))
+            if method == 'GET' and parts == ['api', 'operation']:
+                return self.json(200, {'operation': current_operation()})
+            if method == 'POST' and parts == ['api', 'operation', 'cancel']:
+                return self.json(200, cancel_operation(data))
             if method == 'GET' and parts == ['api', 'stacks']:
                 return self.json(200, overview())
             if method == 'POST' and parts == ['api', 'stacks']:
@@ -1847,6 +1932,8 @@ class Handler(BaseHTTPRequestHandler):
                 if method == 'POST' and action == 'restore':
                     return self.json(200, restore(name, data))
             return self.json(404, {'error': 'not found'})
+        except Conflict as exc:
+            return self.json(409, {'error': str(exc), **({'operation': exc.operation} if exc.operation else {})})
         except Busy as exc:
             return self.json(429, {'error': str(exc)})
         except NoContainer as exc:

@@ -33,6 +33,13 @@ class PageTest(Base):
         self.assertNotIn('Every 5 s', page)
         self.assertNotIn('LOG_TIMER', page)
 
+    def test_a_bar_shows_the_running_operation_with_cancel(self):
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('id="opbar"', 'op-cancel', 'pollOperation', 'showCancelOperation', '/api/operation/cancel',
+                     'since: op.since'):
+            self.assertIn(name, page)
+
     def test_the_images_page_has_tick_boxes_instead_of_a_clean_up_button(self):
         with urllib.request.urlopen(self.base + '/', timeout=10) as r:
             page = r.read().decode('utf-8')

@@ -9,7 +9,11 @@ One container, Python standard library + PyYAML, no database.
   updated with every save, restore or file delete on the page, so its folder stays what runs); create, update
   (pull + recreate), start, stop, delete (the containers, and, if you tick it, the stack's folder too: the dialog lists
   what the folder holds first; a stack without containers can be deleted that way as well);
-  compare a stack with what was deployed last; upload a new stack (its compose file, env file and other files chosen separately); update several stacks at once.
+  compare a stack with what was deployed last; upload a new stack (its compose file, env file and other files chosen separately); update several stacks at once. One change runs at a time: a bar on every page shows it
+  and, for a `podman-compose` command, offers *Cancel* (the command and what it started are stopped; the containers
+  it already created stay); another change meanwhile is refused with a message that names the running one. A
+  command that does not finish in 5 minutes (`up`, `start`, `stop`, `down`; a pull gets 15) is ended, and the error
+  names the containers that are not healthy yet.
 - **A stack's other files**: the scripts, JSON/YAML configs and dashboards its compose file mounts with
   `./name` are saved with it, checked (syntax, no secret literals), versioned in `.history/`, compared with the
   last deploy, viewable and deletable on the page.
@@ -151,6 +155,7 @@ devices or ports below 1024 — and then remember that this page is as powerful 
 | `STACK_UI_HEALTH_PATHS` | — | More paths whose file system the Health page shows (comma separated; they must be mounted into the container) |
 | `STACK_UI_PROTECTED_SECRETS` | — | Podman secrets that are never removed (besides `stack-ui-password`) |
 | `STACK_UI_TRUSTED_PROXIES` | — | addresses / networks of the reverse proxies in front of the page (e.g. `172.18.0.0/16`): their `X-Forwarded-For` tells the login throttle who the client is; without it every client behind a proxy counts as the proxy |
+| `STACK_UI_UP_TIMEOUT` | `300` | seconds a `podman-compose` `up` / `start` / `stop` / `down` may run before it is ended (at least 30) |
 | `STACK_UI_IGNORE` | — | folders of `STACKS_DIR` that are not stacks |
 | `STACK_UI_HIDE_UNDEPLOYED` | `false` | `true`: the Stacks page lists only the stacks that have containers (a new one shows up once created; its own page opens after *Add stack*) |
 | `STACK_UI_DATA` | `/data` | where the settings (the API token's hash) are kept |
