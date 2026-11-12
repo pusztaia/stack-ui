@@ -50,6 +50,7 @@ import yaml
 from . import __version__
 from . import health as hl
 from . import podman_api as pa
+from . import rollback
 from . import stacks as st
 
 HERE = Path(__file__).resolve().parent
@@ -181,7 +182,8 @@ class Operation:
             'stack-delete': 'deleting {t}', 'restart': 'restarting {t}', 'container': 'the container action "{t}"',
             'image-pull': 'pulling {t}', 'image-tag': 'tagging image {t}', 'image-remove': 'removing image {t}',
             'images-remove': 'removing {t}', 'images-prune': 'removing {t}', 'network': 'the change of {t}',
-            'volume': 'the change of {t}', 'secret': 'the change of {t}'}
+            'volume': 'the change of {t}', 'secret': 'the change of {t}',
+            'rollback': 'the rollback of {t}', 'rollback-discard': 'discarding the rollback point of {t}'}
 
     def __init__(self, kind: str, target: str = '', cancellable: bool = False):
         self.kind, self.target, self.cancellable = kind, target, cancellable
@@ -304,6 +306,7 @@ def overview() -> dict:
             running = any(c.get('State') == 'running' for c in st.project_containers(name, containers))
             stack = {'status': 1 if running else 2}
         rows.append({'name': name, 'compose': compose_file, 'env': env_file, 'stack': stack,
+                     'rollback': rollback.exists(folder),
                      'protected': name in PROTECTED or name in own,
                      'containers': [{'name': st.cname(c), 'state': c.get('State'), 'status': c.get('Status'),
                                      'image': c.get('Image')} for c in mine]})
@@ -966,13 +969,15 @@ def image_table(containers: list[dict], imgs: list[dict], endpoint: int | None) 
         labels = c.get('Labels') or {}
         owner = owner or next((labels[x] for x in st.COMPOSE_PROJECT_LABELS if labels.get(x)), None) or st.cname(c)
         used.setdefault(short_id(c.get('ImageID')), set()).add(owner)
+    kept = rollback.kept_images()
     rows = []
     for img in imgs:
         iid = short_id(img.get('Id'))
         tags = [t for t in img.get('RepoTags') or [] if t and t != '<none>:<none>']
         users = sorted(used.get(iid, set()))
         rows.append({'id': iid, 'endpoint': endpoint, 'tags': tags, 'size': int(img.get('Size') or 0),
-                     'created': unix_time(img.get('Created')), 'usedBy': users, 'removable': not tags and not users})
+                     'created': unix_time(img.get('Created')), 'usedBy': users, 'keptFor': sorted(kept.get(iid, [])),
+                     'removable': not tags and not users and not kept.get(iid)})
     return rows
 
 
@@ -1066,6 +1071,9 @@ def images_remove(ids) -> dict:
                 errors.append(f'{iid[:12]}: no such image')
             elif row['usedBy']:
                 errors.append(f'{image_label(row)}: used by {", ".join(row["usedBy"])}')
+            elif row['keptFor']:
+                errors.append(f'{image_label(row)}: kept for the rollback of {", ".join(row["keptFor"])} '
+                              "(discard the rollback point on the stack's page first)")
             else:
                 try:
                     remove_image_row(row)
@@ -1087,6 +1095,9 @@ def image_remove(data: dict) -> dict:
         row = find_image(str(data.get('id') or ''))
         if row['usedBy']:
             raise ValueError(f'the image is used by {", ".join(row["usedBy"])}')
+        if row['keptFor']:
+            raise ValueError(f'the image is kept for the rollback of {", ".join(row["keptFor"])} '
+                             "(discard the rollback point on the stack's page first)")
         remove_image_row(row)
     return {'removed': row['id'], 'freed': row['size']}
 
@@ -1505,10 +1516,46 @@ def run_deploy(name: str, pull: bool, remove: list[str], only_update: bool = Fal
             st.deploy(folder, compose_file, env_file, pull=pull, recreate=recreate, approve=approve, log=log.append)
             return {'ok': True, 'log': log}
         except (st.StackError, pa.PodmanError, ValueError) as exc:
+            return {'ok': False, 'log': log + [f'ERROR: {exc}'], 'rollback': rollback.exists(folder)}
+
+
+def rollback_view(name: str) -> dict:
+    folder, compose_file, env_file = find_module(name)
+    require_podman_state()
+    return rollback.view(folder, compose_file, env_file)
+
+
+def run_rollback(name: str) -> dict:
+    """Put the stack back to its rollback point (files, image names, containers); {ok, log} like a deploy."""
+    folder, compose_file, env_file = find_module(name)
+    log: list[str] = []
+
+    def put(path: Path, text: str) -> None:
+        with FILES_LOCK:
+            if path.name not in (compose_file, env_file):
+                pin_manifest(folder, compose_file, env_file)
+            write_file(path, text)
+
+    with operation('rollback', name, cancellable=True):
+        try:
+            refuse_protected(name)
+            require_podman_state()
+            rollback.roll_back(folder, compose_file, env_file, put, log.append)
+            log.append(f'Stack "{name}" rolled back.')
+            return {'ok': True, 'log': log}
+        except (st.StackError, pa.PodmanError, ValueError) as exc:
             return {'ok': False, 'log': log + [f'ERROR: {exc}']}
 
 
-OWN_FOLDERS = ('.history', st.DEPLOYED)   # Stack UI's own folders in a stack's folder: not the application's data
+def discard_rollback(name: str) -> dict:
+    folder, _, _ = find_module(name)
+    refuse_protected(name)
+    with operation('rollback-discard', name):
+        rollback.discard(folder)
+    return {'discarded': True}
+
+
+OWN_FOLDERS = ('.history', st.DEPLOYED, st.PREVIOUS)   # Stack UI's own folders in a stack's folder: not the application's data
 
 
 def dir_size(path: Path, limit: int = 50_000) -> tuple[int, bool]:
@@ -1904,6 +1951,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, file_text(parts[2], parts[4]))
             if method == 'POST' and len(parts) == 5 and parts[1] == 'stacks' and parts[3:] == ['files', 'preview']:
                 return self.json(200, preview_files(parts[2], data))
+            if method == 'POST' and len(parts) == 5 and parts[1] == 'stacks' and parts[3:] == ['rollback', 'discard']:
+                return self.json(200, discard_rollback(parts[2]))
             if parts == ['api', 'updates']:  # GET: the last check against what runs now; POST: ask the registries
                 return self.json(200, updates(check=method == 'POST'))
             if len(parts) == 4 and parts[1] == 'stacks':
@@ -1924,6 +1973,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json(200, stack_action(name, action, data))
                 if method == 'POST' and action == 'restart':
                     return self.json(200, restart(name, data))
+                if method == 'GET' and action == 'rollback':
+                    return self.json(200, rollback_view(name))
+                if method == 'POST' and action == 'rollback':
+                    return self.json(200, run_rollback(name))
                 if method == 'GET' and action == 'folder':
                     return self.json(200, stack_folder(name))
                 if method == 'GET' and action == 'history':

@@ -40,6 +40,7 @@ COMPOSE_NAMES = ('compose.yaml', 'compose.yml', 'docker-compose.yml', 'docker-co
 PROJECT_LABEL = 'io.podman.compose.project'
 COMPOSE_PROJECT_LABELS = ('com.docker.compose.project', 'io.podman.compose.project')
 DEPLOYED = '.deployed'
+PREVIOUS = '.previous'         # the rollback point: the state before the last update (see rollback.py)
 COMPOSE_CMD = os.environ.get('PODMAN_COMPOSE', 'podman-compose')
 PODMAN_PATH = os.environ.get('PODMAN_PATH', 'podman')
 LONG_TIMEOUT = 900          # pull
@@ -364,10 +365,12 @@ def save_deployed(folder: Path, compose_file: str, env_file: str | None) -> None
 
 
 def deploy(folder: Path, compose_file: str, env_file: str | None, *, approve, dry_run: bool = False,
-           pull: bool = True, recreate: bool = False, log=print) -> str:
+           pull: bool = True, recreate: bool = False, point: bool = True, log=print) -> str:
     """Create or update the stack. approve(containers) decides about containers in its way. pull pulls first
     (before anything is removed) and recreates every container; recreate does it without a pull (after a
-    secret changed). Returns 'create' or 'update'."""
+    secret changed). point: keep what the stack ran with as its rollback point (an update of a stack that was
+    deployed from here before; rollback.py). Returns 'create' or 'update'."""
+    from . import rollback      # (rollback imports this module)
     p = plan(folder, compose_file, env_file)
     if p['missing_secrets']:
         raise StackError('these Podman secrets do not exist yet: ' + ', '.join(p['missing_secrets'])
@@ -382,8 +385,14 @@ def deploy(folder: Path, compose_file: str, env_file: str | None, *, approve, dr
         return p['action']
     if p['blocking'] and not approve(p['blocking']):
         raise StackError('not deployed: the containers in its way are still there')
+    # a point still pending (the update that wrote it never finished) is the last good state: a retry must not
+    # replace it with the half-updated one the containers show now
+    unfinished = bool(point and (rollback.load(folder) or {}).get('pending'))
+    before = rollback.capture(folder, compose_file, env_file) if point and not unfinished and p['action'] == 'update' else None
     if pull:  # before anything is removed: a failed pull leaves the old containers running
         run_compose(folder, compose_file, env_file, ['pull'], log)
+    if point and not unfinished:   # after the pull (a failed pull changed nothing, its old point stays)
+        rollback.keep(folder, before and {**before, 'pending': True}, log if p['action'] == 'update' else None)
     for c in p['blocking']:
         pa.remove_container(str(c['Id']))
         log(f'  removed {cname(c)}')
@@ -393,6 +402,8 @@ def deploy(folder: Path, compose_file: str, env_file: str | None, *, approve, dr
     run_compose(folder, compose_file, env_file, ['up', '-d', *(['--force-recreate'] if pull or recreate else [])], log,
                 timeout=up_limit)
     save_deployed(folder, compose_file, env_file)
+    if point:
+        rollback.settle(folder)
     log(f'Stack "{folder.name}" {"created" if p["action"] == "create" else "updated"}.')
     return p['action']
 
@@ -404,6 +415,7 @@ def stack_action(folder: Path, compose_file: str, env_file: str | None, action: 
     run_compose(folder, compose_file, env_file, ['down' if action == 'delete' else action], log)
     if action == 'delete':
         shutil.rmtree(folder / DEPLOYED, ignore_errors=True)
+        shutil.rmtree(folder / PREVIOUS, ignore_errors=True)
 
 
 def deployed_diff(folder: Path, compose_file: str, env_file: str | None, label: str) -> dict | None:

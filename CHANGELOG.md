@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.22
+
+- *Roll back an update.* Every update of a stack that was deployed from the page keeps what the stack ran with before
+  it as a rollback point in `.previous/` of the stack's folder (the previous deploy's files and the images its
+  containers were created from). *Roll back…* on the stack's page, and in the dialog of a deploy that failed, puts
+  the files and the image names back and recreates the containers without a download; what the files held is kept
+  in `.history/`. The state rolled back from becomes the new point, so the same button leads forward again. One
+  point per stack; the images it needs are marked *Kept for rollback* on the Images page and cannot be removed until
+  the point is discarded (or the stack deleted). Volumes and host data are not rolled back.
+
 ## 1.0.21
 
 - *New look: an operator console.* Near-black slate with one cyan signal colour; green, amber and red only mean state.

@@ -119,7 +119,10 @@ def route(mock: MockPodman, h, method: str, seg: list[str], q: dict, body: bytes
         if method == 'GET' and seg[2:] == ['json']:
             return h.reply(200, img)
         if method == 'POST' and seg[2:] == ['tag']:
-            img['RepoTags'] = (img.get('RepoTags') or []) + [f'{q["repo"]}:{q["tag"]}']
+            name = f'{q["repo"]}:{q["tag"]}'
+            for other in mock.images:          # a name belongs to one image: tagging moves it
+                other['RepoTags'] = [t for t in (other.get('RepoTags') or []) if t != name] or None
+            img['RepoTags'] = (img.get('RepoTags') or []) + [name]
             return h.reply(201)
         if method == 'DELETE' and len(seg) == 2:
             if seg[1] != img['Id']:  # by a tag: untag; the image goes with its last name

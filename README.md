@@ -8,7 +8,9 @@ One container, Python standard library + PyYAML, no database.
   your files (every save keeps the previous version in `.history/`, a save shows its diff first; a running stack is
   updated with every save, restore or file delete on the page, so its folder stays what runs); create, update
   (pull + recreate), start, stop, delete (the containers, and, if you tick it, the stack's folder too: the dialog lists
-  what the folder holds first; a stack without containers can be deleted that way as well);
+  what the folder holds first; a stack without containers can be deleted that way as well); an update keeps the
+  previous state as a rollback point, and *Roll back…* returns the files, the image names and the containers to
+  it (no download; volumes and host data are not touched);
   compare a stack with what was deployed last; upload a new stack (its compose file, env file and other files chosen separately); update several stacks at once. One change runs at a time: a bar on every page shows it
   and, for a `podman-compose` command, offers *Cancel* (the command and what it started are stopped; the containers
   it already created stay); another change meanwhile is refused with a message that names the running one. A

@@ -70,3 +70,10 @@ class PageTest(Base):
             page = r.read().decode('utf-8')
         for name in ('h.power', 'function powerLines', 'Under-voltage', 'throttled'):
             self.assertIn(name, page)
+
+    def test_the_rollback_button_dialog_and_the_kept_images_tag(self):
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('data-act="rollback"', 'function showRollback', '/rollback/discard', 'id="rb-go"', 'rb-discard',
+                     'rb-open', 'r.rollback', 'keptFor', 'Kept for rollback', 's.rollback'):
+            self.assertIn(name, page)

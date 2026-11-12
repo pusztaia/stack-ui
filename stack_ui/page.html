@@ -883,7 +883,7 @@ $('view').addEventListener('change', (ev) => {
     if (t.checked) SELECTED.add(t.dataset.sel); else SELECTED.delete(t.dataset.sel);
     renderTable();
   } else if (t.matches('[data-img-all]')) {
-    IMAGES.images.filter((i) => !i.usedBy.length).forEach((i) => (t.checked ? IMG_SEL.add(i.id) : IMG_SEL.delete(i.id)));
+    IMAGES.images.filter((i) => !i.usedBy.length && !i.keptFor.length).forEach((i) => (t.checked ? IMG_SEL.add(i.id) : IMG_SEL.delete(i.id)));
     renderImages();
   } else if (t.dataset.imgSel) {
     if (t.checked) IMG_SEL.add(t.dataset.imgSel); else IMG_SEL.delete(t.dataset.imgSel);
@@ -893,6 +893,7 @@ $('view').addEventListener('change', (ev) => {
 
 function act(a, name, btn) {
   if (a === 'deploy') return startDeploy(name);
+  if (a === 'rollback') return showRollback(name);
   if (a === 'start' || a === 'stop') return confirmPower(name, a);
   if (a === 'diff') return go(`#/stacks/${enc(name)}/diff`);
   if (a === 'more') return !$('menu').hidden && $('menu').dataset.for === btn.dataset.name ? closeMenu() : openMenu(btn, moreItems(name));
@@ -939,6 +940,7 @@ function renderDetailHead() {
       <div><h1>${n}</h1><p class="sub">${STATE_LABEL[state]}</p></div></div>
     <div class="head-actions">
       ${s.protected ? '<span class="tag t-idle">Protected: not stopped, updated or deleted from here</span>' : `${st ? `<button data-act="${st.status === 1 ? 'stop' : 'start'}" data-name="${n}">${icon(st.status === 1 ? 'stop' : 'play', 'fill')}<span>${st.status === 1 ? 'Stop' : 'Start'}</span></button>` : ''}
+      ${s.rollback ? `<button data-act="rollback" data-name="${n}">${icon('refresh')}<span>Roll back…</span></button>` : ''}
       <button class="primary" data-act="deploy" data-name="${n}">${icon('update')}<span>${st ? 'Update' : 'Create'}</span></button>`}
       <button class="icon-btn" data-act="more" data-name="${n}" title="More" aria-label="More actions" aria-haspopup="menu">${icon('more', 'fill')}</button>
     </div>`;
@@ -1333,7 +1335,60 @@ async function startDeploy(name) {
     try {
       const r = await api(`/api/stacks/${enc(name)}/deploy`, { method: 'POST', body: JSON.stringify(payload) });
       if (r.ok) { closeDialog(); toast(`${create ? 'Created' : 'Updated'} ${name}`); }
-      else openDialog(`${title} failed`, `${errBox('It did not finish.')}<pre>${esc(r.log.join('\n') || '(no output)')}</pre>`);
+      else {
+        openDialog(`${title} failed`, `${errBox('It did not finish.')}<pre>${esc(r.log.join('\n') || '(no output)')}</pre>`,
+          r.rollback ? '<button data-close>Close</button><button class="primary" id="rb-open">Roll back…</button>' : '');
+        $('rb-open')?.addEventListener('click', () => showRollback(name));
+      }
+    } catch (e) {
+      openDialog(`${title} failed`, errBox(e.message));
+    }
+    load();
+  });
+}
+
+async function showRollback(name) {
+  const title = `Roll back ${name}`;
+  openDialog(title, '<p class="muted">Checking…</p>');
+  let r;
+  try { r = await api(`/api/stacks/${enc(name)}/rollback`); }
+  catch (e) { return openDialog(title, errBox(e.message)); }
+  if (!r.available) {
+    return openDialog(title, '<p>There is no rollback point for this stack: one is made when the stack is updated from this page.</p>');
+  }
+  const short = (id) => (id ? id.slice(0, 12) : 'none');
+  const images = r.images.map((i) => `<li><b>${esc(i.container)}</b> · <span class="muted">${esc(i.ref)}</span><br>${
+    !i.present ? '<span class="tag t-bad">image no longer on this host</span>'
+      : i.previous === i.current ? 'the same image as now'
+        : `image <code>${esc(short(i.current))}</code> → <code>${esc(short(i.previous))}</code>`}</li>`).join('');
+  const d = r.diff;
+  const changed = [['compose file', d.compose], ['env file', d.env], ...Object.entries(d.files)].filter(([, text]) => text);
+  const files = changed.length
+    ? changed.map(([label, text]) => `<h4>${esc(label)}</h4>${diffHtml(text)}`).join('')
+    : '<p class="muted">The files are the same as now.</p>';
+  const body = `${r.problems.length ? errBox(r.problems.join('; ')) : ''}
+    <p>Puts back what <b>${esc(name)}</b> ran with before its update of ${esc(new Date(r.taken).toLocaleString())}: the images
+       and the files. The containers are recreated without a download.</p>
+    <h4>Images</h4><ul class="plain">${images}</ul>
+    <h4>Files (now → then)</h4>${files}
+    <div class="warn-note">Data in volumes and host folders is not rolled back. If the newer version changed it (a database
+       migration), the older one may not start on it.</div>`;
+  openDialog(title, body, `<button data-close>Cancel</button><button id="rb-discard">Discard this rollback point</button>${
+    r.problems.length ? '' : '<button class="primary" id="rb-go">Roll back</button>'}`);
+  let sure = false;
+  $('rb-discard').addEventListener('click', async (ev) => {
+    if (!sure) { sure = true; ev.currentTarget.textContent = 'Really discard? Click again'; return; }
+    try { await api(`/api/stacks/${enc(name)}/rollback/discard`, { method: 'POST', body: '{}' }); closeDialog(); toast('Rollback point discarded'); }
+    catch (e) { toast(e.message, 'bad'); }
+    load();
+  });
+  $('rb-go')?.addEventListener('click', async (ev) => {
+    ev.currentTarget.disabled = true;
+    ev.currentTarget.textContent = 'Rolling back…';
+    try {
+      const out = await api(`/api/stacks/${enc(name)}/rollback`, { method: 'POST', body: '{}' });
+      if (out.ok) { closeDialog(); toast(`Rolled back ${name}`); }
+      else openDialog(`${title} failed`, `${errBox('It did not finish.')}<pre>${esc(out.log.join('\n') || '(no output)')}</pre>`);
     } catch (e) {
       openDialog(`${title} failed`, errBox(e.message));
     }
@@ -1897,7 +1952,7 @@ async function loadImages() {
 function renderImages() {
   if (ROUTE.view !== 'images' || !IMAGES || !$('img-body')) return;
   $('img-pull').hidden = !INFO.podman;
-  const deletable = IMAGES.images.filter((i) => !i.usedBy.length);
+  const deletable = IMAGES.images.filter((i) => !i.usedBy.length && !i.keptFor.length);
   for (const id of [...IMG_SEL]) if (!deletable.some((i) => i.id === id)) IMG_SEL.delete(id);
   const untagged = IMAGES.images.filter((i) => i.removable);
   $('img-untagged').disabled = !INFO.podman || !untagged.length || untagged.every((i) => IMG_SEL.has(i.id));
@@ -1913,9 +1968,10 @@ function renderImages() {
       : upd.status === 'local' ? '<span class="tag t-idle">Built here</span>' : `<span class="tag t-idle" title="${esc(upd.message)}">Check failed</span>`;
     const used = img.usedBy.length
       ? img.usedBy.map((u) => (modules.has(u) ? `<a href="#/stacks/${enc(u)}/summary">${esc(u)}</a>` : esc(u))).join(', ')
+      : img.keptFor.length ? `<span class="tag t-warn" title="Roll back needs this image. Discard the rollback point on the stack's page to free it.">Kept for rollback: ${img.keptFor.map(esc).join(', ')}</span>`
       : img.removable ? '<span class="tag t-idle">Unused, can be removed</span>' : '<span class="muted small">Unused</span>';
     return `<div class="tr${IMG_SEL.has(img.id) ? ' selected' : ''}">
-      <span class="i-sel">${INFO.podman && !img.usedBy.length ? `<input type="checkbox" data-img-sel="${esc(img.id)}" aria-label="Select ${esc(img.tags[0] || img.id.slice(0, 12))}" ${IMG_SEL.has(img.id) ? 'checked' : ''}>` : ''}</span>
+      <span class="i-sel">${INFO.podman && !img.usedBy.length && !img.keptFor.length ? `<input type="checkbox" data-img-sel="${esc(img.id)}" aria-label="Select ${esc(img.tags[0] || img.id.slice(0, 12))}" ${IMG_SEL.has(img.id) ? 'checked' : ''}>` : ''}</span>
       <span class="i-name c-name"><span class="name">${img.tags[0] ? esc(img.tags[0]) : '<span class="muted">Untagged</span>'}</span>
         <span class="files">${esc(img.id.slice(0, 12))}${img.tags.length > 1 ? `, also ${img.tags.slice(1).map(esc).join(', ')}` : ''}</span></span>
       <span class="i-size small">${fmtBytes(img.size)}</span>
@@ -1933,7 +1989,7 @@ function renderImages() {
       { label: 'Details', run: () => showImageDetails(img) },
       { label: 'Tag…', run: () => showTag(img) },
       { sep: true },
-      { label: img.usedBy.length ? 'Remove (in use)' : 'Remove…', danger: true, disabled: Boolean(img.usedBy.length), run: () => showImageRemove(img) },
+      { label: img.usedBy.length ? 'Remove (in use)' : img.keptFor.length ? 'Remove (kept for rollback)' : 'Remove…', danger: true, disabled: Boolean(img.usedBy.length || img.keptFor.length), run: () => showImageRemove(img) },
     ]);
   }));
   const picked = IMAGES.images.filter((i) => IMG_SEL.has(i.id));
