@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- *New look: an operator console.* Near-black slate with one cyan signal colour; green, amber and red only mean state.
+  Identifiers, numbers, table headings and tabs are monospace, the current page is marked by a bar on the menu's edge,
+  notes and the operation bar carry a coloured edge. A matching light theme; no external fonts or files.
+
 ## 1.0.20
 
 - *A change that hangs no longer freezes the page.* Only one change runs at a time, as before, but a second one is
