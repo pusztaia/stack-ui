@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.21
 
 - *New look: an operator console.* Near-black slate with one cyan signal colour; green, amber and red only mean state.
   Identifiers, numbers, table headings and tabs are monospace, the current page is marked by a bar on the menu's edge,
