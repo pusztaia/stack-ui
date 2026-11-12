@@ -40,7 +40,6 @@ COMPOSE_NAMES = ('compose.yaml', 'compose.yml', 'docker-compose.yml', 'docker-co
 PROJECT_LABEL = 'io.podman.compose.project'
 COMPOSE_PROJECT_LABELS = ('com.docker.compose.project', 'io.podman.compose.project')
 DEPLOYED = '.deployed'
-PREVIOUS = '.previous'         # the rollback point: the state before the last update (see rollback.py)
 COMPOSE_CMD = os.environ.get('PODMAN_COMPOSE', 'podman-compose')
 PODMAN_PATH = os.environ.get('PODMAN_PATH', 'podman')
 LONG_TIMEOUT = 900          # pull
@@ -415,7 +414,8 @@ def stack_action(folder: Path, compose_file: str, env_file: str | None, action: 
     run_compose(folder, compose_file, env_file, ['down' if action == 'delete' else action], log)
     if action == 'delete':
         shutil.rmtree(folder / DEPLOYED, ignore_errors=True)
-        shutil.rmtree(folder / PREVIOUS, ignore_errors=True)
+        from . import rollback      # (rollback imports this module)
+        rollback.discard(folder)
 
 
 def deployed_diff(folder: Path, compose_file: str, env_file: str | None, label: str) -> dict | None:

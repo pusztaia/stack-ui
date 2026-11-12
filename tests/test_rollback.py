@@ -2,6 +2,8 @@ import importlib
 import json
 import os
 import shutil
+import threading
+import unittest
 
 from tests.support import Base, compose_yaml, make_stack
 from stack_ui import podman_api as pa, rollback, server as srv, stacks as st
@@ -40,6 +42,10 @@ class RollbackBase(Base):
     def tags(self):
         return {i['Id']: i['RepoTags'] for i in self.mock.images}
 
+    @property
+    def pdir(self):
+        return rollback.point_dir(self.folder)
+
 
 class PointFilesTest(RollbackBase):
     def test_capture_describes_the_state_of_the_last_deploy(self):
@@ -63,21 +69,21 @@ class PointFilesTest(RollbackBase):
         rollback.write_point(self.folder, point)
         self.assertEqual(rollback.load(self.folder), point)
         self.assertTrue(rollback.exists(self.folder))
-        self.assertFalse((self.folder / '.previous.new').exists())
+        self.assertFalse((self.pdir.with_name('web.new')).exists())
         rollback.write_point(self.folder, {**point, 'taken': '2030-01-01T00:00:00Z'})     # replaces the old one
         self.assertEqual(rollback.load(self.folder)['taken'], '2030-01-01T00:00:00Z')
 
     def test_a_damaged_point_reads_as_none(self):
         rollback.write_point(self.folder, rollback.capture(self.folder, 'compose.yaml', '.env'))
-        (self.folder / '.previous' / 'rollback.json').write_text('{', encoding='utf-8')
+        (self.pdir / 'rollback.json').write_text('{', encoding='utf-8')
         self.assertIsNone(rollback.load(self.folder))
-        (self.folder / '.previous' / 'rollback.json').write_text(json.dumps({'images': 'x'}), encoding='utf-8')
+        (self.pdir / 'rollback.json').write_text(json.dumps({'images': 'x'}), encoding='utf-8')
         self.assertIsNone(rollback.load(self.folder))
         self.assertFalse(rollback.exists(self.folder / 'nowhere'))
 
     def test_odd_files_in_a_point_are_ignored(self):
         rollback.write_point(self.folder, rollback.capture(self.folder, 'compose.yaml', '.env'))
-        files = self.folder / '.previous' / 'files'
+        files = self.pdir / 'files'
         (files / 'run.exe').write_text('x', encoding='utf-8')
         (files / 'a b.json').write_text('{}', encoding='utf-8')
         (files / '.hidden.yaml').write_text('x', encoding='utf-8')
@@ -85,7 +91,7 @@ class PointFilesTest(RollbackBase):
 
     def test_a_point_without_its_compose_file_reads_as_none(self):
         rollback.write_point(self.folder, rollback.capture(self.folder, 'compose.yaml', '.env'))
-        (self.folder / '.previous' / 'files' / 'compose.yaml').unlink()
+        (self.pdir / 'files' / 'compose.yaml').unlink()
         self.assertIsNone(rollback.load(self.folder))
 
     def test_keep_writes_or_drops_a_stale_point(self):
@@ -102,10 +108,10 @@ class PointFilesTest(RollbackBase):
 
     def test_discard_removes_the_point_and_a_half_written_one(self):
         rollback.write_point(self.folder, rollback.capture(self.folder, 'compose.yaml', '.env'))
-        (self.folder / '.previous.new').mkdir()
+        self.pdir.with_name('web.new').mkdir()
         rollback.discard(self.folder)
-        self.assertFalse((self.folder / '.previous').exists())
-        self.assertFalse((self.folder / '.previous.new').exists())
+        self.assertFalse((self.pdir).exists())
+        self.assertFalse((self.pdir.with_name('web.new')).exists())
         rollback.discard(self.folder)                        # nothing there: no error
 
 
@@ -185,14 +191,14 @@ class DeployPointTest(RollbackBase):
         point = rollback.load(self.folder)
         self.assertEqual(point['files']['compose.yaml'], V1)               # not the new text
         self.assertEqual(point['images'], [{'container': 'web', 'ref': REF, 'id': 'old1'}])
-        self.assertFalse((self.folder / '.previous.new').exists())
+        self.assertFalse((self.pdir.with_name('web.new')).exists())
         self.assertEqual((self.folder / st.DEPLOYED / 'compose.yaml').read_text(encoding='utf-8'), V2)
 
     def test_a_first_create_writes_no_point(self):
         self.mock.containers.clear()
         shutil.rmtree(self.folder / st.DEPLOYED)
         self.deploy()
-        self.assertFalse((self.folder / '.previous').exists())
+        self.assertFalse((self.pdir).exists())
 
     def test_a_create_drops_a_stale_point(self):
         self.update_to_v2()
@@ -232,7 +238,7 @@ class DeployPointTest(RollbackBase):
     def test_deleting_the_stack_removes_the_point(self):
         self.update_to_v2()
         st.stack_action(self.folder, 'compose.yaml', '.env', 'delete', log=lambda _: None)
-        self.assertFalse((self.folder / '.previous').exists())
+        self.assertFalse((self.pdir).exists())
         self.assertFalse((self.folder / st.DEPLOYED).exists())
 
 
@@ -389,32 +395,34 @@ class ReviewFixTest(RollbackBase):
     def test_a_planted_link_does_not_redirect_the_writes(self):
         elsewhere = self.tmp / 'elsewhere'
         elsewhere.mkdir()
-        self.link_or_skip(self.folder / '.previous.new', elsewhere)
+        self.pdir.parent.mkdir(parents=True)
+        self.link_or_skip(self.pdir.with_name('web.new'), elsewhere)
         rollback.write_point(self.folder, rollback.capture(self.folder, 'compose.yaml', '.env'))
         self.assertEqual(list(elsewhere.iterdir()), [])
         self.assertTrue(rollback.exists(self.folder))
-        self.assertFalse((self.folder / '.previous.new').exists())
+        self.assertFalse((self.pdir.with_name('web.new')).exists())
 
     def test_a_link_in_place_of_the_point_is_replaced_not_followed(self):
         elsewhere = self.tmp / 'elsewhere'
         elsewhere.mkdir()
-        self.link_or_skip(self.folder / '.previous', elsewhere)
+        self.pdir.parent.mkdir(parents=True)
+        self.link_or_skip(self.pdir, elsewhere)
         rollback.write_point(self.folder, rollback.capture(self.folder, 'compose.yaml', '.env'))
         self.assertEqual(list(elsewhere.iterdir()), [])
-        self.assertFalse((self.folder / '.previous').is_symlink())
+        self.assertFalse((self.pdir).is_symlink())
         self.assertTrue(rollback.exists(self.folder))
 
     def test_a_point_behind_a_link_is_not_read(self):
         rollback.write_point(self.folder, rollback.capture(self.folder, 'compose.yaml', '.env'))
         real = self.tmp / 'moved'
-        (self.folder / '.previous').rename(real)
-        self.link_or_skip(self.folder / '.previous', real)
+        (self.pdir).rename(real)
+        self.link_or_skip(self.pdir, real)
         self.assertIsNone(rollback.load(self.folder))
         self.assertFalse(rollback.exists(self.folder))
 
     def test_a_damaged_rollback_json_breaks_nothing_else(self):
         rollback.write_point(self.folder, rollback.capture(self.folder, 'compose.yaml', '.env'))
-        path = self.folder / '.previous' / 'rollback.json'
+        path = self.pdir / 'rollback.json'
         good = json.loads(path.read_text(encoding='utf-8'))
         for key, value in (('compose', ['x']), ('env', 5), ('taken', None), ('taken', 7),
                            ('images', [{'id': ['x'], 'container': 'web', 'ref': REF}]),
@@ -425,6 +433,108 @@ class ReviewFixTest(RollbackBase):
             self.assertEqual(rollback.kept_images(), {})
             self.assertEqual(rollback.view(self.folder, 'compose.yaml', '.env'), {'available': False})
             self.assertEqual(self.ui.images()['reclaimable'], 0)           # the Images page still works
+
+
+class PointPlaceTest(RollbackBase):
+    """The point is kept in the page's own data folder: a container that can write its stack's folder can neither
+    plant nor change one, and nothing it leaves there is read as one."""
+
+    def plant(self):
+        base = self.folder / '.previous'
+        (base / 'files').mkdir(parents=True)
+        (base / 'files' / 'compose.yaml').write_bytes(V2.encode('utf-8'))
+        (base / 'rollback.json').write_text(json.dumps({
+            'taken': '2026-01-01T00:00:00Z', 'compose': 'compose.yaml', 'env': '.env',
+            'images': [{'container': 'web', 'ref': 'ghcr.io/pusztaia/stack-ui:1', 'id': 'old1'}]}), encoding='utf-8')
+
+    def test_the_point_is_written_into_the_data_folder(self):
+        self.update_to_v2()
+        self.assertTrue((self.tmp / 'data' / 'rollback' / 'web' / 'rollback.json').is_file())
+        self.assertFalse((self.folder / '.previous').exists())
+
+    def test_a_point_planted_in_the_stack_folder_is_not_one(self):
+        self.plant()
+        self.assertIsNone(rollback.load(self.folder))
+        self.assertFalse(rollback.exists(self.folder))
+        self.assertEqual(rollback.kept_images(), {})
+        self.assertEqual(rollback.view(self.folder, 'compose.yaml', '.env'), {'available': False})
+        with self.assertRaisesRegex(st.StackError, 'no rollback point'):
+            rollback.roll_back(self.folder, 'compose.yaml', '.env', self.ui.write_file, lambda _: None)
+        self.assertEqual(self.tags()['old1'], [REF])                        # nothing was tagged
+        self.assertEqual((self.folder / 'compose.yaml').read_text(encoding='utf-8'), V1)
+
+    def test_a_leftover_in_the_stack_folder_is_removed_by_the_next_deploy(self):
+        self.plant()
+        self.deploy()
+        self.assertFalse((self.folder / '.previous').exists())
+
+    def test_a_point_file_over_the_size_limit_makes_the_point_unusable(self):
+        self.update_to_v2()
+        with open(self.pdir / 'files' / 'big.json', 'wb') as fh:
+            fh.truncate(st.MAX_FILE + 1)
+        self.assertIsNone(rollback.load(self.folder))
+
+    def test_an_oversized_record_is_not_read(self):
+        self.update_to_v2()
+        with open(self.pdir / 'rollback.json', 'ab') as fh:
+            fh.write(b' ' * (rollback.MAX_RECORD + 1))
+        self.assertIsNone(rollback.load(self.folder))
+        self.assertFalse(rollback.exists(self.folder))
+        self.assertEqual(rollback.kept_images(), {})
+
+    def test_an_oversized_file_of_the_last_deploy_is_not_captured(self):
+        with open(self.folder / st.DEPLOYED / 'big.json', 'wb') as fh:
+            fh.truncate(st.MAX_FILE + 1)
+        self.assertNotIn('big.json', rollback.capture(self.folder, 'compose.yaml', '.env')['files'])
+        with open(self.folder / st.DEPLOYED / 'compose.yaml', 'wb') as fh:
+            fh.truncate(st.MAX_FILE + 1)
+        self.assertIsNone(rollback.capture(self.folder, 'compose.yaml', '.env'))
+
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'FIFOs are POSIX')
+    def test_a_fifo_in_place_of_the_record_does_not_hang(self):
+        (self.pdir / 'files').mkdir(parents=True)
+        os.mkfifo(self.pdir / 'rollback.json')
+        out = {}
+
+        def read():
+            out['point'] = rollback.load(self.folder)
+            out['kept'] = rollback.kept_images()
+            out['exists'] = rollback.exists(self.folder)
+        t = threading.Thread(target=read, daemon=True)
+        t.start()
+        t.join(5)
+        self.assertFalse(t.is_alive(), 'reading the point blocks on a FIFO')
+        self.assertEqual(out, {'point': None, 'kept': {}, 'exists': False})
+
+    def test_kept_images_reads_only_the_small_record(self):
+        self.update_to_v2()
+
+        def boom(folder):
+            raise AssertionError('kept_images must not read the point files')
+        self.patch(rollback, 'load', boom)
+        self.assertEqual(rollback.kept_images(), {'old1': ['web']})
+
+    def test_a_deploy_goes_on_when_the_point_cannot_be_written(self):
+        blocker = self.tmp / 'blocker'
+        blocker.write_text('x', encoding='utf-8')
+        self.patch(rollback, 'DATA', blocker)                               # a file where the data folder should be
+        (self.folder / 'compose.yaml').write_bytes(V2.encode('utf-8'))
+        said = []
+        st.deploy(self.folder, 'compose.yaml', '.env', approve=lambda c: True, pull=False, log=said.append)
+        self.assertTrue(any('no rollback point' in line for line in said), said)
+        self.assertEqual((self.folder / st.DEPLOYED / 'compose.yaml').read_text(encoding='utf-8'), V2)
+
+    def test_deleting_the_folder_of_a_stack_without_containers_drops_its_point(self):
+        self.update_to_v2()
+        self.mock.containers.clear()
+        self.ui.stack_action('web', 'delete', {'confirm': 'web', 'deleteFolder': True})
+        self.assertFalse(self.pdir.exists())
+
+    def test_a_new_stack_of_an_old_name_does_not_inherit_a_point(self):
+        self.update_to_v2()
+        shutil.copytree(self.pdir, self.pdir.with_name('up'))               # what a folder removed by hand leaves
+        self.ui.upload({'name': 'up', 'files': {'compose.yaml': compose_yaml('up')}})
+        self.assertFalse(rollback.exists(self.stacks / 'up'))
 
 
 if __name__ == '__main__':

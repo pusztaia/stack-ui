@@ -52,6 +52,8 @@ class Base(unittest.TestCase):
         self.patch(pa, 'API_URL', url)
         self.patch(st, 'STACKS_DIR', self.stacks)
         self.patch(st, 'IGNORE', set())
+        from stack_ui import rollback
+        self.patch(rollback, 'DATA', self.tmp / 'data')
         self.patch(st, 'COMPOSE_CMD', ' '.join(shlex.quote(Path(x).as_posix()) for x in (sys.executable, FAKE_COMPOSE)))
         self.compose_log = self.tmp / 'compose.log'
         os.environ['FAKE_COMPOSE_LOG'] = str(self.compose_log)

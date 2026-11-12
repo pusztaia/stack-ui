@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.23
+
+- *Security: the rollback point moved out of the stack's folder.* 1.0.22 kept it in `.previous/` of the stack's
+  folder. A container that mounts its stack's folder could write there, and the page acts on a point as root: a
+  planted point could have another image given a stack's image name on *Roll back*, a FIFO in its place blocked
+  every change of the page, and a large file in it was read into memory with every listing of the images. The point
+  is now kept in the page's own data folder (`STACK_UI_DATA/rollback/<stack>/`); nothing in a stack's folder is
+  read as one, and a `.previous/` left there is removed by the stack's next deploy (rollback points written by
+  1.0.22 are not carried over: the next update makes a new one). Files of a point and of the last deploy are read
+  only as regular files up to 512 KiB. A point that cannot be written (no writable data folder) no longer stops a
+  deploy: it says so in the log. Deleting a stack's folder, and uploading a new stack of an old name, drop the point.
+
 ## 1.0.22
 
 - *Roll back an update.* Every update of a stack that was deployed from the page keeps what the stack ran with before

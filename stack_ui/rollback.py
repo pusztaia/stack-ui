@@ -1,7 +1,11 @@
-"""The rollback point of a stack: what it ran with before its last update from this page, kept in <stack>/.previous/
-(rollback.json and a copy of that deploy's files), and the roll back that puts it back: the files, the image names
-and the containers. One point per stack; the next update replaces it. See
-docs/superpowers/specs/2026-11-12-rollback-design.md."""
+"""The rollback point of a stack: what it ran with before its last update from this page (rollback.json and a copy of
+that deploy's files), and the roll back that puts it back: the files, the image names and the containers. One point
+per stack; the next update replaces it.
+
+The point is kept in the page's own data folder, STACK_UI_DATA/rollback/<stack>/, not in the stack's folder: a
+container that mounts its stack's folder could otherwise plant or change one, and the page acts on a point as root
+(it writes files, gives image names away, recreates containers). Nothing in a stack's folder is read as a point.
+See docs/superpowers/specs/2026-11-12-rollback-design.md."""
 from __future__ import annotations
 
 import difflib
@@ -15,7 +19,10 @@ from pathlib import Path
 from . import podman_api as pa
 from . import stacks as st
 
+DATA = Path(os.environ.get('STACK_UI_DATA') or '/data')     # the page's own folder (server.DATA)
 POINT_FILE = 'rollback.json'
+MAX_RECORD = 256 * 1024         # bytes of a rollback.json that is still read
+LEGACY = '.previous'            # where 1.0.22 kept the point, in the stack's folder: never read, removed on sight
 HEX_ID = re.compile(r'^[0-9a-f]{12,64}$')
 
 
@@ -23,10 +30,26 @@ def short_id(image_id) -> str:
     return str(image_id or '').split(':', 1)[-1]
 
 
+def point_dir(folder: Path) -> Path:
+    """Where the stack's point is kept (a stack's name has no dot or slash: st.STACK_NAME)."""
+    return DATA / 'rollback' / folder.name
+
+
+def small_text(path: Path, limit: int) -> str | None:
+    """The text of a regular file (no link, no FIFO) of at most limit bytes; None otherwise."""
+    try:
+        if not st.plain_file(path) or path.stat().st_size > limit:
+            return None
+        return path.read_text(encoding='utf-8')
+    except (OSError, ValueError):
+        return None
+
+
 def capture(folder: Path, compose_file: str, env_file: str | None) -> dict | None:
     """The state the stack runs with now, as a point in memory: the files of its last deploy (.deployed/) and the
     images its containers were created from. None when there is nothing to go back to: no record of a deploy from
-    this page, or no containers."""
+    this page, or no containers. A file larger than a stack file may be is left out (the compose or env file: no
+    point)."""
     record = folder / st.DEPLOYED
     if not st.plain_file(record / compose_file):
         return None
@@ -35,54 +58,46 @@ def capture(folder: Path, compose_file: str, env_file: str | None) -> dict | Non
         return None
     files = {}
     for fname in (compose_file, env_file, *st.stack_file_names(record, compose_file, env_file)):
-        if fname and st.plain_file(record / fname):
-            files[fname] = (record / fname).read_text(encoding='utf-8')
+        if not fname or not st.plain_file(record / fname):
+            continue
+        text = small_text(record / fname, st.MAX_FILE)
+        if text is not None:
+            files[fname] = text
+        elif fname in (compose_file, env_file):
+            return None
     return {'taken': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), 'compose': compose_file,
             'env': env_file, 'files': files,
             'images': [{'container': st.cname(c), 'ref': str(c.get('Image') or ''), 'id': short_id(c.get('ImageID'))}
                        for c in containers]}
 
 
-def write_point(folder: Path, point: dict) -> None:
-    """Write the point whole or not at all: into .previous.new/, then swapped in."""
-    new, final = folder / (st.PREVIOUS + '.new'), folder / st.PREVIOUS
-    for path in (new, final):
-        if path.is_symlink():            # planted by a container that mounts the folder: removed, never followed
-            path.unlink()
-    shutil.rmtree(new, ignore_errors=True)
-    (new / 'files').mkdir(parents=True)
-    for fname, text in point['files'].items():
-        st.write_lf(new / 'files' / fname, text)
+def record_of(point: dict) -> str:
     meta = {key: point[key] for key in ('taken', 'compose', 'env', 'images')}
     if point.get('pending'):
         meta['pending'] = True
-    st.write_lf(new / POINT_FILE, json.dumps(meta, indent=2) + '\n')
-    st.match_owner(new, new / 'files', new / POINT_FILE, *(new / 'files' / f for f in point['files']))
+    return json.dumps(meta, indent=2) + chr(10)
+
+
+def write_point(folder: Path, point: dict) -> None:
+    """Write the point whole or not at all: into <stack>.new/, then swapped in."""
+    final = point_dir(folder)
+    new = final.with_name(final.name + '.new')
+    final.parent.mkdir(parents=True, exist_ok=True)
+    for path in (new, final):
+        if path.is_symlink():            # never followed
+            path.unlink()
+    shutil.rmtree(new, ignore_errors=True)
+    new.mkdir()                          # (fails when something is there again: nothing is written into it)
+    (new / 'files').mkdir()
+    for fname, text in point['files'].items():
+        st.write_lf(new / 'files' / fname, text)
+    st.write_lf(new / POINT_FILE, record_of(point))
     shutil.rmtree(final, ignore_errors=True)
     os.replace(new, final)
 
 
-def load(folder: Path) -> dict | None:
-    """The stack's rollback point, or None when there is none or it is damaged. Only files with the names a stack
-    file may have are read (a hand-edited .previous/ cannot name a path or a script)."""
-    base = folder / st.PREVIOUS
-    if base.is_symlink() or (base / 'files').is_symlink():
-        return None
-    try:
-        point = json.loads((base / POINT_FILE).read_text(encoding='utf-8'))
-        if not isinstance(point, dict) or not valid(point):
-            return None
-        wanted = (point['compose'], point.get('env'))
-        point['files'] = {p.name: p.read_text(encoding='utf-8') for p in sorted((base / 'files').iterdir())
-                          if st.plain_file(p) and (p.name in wanted or (st.is_stack_file_name(p.name)
-                                                                         and not p.name.startswith('.')))}
-    except (OSError, ValueError):
-        return None
-    return point if point['compose'] in point['files'] else None
-
-
 def valid(point: dict) -> bool:
-    """The types of a rollback.json read from disk (a hand-edited or damaged one must not break other code)."""
+    """The types of a rollback.json read from disk (a damaged one must not break other code)."""
     images = point.get('images')
     return (isinstance(point.get('compose'), str) and bool(point['compose'])
             and (point.get('env') is None or isinstance(point['env'], str))
@@ -91,34 +106,101 @@ def valid(point: dict) -> bool:
                     for i in images))
 
 
+def load_record(folder: Path) -> dict | None:
+    """The point's rollback.json alone (no files read), or None when there is none or it is not usable: damaged,
+    too large, not a regular file, or without its compose file."""
+    base = point_dir(folder)
+    if base.is_symlink() or (base / 'files').is_symlink():
+        return None
+    text = small_text(base / POINT_FILE, MAX_RECORD)
+    if text is None:
+        return None
+    try:
+        point = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(point, dict) or not valid(point) or not st.plain_file(base / 'files' / point['compose']):
+        return None
+    return point
+
+
+def load(folder: Path) -> dict | None:
+    """The stack's rollback point with its files, or None when there is none or it is not usable. Only files with
+    the names a stack file may have are read, each at most as large as a stack file may be."""
+    point = load_record(folder)
+    if point is None:
+        return None
+    wanted = (point['compose'], point.get('env'))
+    files = {}
+    try:
+        for p in sorted((point_dir(folder) / 'files').iterdir()):
+            if not st.plain_file(p) or not (p.name in wanted or (st.is_stack_file_name(p.name)
+                                                                 and not p.name.startswith('.'))):
+                continue
+            text = small_text(p, st.MAX_FILE)
+            if text is None:
+                return None
+            files[p.name] = text
+    except OSError:
+        return None
+    point['files'] = files
+    return point if point['compose'] in files else None
+
+
 def exists(folder: Path) -> bool:
-    return not (folder / st.PREVIOUS).is_symlink() and st.plain_file(folder / st.PREVIOUS / POINT_FILE)
+    return load_record(folder) is not None
 
 
 def settle(folder: Path) -> None:
     """The deploy that wrote the point finished: it is no longer pending (see stacks.deploy)."""
-    point = load(folder)
+    point = load_record(folder)
     if point is None or not point.get('pending'):
         return
-    meta = {key: point[key] for key in ('taken', 'compose', 'env', 'images')}
-    path = folder / st.PREVIOUS / POINT_FILE
-    st.write_lf(path, json.dumps(meta, indent=2) + chr(10))
-    st.match_owner(path)
+    del point['pending']
+    try:
+        st.write_lf(point_dir(folder) / POINT_FILE, record_of(point))
+    except OSError:
+        pass
+
+
+def drop_legacy(folder: Path) -> None:
+    """Remove what 1.0.22 (or anything else) left as .previous/ in the stack's folder; a link is removed, not
+    followed."""
+    for path in (folder / LEGACY, folder / (LEGACY + '.new')):
+        try:
+            if path.is_symlink():
+                path.unlink()
+            elif path.exists():
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            pass
 
 
 def discard(folder: Path) -> None:
-    for path in (folder / st.PREVIOUS, folder / (st.PREVIOUS + '.new')):
-        if path.is_symlink():
-            path.unlink()
-        else:
-            shutil.rmtree(path, ignore_errors=True)
+    final = point_dir(folder)
+    for path in (final, final.with_name(final.name + '.new')):
+        try:
+            if path.is_symlink():
+                path.unlink()
+            else:
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            pass
+    drop_legacy(folder)
 
 
 def keep(folder: Path, point: dict | None, log=None) -> None:
     """Make the point the stack's one (replacing the old one). Without a point the old one is dropped, since it would
-    describe an older state than the one just before this deploy; log says so when given."""
+    describe an older state than the one just before this deploy; log says so when given. A point that cannot be
+    written (the data folder is missing or read-only) is no reason to stop a deploy: there is none then."""
+    drop_legacy(folder)
     if point is not None:
-        write_point(folder, point)
+        try:
+            write_point(folder, point)
+        except OSError as exc:
+            discard(folder)
+            if log is not None:
+                log(f'no rollback point: it could not be written ({exc})')
         return
     discard(folder)
     if log is not None:
@@ -179,7 +261,7 @@ def kept_images() -> dict[str, list[str]]:
     """{image id: the stacks whose rollback point needs it}."""
     kept: dict[str, list[str]] = {}
     for folder, _, _ in st.discover():
-        point = load(folder)
+        point = load_record(folder)         # (the record alone: this runs for every listing of the images)
         for img in (point or {}).get('images', []):
             if img.get('id') and folder.name not in kept.setdefault(img['id'], []):
                 kept[img['id']].append(folder.name)
@@ -229,7 +311,7 @@ def roll_back(folder: Path, compose_file: str, env_file: str | None, write_file,
             raise st.StackError(f'could not give the name {img["ref"]} back to the image {img["id"][:12]}: {exc}') from None
         names.setdefault(img['id'], set()).add(f'{parts[0]}:{parts[1]}')
         log(f'  {parts[0]}:{parts[1]} is the image {img["id"][:12]} again')
-    keep(folder, newer)
+    keep(folder, newer, log)
     log('recreating the containers from the previous images')
     st.deploy(folder, compose_file, env_file, approve=lambda containers: False, pull=False, recreate=True,
               point=False, log=log)

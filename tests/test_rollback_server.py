@@ -96,7 +96,7 @@ class ServerRollbackTest(RollbackBase):
         os.environ['FAKE_COMPOSE_FAIL_ON'] = 'up'
         first = self.ui.run_deploy('web', pull=False, remove=[])
         self.assertEqual((first['ok'], first['rollback']), (False, True))      # this update made a point
-        shutil.rmtree(self.folder / '.previous')
+        shutil.rmtree(self.pdir)
         os.environ['FAKE_COMPOSE_FAIL_ON'] = 'pull'
         second = self.ui.run_deploy('web', pull=True, remove=[])
         self.assertEqual((second['ok'], second['rollback']), (False, False))   # the pull failed first: no point

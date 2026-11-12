@@ -37,6 +37,18 @@ cancelled.
 - `server.image_table()` marks an image `removable` when it has no tag and no container uses it; `images_remove()`
   refuses images a container uses. `server.OWN_FOLDERS` names the page's own folders in a stack's folder.
 
+## Revision 2026-11-12 (security review): the point lives in the page's data folder
+
+The first version (1.0.22) kept the point in `<stack>/.previous/`. A container that mounts its stack's folder can
+write there, and the page acts on a point as root, so the point moved to `STACK_UI_DATA/rollback/<stack>/` (same
+content: `rollback.json` and `files/`). Wherever this document says `.previous/`, read that folder. Further changes:
+nothing in a stack's folder is read as a point and a `.previous/` found there is removed by the next deploy;
+`rollback.json` is read only as a regular file up to 256 KiB and the point's files up to 512 KiB each (a larger one
+makes the point unusable); `kept_images()` reads the record alone; no owner matching (the data folder is the
+page's own); a point that cannot be written is logged and does not stop the deploy; deleting a stack's folder and
+uploading a new stack of the same name drop the point; a point written by a deploy is `pending` until that deploy
+finishes, and a pending point is not replaced by a retry.
+
 ## The rollback point
 
 A folder `<stack>/.previous/`, written by a new module `stack_ui/rollback.py`:

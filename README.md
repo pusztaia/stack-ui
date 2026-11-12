@@ -160,7 +160,7 @@ devices or ports below 1024 — and then remember that this page is as powerful 
 | `STACK_UI_UP_TIMEOUT` | `300` | seconds a `podman-compose` `up` / `start` / `stop` / `down` may run before it is ended (at least 30) |
 | `STACK_UI_IGNORE` | — | folders of `STACKS_DIR` that are not stacks |
 | `STACK_UI_HIDE_UNDEPLOYED` | `false` | `true`: the Stacks page lists only the stacks that have containers (a new one shows up once created; its own page opens after *Add stack*) |
-| `STACK_UI_DATA` | `/data` | where the settings (the API token's hash) are kept |
+| `STACK_UI_DATA` | `/data` | where the settings (the API token's hash) and the rollback points are kept; keep it a volume no stack mounts |
 | `PODMAN_SOCKET` | `/run/podman/podman.sock` | the Podman socket inside the container |
 | `STACK_UI_BIND`, `STACK_UI_PORT` | `0.0.0.0`, `8770` | where the page listens in the container |
 

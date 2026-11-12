@@ -607,6 +607,7 @@ def upload(data: dict) -> dict:
         (tmp / st.MANIFEST).write_text(json.dumps({'compose': compose, 'env': env}, indent=2) + '\n', encoding='utf-8')
         st.match_owner(*(tmp / f for f in [*pkg, st.MANIFEST]))
         os.replace(tmp, module)
+    rollback.discard(module)        # a new stack does not inherit the point of an old one of that name
     return {'name': name, 'compose': compose, 'env': env, 'files': sorted(pkg)}
 
 
@@ -1555,7 +1556,7 @@ def discard_rollback(name: str) -> dict:
     return {'discarded': True}
 
 
-OWN_FOLDERS = ('.history', st.DEPLOYED, st.PREVIOUS)   # Stack UI's own folders in a stack's folder: not the application's data
+OWN_FOLDERS = ('.history', st.DEPLOYED, rollback.LEGACY)   # Stack UI's own folders in a stack's folder: not the application's data
 
 
 def dir_size(path: Path, limit: int = 50_000) -> tuple[int, bool]:
@@ -1613,6 +1614,7 @@ def stack_action(name: str, action: str, data: dict) -> dict:
             st.stack_action(folder, compose_file, env_file, action, log=lambda _: None)
         if remove_folder:
             remove_stack_folder(folder)
+            rollback.discard(folder)
     return {'ok': True, 'action': action, 'folderRemoved': remove_folder}
 
 
