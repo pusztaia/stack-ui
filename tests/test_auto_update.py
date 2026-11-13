@@ -116,7 +116,7 @@ class AutoUpdateTest(AutoUpdateBase):
 
     def test_skipped_without_a_record_of_the_last_deploy(self):
         import shutil
-        shutil.rmtree(self.folder / st.DEPLOYED)
+        shutil.rmtree(st.record_dir(self.folder))
         self.assertEqual(self.ui.auto_update('web')['result'], 'skipped')
         self.assertEqual(self.commands(), [])
 
@@ -163,7 +163,8 @@ class ScheduledCheckTest(AutoUpdateBase):
 class ReviewFixTest(AutoUpdateBase):
     def test_files_and_a_record_written_from_inside_the_stack_folder_are_not_deployed(self):
         (self.folder / 'compose.yaml').write_bytes(V2.encode('utf-8'))
-        (self.folder / st.DEPLOYED / 'compose.yaml').write_bytes(V2.encode('utf-8'))    # drift shows nothing
+        (self.folder / st.DEPLOYED).mkdir()
+        (self.folder / st.DEPLOYED / 'compose.yaml').write_bytes(V2.encode('utf-8'))
         r = self.ui.auto_update('web')
         self.assertEqual(r['result'], 'skipped', r)
         self.assertEqual(self.commands(), [])
@@ -230,6 +231,42 @@ class ReviewFixTest(AutoUpdateBase):
         self.assertEqual((r['result'], r['alert']), ('rollback-failed', True), r)
         self.assertIn('disk full', r['reason'])
 
+
+class PartialTest(AutoUpdateBase):
+    SERVICE = 'io.podman.compose.service'
+
+    def two(self, labels=True):
+        self.container['Labels'][self.SERVICE] = 'app'
+        return self.mock.add_container('side', project='web', state='exited', image=REF, image_id='old1',
+                                       labels={self.SERVICE: 'side'} if labels else None)
+
+    def test_only_the_running_services_are_recreated(self):
+        self.two()
+        r = self.ui.auto_update('web')
+        self.assertEqual(r['result'], 'updated', r)
+        calls = self.compose_calls()
+        self.assertEqual(calls[-2][-2:], ['pull', 'app'])
+        self.assertEqual(calls[-1][-4:], ['up', '-d', '--force-recreate', 'app'])
+
+    def test_a_fully_running_stack_gets_no_service_names(self):
+        self.container['Labels'][self.SERVICE] = 'app'
+        self.ui.auto_update('web')
+        self.assertEqual(self.compose_calls()[-1][-3:], ['up', '-d', '--force-recreate'])
+
+    def test_skipped_when_a_running_container_names_no_service(self):
+        self.mock.add_container('side', project='web', state='exited')
+        r = self.ui.auto_update('web')                                       # web itself has no service label
+        self.assertEqual(r['result'], 'skipped', r)
+        self.assertIn('service', r['reason'])
+        self.assertEqual(self.commands(), [])
+
+    def test_a_failed_partial_update_rolls_back_only_the_running_services(self):
+        self.two()
+        answers = iter(['web is not running', ''])
+        self.patch(self.ui, 'verify', lambda name, was: next(answers))
+        r = self.ui.auto_update('web')
+        self.assertEqual(r['result'], 'rolled-back', r)
+        self.assertEqual(self.compose_calls()[-1][-4:], ['up', '-d', '--force-recreate', 'app'])
 
 if __name__ == '__main__':
     unittest.main()

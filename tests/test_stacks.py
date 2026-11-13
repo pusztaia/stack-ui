@@ -56,7 +56,7 @@ class StackOpsTest(Base):
         st.deploy(f, 'compose.yaml', None, pull=False, approve=lambda cs: True, log=lambda _: None)
         self.assertEqual(self.compose_calls()[-1], ['--podman-path', st.PODMAN_PATH, '--in-pod', 'false', '-p', 'web',
                                                     '-f', 'compose.yaml', 'up', '-d'])
-        self.assertEqual(sorted(p.name for p in (f / st.DEPLOYED).iterdir()), ['compose.yaml'])
+        self.assertEqual(sorted(p.name for p in st.record_dir(f).iterdir()), ['compose.yaml'])
         self.assertEqual(st.deployed_diff(f, 'compose.yaml', None, 'host'), {'compose': '', 'env': '', 'files': {}})
 
     def test_deploy_pull_then_up_records(self):
@@ -101,7 +101,7 @@ class StackOpsTest(Base):
         os.environ['FAKE_COMPOSE_FAIL_ON'] = 'up'
         with self.assertRaises(st.StackError):
             st.deploy(f, 'compose.yaml', '.env', approve=lambda cs: True, log=lambda _: None)
-        self.assertFalse((f / st.DEPLOYED).exists())
+        self.assertFalse(st.record_dir(f).exists())
 
     def test_stack_actions(self):
         f = self.stack()
@@ -125,13 +125,14 @@ class StackOpsTest(Base):
         self.assertEqual(st.projects(pa.containers()), {'web'})
         self.assertEqual(st.plan(f, 'compose.yaml')['action'], 'update')
 
-    def test_deployed_record_keeps_owner(self):
+    def test_the_deploy_record_is_the_page_s_own_and_gets_no_owner(self):
         chowned = []
         self.patch(st, '_is_root', lambda: True)
         self.patch(st, 'chown', lambda path, uid, gid: chowned.append(os.path.basename(path)))
         f = self.stack()
         st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
-        self.assertEqual(sorted(chowned), ['.deployed', '.env', 'compose.yaml'])
+        self.assertEqual(chowned, [])        # (it is in the data folder now, not in the owner's stack folder)
+        self.assertTrue((st.record_dir(f) / 'compose.yaml').is_file())
 
     def test_stack_file_names(self):
         f = self.stack()
@@ -145,7 +146,7 @@ class StackOpsTest(Base):
         f = self.stack()
         (f / 'dash.json').write_bytes(b'{"a": 1}\n')
         st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
-        self.assertTrue((f / st.DEPLOYED / 'dash.json').is_file())
+        self.assertTrue((st.record_dir(f) / 'dash.json').is_file())
         d = st.deployed_diff(f, 'compose.yaml', '.env', 'host')
         self.assertFalse(st.has_differences(d))
         (f / 'dash.json').write_bytes(b'{"a": 2}\n')
@@ -164,3 +165,9 @@ class StackOpsTest(Base):
         self.assertIn('-echo hi', d['files']['init.sh'])
         self.assertTrue(st.has_differences(d))
 
+    def test_deploy_can_name_the_services(self):
+        f = self.stack()
+        st.deploy(f, 'compose.yaml', '.env', pull=True, approve=lambda cs: True, services=['a', 'b'], log=lambda _: None)
+        calls = self.compose_calls()
+        self.assertEqual(calls[-2][-3:], ['pull', 'a', 'b'])
+        self.assertEqual(calls[-1][-5:], ['up', '-d', '--force-recreate', 'a', 'b'])

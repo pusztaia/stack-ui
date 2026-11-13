@@ -52,6 +52,7 @@ class Base(unittest.TestCase):
         self.patch(pa, 'API_URL', url)
         self.patch(st, 'STACKS_DIR', self.stacks)
         self.patch(st, 'IGNORE', set())
+        self.patch(st, 'DATA', self.tmp / 'data')
         from stack_ui import rollback
         self.patch(rollback, 'DATA', self.tmp / 'data')
         from stack_ui import schedule

@@ -632,6 +632,14 @@ async function load() {
   loadUpdates();
   if (usesResources()) loadResources();
 }
+async function autoSelected(names, on) {
+  try {
+    const r = await api('/api/stacks/auto', { method: 'POST', body: JSON.stringify({ names, auto: on }) });
+    if (r.changed.length) toast(`Automatic update ${on ? 'on' : 'off'}: ${r.changed.join(', ')}`);
+    if (r.skipped.length) toast(`Not changed: ${r.skipped.map((s) => `${s.name} (${s.reason})`).join(', ')}`, 'bad');
+  } catch (e) { toast(e.message, 'bad'); }
+  load();
+}
 async function loadDrift() {
   try { DRIFT = await api('/api/drift'); } catch { DRIFT = {}; }
   DRIFT_LOADED = true;
@@ -781,6 +789,7 @@ const FILTERS = [
   ['stopped', 'Stopped', (s) => stackState(s) === 'stop'],
   ['differs', 'Differs from deployed', (s) => DRIFT[s.name]?.state === 'differs'],
   ['updates', 'Image updates', (s) => UPDATES.stacks[s.name]?.status === 'update'],
+  ['auto', 'Automatic update', (s) => !!s.auto],
   ['outside', 'Not deployed', (s) => !s.stack],
 ];
 // STACK_UI_HIDE_UNDEPLOYED: a folder without containers is not listed (its own page still opens, e.g. after Add stack)
@@ -899,6 +908,7 @@ function renderTable() {
   const k = [...SELECTED].length;
   $('selbar').innerHTML = k ? `<div class="selbar" role="region" aria-label="Selection"><span><b>${k}</b> selected</span>
       <button data-act="sel-clear">Clear</button>
+      <button data-act="sel-auto-on">Auto-update on</button><button data-act="sel-auto-off">Auto-update off</button>
       <button class="primary" data-act="sel-update">${icon('update')}<span>Update ${k === 1 ? 'it' : `these ${k}`}</span></button></div>` : '';
 }
 
@@ -937,6 +947,7 @@ function act(a, name, btn) {
   if (a === 'more') return !$('menu').hidden && $('menu').dataset.for === btn.dataset.name ? closeMenu() : openMenu(btn, moreItems(name));
   if (a === 'sel-clear') { SELECTED.clear(); return renderTable(); }
   if (a === 'sel-update') return updateSelected([...SELECTED]);
+  if (a === 'sel-auto-on' || a === 'sel-auto-off') return autoSelected([...SELECTED], a === 'sel-auto-on');
   if (a === 'restart') return confirmRestart(name, btn.dataset.container);
   if (a === 'logs') return go(`#/logs/${enc(btn.dataset.container)}`);
   if (a === 'save') return saveFlow(name, live(name));
@@ -2303,6 +2314,7 @@ async function loadSchedule() {
       Switched on now: ${sc.auto.length ? esc(sc.auto.join(', ')) : 'no stack'}.</p>
     <label class="field"><span>Daily check</span><select id="sch-on" style="width:auto"><option value="on" ${sc.enabled ? 'selected' : ''}>On</option><option value="off" ${sc.enabled ? '' : 'selected'}>Off</option></select></label>
     <label class="field"><span>At (the server's clock, now ${esc(sc.serverTime.slice(11))})</span><input type="time" id="sch-time" value="${esc(sc.time)}" required style="width:auto"></label>
+    <label class="field"><span>After an update, remove the images only the replaced rollback point kept</span><select id="sch-clean" style="width:auto"><option value="on" ${sc.cleanup ? 'selected' : ''}>On</option><option value="off" ${sc.cleanup ? '' : 'selected'}>Off</option></select></label>
     <dl class="kv"><dt>Last scheduled run</dt><dd>${sc.lastRun ? esc(sc.lastRun) : 'Not yet'}</dd>
       <dt>Next run</dt><dd>${sc.running ? 'Running now…' : sc.nextRun ? when(sc.nextRun) : 'Switched off'}</dd></dl>
     <div class="head-actions" style="justify-content:flex-end"><button id="sch-run" ${sc.running ? 'disabled' : ''}>Run now</button><button class="primary" id="sch-save">Save</button></div>
@@ -2310,7 +2322,7 @@ async function loadSchedule() {
     ${sc.runs.length ? `<div class="table runs">${runs}</div>` : '<p class="muted small">No run yet.</p>'}`;
   $('sch-save').addEventListener('click', async () => {
     try {
-      await api('/api/schedule', { method: 'POST', body: JSON.stringify({ enabled: $('sch-on').value === 'on', time: $('sch-time').value }) });
+      await api('/api/schedule', { method: 'POST', body: JSON.stringify({ enabled: $('sch-on').value === 'on', time: $('sch-time').value, cleanup: $('sch-clean').value === 'on' }) });
       toast('Saved');
       loadSchedule();
     } catch (e) { $('sch-msg').innerHTML = `<div class="bad-note">${esc(e.message)}</div>`; }

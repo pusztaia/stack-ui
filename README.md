@@ -11,7 +11,8 @@ One container, Python standard library + PyYAML, no database.
   what the folder holds first; a stack without containers can be deleted that way as well); an update keeps the
   previous state as a rollback point, and *Roll back…* returns the files, the image names and the containers to
   it (no download; volumes and host data are not touched);
-  compare a stack with what was deployed last; upload a new stack (its compose file, env file and other files chosen separately); update several stacks at once. One change runs at a time: a bar on every page shows it
+  compare a stack with what was deployed last (the files of the last deploy are kept in the page's data folder,
+  not in the stack's folder, which a container may mount and write); upload a new stack (its compose file, env file and other files chosen separately); update several stacks at once. One change runs at a time: a bar on every page shows it
   and, for a `podman-compose` command, offers *Cancel* (the command and what it started are stopped; the containers
   it already created stay); another change meanwhile is refused with a message that names the running one. A
   command that does not finish in 5 minutes (`up`, `start`, `stop`, `down`; a pull gets 15) is ended, and the error
@@ -25,8 +26,10 @@ One container, Python standard library + PyYAML, no database.
   does; an update whose containers do not come up is rolled back, that image version is not tried again, and a
   bar on every page says so. Nothing that needs a decision is done automatically (files that are not exactly
   the ones last deployed from the page, a stopped stack, a container in the way, the page's own stack), and
-  nothing is sent anywhere. After an upgrade to this version a stack must be updated from the page once before
-  the schedule touches it. Switch it on only for
+  nothing is sent anywhere. Of a partly stopped stack only the running services are updated. An update removes
+  the images only the replaced rollback point kept (unnamed, unused; *Settings* switches it off). The stack list
+  filters on *Automatic update* and switches it for the ticked stacks at once. A stack that was last deployed
+  before 1.0.24 must be updated from the page once before the schedule touches it. Switch it on only for
   images you trust: the page does not verify signatures.
 - **Containers**: every container, its stack, state and published ports (as links); start, stop, restart, logs,
   details (the inspect, secret-looking values masked), remove (only outside a stack).
@@ -167,7 +170,7 @@ devices or ports below 1024 — and then remember that this page is as powerful 
 | `STACK_UI_UP_TIMEOUT` | `300` | seconds a `podman-compose` `up` / `start` / `stop` / `down` may run before it is ended (at least 30) |
 | `STACK_UI_IGNORE` | — | folders of `STACKS_DIR` that are not stacks |
 | `STACK_UI_HIDE_UNDEPLOYED` | `false` | `true`: the Stacks page lists only the stacks that have containers (a new one shows up once created; its own page opens after *Add stack*) |
-| `STACK_UI_DATA` | `/data` | where the settings (the API token's hash) the rollback points and the schedule's state are kept; keep it a volume no stack mounts |
+| `STACK_UI_DATA` | `/data` | where the settings (the API token's hash), the files of each stack's last deploy, the rollback points and the schedule's state are kept; keep it a volume no stack mounts |
 | `PODMAN_SOCKET` | `/run/podman/podman.sock` | the Podman socket inside the container |
 | `STACK_UI_BIND`, `STACK_UI_PORT` | `0.0.0.0`, `8770` | where the page listens in the container |
 

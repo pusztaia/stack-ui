@@ -144,3 +144,11 @@ class ServerRollbackTest(RollbackBase):
         self.assertIn('old1', self.tags())
         self.ui.discard_rollback('web')
         self.assertEqual(self.ui.image_remove({'id': 'old1'})['removed'], 'old1')
+
+    def test_a_point_file_that_fails_the_checks_of_a_save_stops_the_roll_back(self):
+        self.update_to_v2()
+        (self.pdir / 'files' / 'compose.yaml').write_text('not: [valid', encoding='utf-8')
+        code, r = self.call('POST', '/api/stacks/web/rollback')
+        self.assertEqual((code, r['ok']), (200, False), r)
+        self.assertIn('compose.yaml', r['log'][-1])
+        self.assertEqual(self.compose_text(), V2)

@@ -7,19 +7,22 @@ is stack.json's, else .env, else the only *.env, else none. STACK_UI_IGNORE (com
 
 A stack runs as the podman-compose project of its folder's name (label io.podman.compose.project), with the
 folder's files as they are, from the folder (relative paths resolve there: mount STACKS_DIR at the same path
-in the container as on the host). A deploy keeps the files it used in <folder>/.deployed/ (drift). Compose
+in the container as on the host). A deploy keeps the files it used in STACK_UI_DATA/deployed/<stack>/ (drift;
+not in the stack's folder, which a container may mount and write). Compose
 secrets marked external are Podman secrets; a deploy refuses to start while one is missing. PODMAN_COMPOSE is
 the podman-compose command, PODMAN_PATH the podman it runs (only the bare name podman or a full path work).
 """
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import os
 import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import threading
 from pathlib import Path
@@ -39,7 +42,8 @@ MAX_FILE = 512 * 1024
 COMPOSE_NAMES = ('compose.yaml', 'compose.yml', 'docker-compose.yml', 'docker-compose.yaml')
 PROJECT_LABEL = 'io.podman.compose.project'
 COMPOSE_PROJECT_LABELS = ('com.docker.compose.project', 'io.podman.compose.project')
-DEPLOYED = '.deployed'
+DATA = Path(os.environ.get('STACK_UI_DATA') or '/data')     # the page's own folder (server.DATA)
+DEPLOYED = '.deployed'          # where the record was kept until 1.0.24, in the stack's folder: never read, removed on sight
 COMPOSE_CMD = os.environ.get('PODMAN_COMPOSE', 'podman-compose')
 PODMAN_PATH = os.environ.get('PODMAN_PATH', 'podman')
 LONG_TIMEOUT = 900          # pull
@@ -49,6 +53,7 @@ except ValueError:
     OP_TIMEOUT = 300
 KILL_GRACE = 3.0            # seconds between SIGTERM and SIGKILL when a command is ended
 CANCELLED = 'cancelled: the command was stopped on request; what it had already created is still there'
+MAX_OUTPUT_LINES = 200      # of a command that was stopped (cancelled, or at its time limit): its last lines are logged
 RUNNING = threading.local()   # .op: the operation (server.py) the calling thread runs; run_compose registers with it
 chown = getattr(os, 'chown', None)
 
@@ -63,6 +68,52 @@ def plain_file(path: Path) -> bool:
     """A regular file that is not a link: a link in a stack's folder (planted by a container that mounts it) must
     not make the page read or write a file elsewhere."""
     return path.is_file() and not path.is_symlink()
+
+
+def read_plain(path: Path, limit: int | None = None) -> bytes | None:
+    """The bytes of a regular file of at most limit bytes (MAX_FILE), read through one open that follows no link;
+    None for anything else (missing, a link, a folder, a FIFO, larger). Checking a path and then opening it would
+    let a container swap the file for a link in between."""
+    limit = MAX_FILE if limit is None else limit
+    try:
+        if path.is_symlink():           # (where O_NOFOLLOW does not exist)
+            return None
+        fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
+                     | getattr(os, 'O_BINARY', 0))
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+            return None
+        data = b''
+        while len(data) <= limit:
+            chunk = os.read(fd, limit + 1 - len(data))
+            if not chunk:
+                break
+            data += chunk
+        return data if len(data) <= limit else None
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def snapshot(folder: Path, compose_file: str, env_file: str | None) -> dict[str, bytes | None]:
+    """{file name: bytes} of the stack's files (compose, env, the others), each read once; None for one that is
+    no regular file of a size a stack file may have."""
+    try:
+        names = stack_file_names(folder, compose_file, env_file)
+    except OSError:
+        names = []
+    return {fname: read_plain(folder / fname) for fname in (compose_file, env_file, *names) if fname}
+
+
+def hashes(snap: dict[str, bytes | None]) -> dict[str, str] | None:
+    """{file name: SHA-256} of a snapshot; None when a file of it could not be read."""
+    if not snap or any(data is None for data in snap.values()):
+        return None
+    return {fname: hashlib.sha256(data).hexdigest() for fname, data in snap.items()}
 
 
 def plain_name(name: str) -> bool:
@@ -299,6 +350,14 @@ def images_ready(folder: Path, compose_file: str) -> bool:
     return True
 
 
+def emit_tail(text, log) -> None:
+    """What a stopped command had printed: its last lines go to the log."""
+    if isinstance(text, bytes):     # (what a TimeoutExpired carries may be undecoded)
+        text = text.decode('utf-8', 'replace')
+    for line in (text or '').splitlines()[-MAX_OUTPUT_LINES:]:
+        log(line)
+
+
 def run_compose(folder: Path, compose_file: str, env_file: str | None, args: list[str], log,
                 timeout: int | None = None) -> None:
     cmd = [*shlex.split(COMPOSE_CMD), '--podman-path', PODMAN_PATH, *in_pod_args(folder, compose_file),
@@ -322,9 +381,11 @@ def run_compose(folder: Path, compose_file: str, env_file: str | None, args: lis
     except subprocess.TimeoutExpired:
         kill_tree(proc)
         try:
-            proc.communicate(timeout=KILL_GRACE + 2)    # bounded: a process outside the group may still hold the pipe
-        except subprocess.TimeoutExpired:
+            out, _ = proc.communicate(timeout=KILL_GRACE + 2)   # bounded: a process outside the group may still hold the pipe
+        except subprocess.TimeoutExpired as late:
             proc.stdout.close()
+            out = late.output
+        emit_tail(out, log)
         if op is not None and op.cancelled:
             raise StackError(CANCELLED) from None
         waiting = not_ready(folder.name)
@@ -337,6 +398,7 @@ def run_compose(folder: Path, compose_file: str, env_file: str | None, args: lis
         if op is not None:
             op.proc = None
     if op is not None and op.cancelled:
+        emit_tail(out, log)
         raise StackError(CANCELLED)
     for line in out.splitlines():
         log(line)
@@ -352,26 +414,81 @@ def check_config(folder: Path, compose_file: str, env_file: str | None) -> None:
         raise StackError(f'{exc}: ' + ' | '.join(out[-5:])) from None
 
 
-def save_deployed(folder: Path, compose_file: str, env_file: str | None) -> None:
-    record = folder / DEPLOYED
-    shutil.rmtree(record, ignore_errors=True)
-    record.mkdir()
-    match_owner(record)
-    for fname in (compose_file, env_file, *stack_file_names(folder, compose_file, env_file)):
-        if fname:
-            shutil.copyfile(folder / fname, record / fname)
-            match_owner(record / fname)
+def record_dir(folder: Path) -> Path:
+    """Where the files of the stack's last deploy are kept: in the page's data folder, since a container that
+    mounts its stack's folder can write everything in it."""
+    return DATA / 'deployed' / folder.name
+
+
+def _remove(path: Path) -> None:
+    try:
+        if path.is_symlink():
+            path.unlink()               # never followed
+        elif path.exists():
+            shutil.rmtree(path, ignore_errors=True)
+    except OSError:
+        pass
+
+
+def drop_legacy_record(folder: Path) -> None:
+    _remove(folder / DEPLOYED)
+
+
+def drop_record(folder: Path) -> None:
+    final = record_dir(folder)
+    _remove(final)
+    _remove(final.with_name(final.name + '.new'))
+    drop_legacy_record(folder)
+
+
+def write_record(folder: Path, snap: dict[str, bytes | None], compose_file: str, log=None) -> bool:
+    """Keep these files as the ones the stack's last deploy used (whole or not at all). A file that could not be
+    read (too large, no regular file) is left out, and log says so; without the compose file there is no record.
+    A record that cannot be written is no reason to fail a deploy that has run: there is none then."""
+    final = record_dir(folder)
+    new = final.with_name(final.name + '.new')
+    try:
+        if snap.get(compose_file) is None:
+            raise OSError(f'{compose_file} could not be read')
+        final.parent.mkdir(parents=True, exist_ok=True)
+        _remove(new)
+        new.mkdir()
+        for fname, data in snap.items():
+            if data is None:
+                if log is not None:
+                    log(f'warning: {fname} is not kept in the record of this deploy (no regular file of at most '
+                        f'{MAX_FILE // 1024} KiB)')
+                continue
+            (new / fname).write_bytes(data)
+        _remove(final)
+        os.replace(new, final)
+        return True
+    except OSError as exc:
+        _remove(new)
+        _remove(final)
+        if log is not None:
+            log(f'warning: the record of this deploy could not be written ({exc}): the stack shows Unknown')
+        return False
+
+
+def save_deployed(folder: Path, compose_file: str, env_file: str | None, log=None, snap=None) -> None:
+    """Keep the files this deploy used: snap (what was read right before the containers were brought up), or the
+    folder's files as they are now. The leftover of older versions in the stack's folder goes."""
+    write_record(folder, snapshot(folder, compose_file, env_file) if snap is None else snap, compose_file, log)
+    drop_legacy_record(folder)
 
 
 def deploy(folder: Path, compose_file: str, env_file: str | None, *, approve, dry_run: bool = False,
            pull: bool = True, recreate: bool = False, point: bool = True, trusted: bool = True, before_up=None,
-           log=print) -> str:
+           services: list[str] | None = None, log=print) -> str:
     """Create or update the stack. approve(containers) decides about containers in its way. pull pulls first
     (before anything is removed) and recreates every container; recreate does it without a pull (after a
     secret changed). point: keep what the stack ran with as its rollback point (an update of a stack that was
     deployed from here before; rollback.py). trusted: a person decided this deploy, so its files are the ones the
-    schedule may deploy again by itself (schedule.approve). before_up() is called after the pull, right before
-    anything is changed; it may raise StackError. Returns 'create' or 'update'."""
+    schedule may deploy again by itself (schedule.approve_hashes). before_up(hashes) is called after the pull, right
+    before anything is changed, with the SHA-256 of the files about to be used (None when one could not be read);
+    it may raise StackError. services: only these compose services are pulled and brought up
+    (the others are left as they are). Returns 'create' or 'update'."""
     from . import rollback      # (rollback imports this module)
     from . import schedule
     p = plan(folder, compose_file, env_file)
@@ -393,22 +510,27 @@ def deploy(folder: Path, compose_file: str, env_file: str | None, *, approve, dr
     unfinished = bool(point and (rollback.load(folder) or {}).get('pending'))
     before = rollback.capture(folder, compose_file, env_file) if point and not unfinished and p['action'] == 'update' else None
     if pull:  # before anything is removed: a failed pull leaves the old containers running
-        run_compose(folder, compose_file, env_file, ['pull'], log)
+        run_compose(folder, compose_file, env_file, ['pull', *(services or [])], log)
     if point and not unfinished:   # after the pull (a failed pull changed nothing, its old point stays)
-        rollback.keep(folder, before and {**before, 'pending': True}, log if p['action'] == 'update' else None)
+        rollback.keep(folder, before and {**before, 'pending': True}, log if p['action'] == 'update' else None,
+                      cleanup=schedule.cleanup_on())
+    # what the containers are brought up with, read once, now: the record and the hashes are made from these
+    # bytes, not from what a container may have put into the folder by the time `up` has finished
+    snap = snapshot(folder, compose_file, env_file)
     if before_up is not None:
-        before_up()
+        before_up(hashes(snap))
     for c in p['blocking']:
         pa.remove_container(str(c['Id']))
         log(f'  removed {cname(c)}')
     # `up` downloads (and builds) what is not on the host yet, which may take long: it keeps the long limit then;
     # with everything present a command that does not finish soon is hung (an unhealthy dependency)
     up_limit = None if pull or images_ready(folder, compose_file) else LONG_TIMEOUT
-    run_compose(folder, compose_file, env_file, ['up', '-d', *(['--force-recreate'] if pull or recreate else [])], log,
+    run_compose(folder, compose_file, env_file,
+                ['up', '-d', *(['--force-recreate'] if pull or recreate else []), *(services or [])], log,
                 timeout=up_limit)
-    save_deployed(folder, compose_file, env_file)
+    save_deployed(folder, compose_file, env_file, log, snap)
     if trusted:
-        schedule.approve(folder, compose_file, env_file)
+        schedule.approve_hashes(folder.name, hashes(snap))
     if point:
         rollback.settle(folder)
     log(f'Stack "{folder.name}" {"created" if p["action"] == "create" else "updated"}.')
@@ -421,7 +543,7 @@ def stack_action(folder: Path, compose_file: str, env_file: str | None, action: 
         raise ValueError(f'unknown stack action {action}')
     run_compose(folder, compose_file, env_file, ['down' if action == 'delete' else action], log)
     if action == 'delete':
-        shutil.rmtree(folder / DEPLOYED, ignore_errors=True)
+        drop_record(folder)
         from . import rollback      # (rollback imports this module)
         rollback.discard(folder)
 
@@ -429,12 +551,12 @@ def stack_action(folder: Path, compose_file: str, env_file: str | None, action: 
 def deployed_diff(folder: Path, compose_file: str, env_file: str | None, label: str) -> dict | None:
     """The last deploy's files against the folder's (deployed -> label): {'compose', 'env', 'files': {name: diff}}
     (a file new or removed since the deploy diffs from / to empty); None without a record."""
-    record = folder / DEPLOYED
-    if not (record / compose_file).is_file() or (env_file and not (record / env_file).is_file()):
+    record = record_dir(folder)
+    if not plain_file(record / compose_file) or (env_file and not plain_file(record / env_file)):
         return None
 
     def read(path: Path) -> list[str]:
-        return path.read_text(encoding='utf-8', errors='replace').splitlines() if path.is_file() else []
+        return path.read_text(encoding='utf-8', errors='replace').splitlines() if plain_file(path) else []
 
     def udiff(fname: str | None) -> str:
         if not fname:

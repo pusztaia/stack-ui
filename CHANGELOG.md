@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.0.25
+
+- *Security: the record of the last deploy moved out of the stack's folder.* The files a deploy used were kept in
+  `.deployed/` of the stack's folder, where a container that mounts the folder can write: *Differs*, the Diff tab,
+  the *Changed* marks and the content of the next rollback point were read from it. They are now kept in
+  `STACK_UI_DATA/deployed/<stack>/`; nothing in a stack's folder is read as a record, and a `.deployed/` left there
+  is removed by the stack's next deploy. At the first start an old record is taken over only when it matches the
+  hashes 1.0.24 stored at a deploy from the page; any other stack shows *Unknown* until its next *Update*.
+  The record is made from the files as they were read right before the containers were brought up (one read per
+  file, no link followed, up to 512 KiB), not from the folder afterwards.
+- *Roll back, five fixes.* A roll back of a stack without containers keeps its point; when an image name cannot
+  be given back, the names already moved are put back and no file has been written; the dialog no longer lists
+  files a roll back keeps as deleted; the files a roll back writes go through the checks of a save first; an
+  image referenced as `sha256:...` gets no invented name.
+- *Automatic update, comfort.* Filter *Automatic update* and *Auto-update on / off* for the ticked stacks. An
+  update that replaces a rollback point removes the images only the old point kept, when they have no name, no
+  container and no other stack's point (a switch on *Settings*, on by default; the log names what was removed).
+  Of a partly stopped stack the schedule updates only the running services, and a roll back of such an update
+  recreates only those.
+- *Operations.* The image starts the page under `tini`, so the processes a cancelled `podman-compose` leaves
+  behind are reaped (pull the new image; no change to your compose file). What a `podman-compose` command printed
+  before it was cancelled or ran into its time limit is kept in the change's log (its last 200 lines).
+
 ## 1.0.24
 
 - *Scheduled update check and automatic update.* The registries are asked once a day (Settings: on/off, the time,

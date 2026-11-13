@@ -86,3 +86,15 @@ class PageTest(Base):
                      'id="auto-sel"', '/auto', 's.autoNote', 'Automatic update', 'scheduleRunning',
                      'rolled back', 'needs you'):
             self.assertIn(name, page, name)
+
+    def test_the_filter_and_the_bulk_switch_of_the_automatic_update(self):
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('sel-auto-on', 'sel-auto-off', "['auto', 'Automatic update'", '/api/stacks/auto', 'function autoSelected'):
+            self.assertIn(name, page, name)
+
+    def test_the_clean_up_switch_is_on_the_settings_page(self):
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('id="sch-clean"', 'cleanup:', 'sc.cleanup'):
+            self.assertIn(name, page, name)

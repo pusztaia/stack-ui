@@ -76,6 +76,43 @@ class RunComposeTest(Base):
         self.assertIn('web-app (starting)', message)
         self.assertNotIn('web-cache', message)
 
+    def test_what_a_command_printed_before_its_time_limit_is_in_the_log(self):
+        self.patch(st, 'OP_TIMEOUT', 1)
+        self.hang('up:30')
+        log = []
+        with self.assertRaisesRegex(st.StackError, 'did not finish'):
+            st.run_compose(self.folder, 'compose.yaml', '.env', ['up', '-d'], log.append)
+        self.assertTrue(any('fake podman-compose started' in line for line in log), log)
+
+    def test_only_the_last_lines_of_a_stopped_command_are_kept(self):
+        self.assertEqual(st.MAX_OUTPUT_LINES, 200)
+        log = []
+        st.emit_tail(chr(10).join(f'line {i}' for i in range(500)), log.append)
+        self.assertEqual((len(log), log[0], log[-1]), (200, 'line 300', 'line 499'))
+
+    def test_what_a_cancelled_command_printed_is_in_the_log(self):
+        self.hang('up:30')
+        op = types.SimpleNamespace(proc=None, cancelled=False)
+        log, result = [], {}
+
+        def worker():
+            st.RUNNING.op = op
+            try:
+                st.run_compose(self.folder, 'compose.yaml', '.env', ['up', '-d'], log.append)
+            except st.StackError as exc:
+                result['error'] = str(exc)
+        t = threading.Thread(target=worker)
+        t.start()
+        deadline = time.time() + 5
+        while op.proc is None and time.time() < deadline:
+            time.sleep(0.02)
+        self.wait_for_pids()
+        op.cancelled = True
+        st.kill_tree(op.proc)
+        t.join(10)
+        self.assertTrue(result['error'].startswith('cancelled'), result)
+        self.assertTrue(any('fake podman-compose started' in line for line in log), log)
+
     def test_the_time_limit_without_a_container_list_still_ends_cleanly(self):
         self.patch(st, 'OP_TIMEOUT', 1)
         self.hang('up:30')

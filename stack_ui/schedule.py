@@ -5,7 +5,6 @@ and the update of one stack are handed to it as functions.
 See docs/superpowers/specs/2026-11-13-scheduled-updates-design.md."""
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -91,6 +90,7 @@ def clean(raw) -> dict:
         'deployed': {n: {f: h for f, h in files.items() if isinstance(f, str) and isinstance(h, str) and SHA256.match(h)}
                      for n, files in seen.items() if _name_ok(n) and isinstance(files, dict)},
         'enabled': raw['enabled'] if isinstance(raw.get('enabled'), bool) else True,
+        'cleanup': raw['cleanup'] if isinstance(raw.get('cleanup'), bool) else True,
         'time': raw['time'] if isinstance(raw.get('time'), str) and TIME.match(raw['time']) else '04:00',
         'lastRun': raw['lastRun'] if isinstance(raw.get('lastRun'), str) and DAY.match(raw['lastRun']) else '',
         'auto': sorted({n for n in raw['auto'] if _name_ok(n)}) if isinstance(raw.get('auto'), list) else [],
@@ -140,16 +140,26 @@ def due(now: datetime, s: dict) -> bool:
     return bool(s['enabled']) and s['lastRun'] != now.date().isoformat() and now.strftime('%H:%M') >= s['time']
 
 
-def configure(enabled, at_time, now: datetime) -> None:
+def cleanup_on() -> bool:
+    """An update removes the images only the replaced rollback point kept (rollback.release)."""
+    with LOCK:
+        return state()['cleanup']
+
+
+def configure(enabled, at_time, now: datetime, cleanup=None) -> None:
     """Save the setting. It never starts a run by itself: a time that has already passed today counts from
-    tomorrow (Run now is the way to run at once)."""
+    tomorrow (Run now is the way to run at once). cleanup: None leaves it as it is."""
     if not isinstance(enabled, bool):
         raise ValueError('enabled must be true or false')
+    if cleanup is not None and not isinstance(cleanup, bool):
+        raise ValueError('cleanup must be true or false')
     if not isinstance(at_time, str) or not TIME.match(at_time):
         raise ValueError('the time must look like 04:00 (00:00 to 23:59)')
     with LOCK:
         s = state()
         s['enabled'], s['time'] = enabled, at_time
+        if cleanup is not None:
+            s['cleanup'] = cleanup
         if due(now, s):
             s['lastRun'] = now.date().isoformat()
         store()
@@ -185,40 +195,35 @@ def forget(name: str) -> None:
 def fingerprint(folder: Path, compose_file: str, env_file: str | None) -> dict | None:
     """{file name: SHA-256} of the stack's files (compose, env, the others), or None when one of them is not a
     regular file of a size a stack file may have (a link, a FIFO, too large): such a folder is never approved."""
-    found = {}
-    try:
-        for fname in (compose_file, env_file, *st.stack_file_names(folder, compose_file, env_file)):
-            if not fname:
-                continue
-            path = folder / fname
-            if not st.plain_file(path) or path.stat().st_size > st.MAX_FILE:
-                return None
-            found[fname] = hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
-        return None
-    return found
+    return st.hashes(st.snapshot(folder, compose_file, env_file))
 
 
-def approve(folder: Path, compose_file: str, env_file: str | None) -> None:
-    """A deploy from the page (a person's decision) ran with these files: remember them. Kept here, in the page's
-    data folder, because a container that mounts its stack's folder can write everything in it, the record of
-    the last deploy (.deployed/) included."""
-    found = fingerprint(folder, compose_file, env_file)
+def approve_hashes(name: str, found: dict | None) -> None:
+    """A deploy from the page (a person's decision) ran with the files of these hashes: remember them. Kept here,
+    in the page's data folder, because a container that mounts its stack's folder can write everything in it."""
     with LOCK:
         s = state()
         if found is None:
-            s['deployed'].pop(folder.name, None)
+            s['deployed'].pop(name, None)
         else:
-            s['deployed'][folder.name] = found
+            s['deployed'][name] = dict(found)
         store()
+
+
+def approve(folder: Path, compose_file: str, env_file: str | None) -> None:
+    approve_hashes(folder.name, fingerprint(folder, compose_file, env_file))
+
+
+def matches(name: str, found: dict | None) -> bool:
+    """These hashes are the ones of the stack's last deploy from the page."""
+    with LOCK:
+        return found is not None and state()['deployed'].get(name) == found
 
 
 def approved(folder: Path, compose_file: str, env_file: str | None, name: str | None = None) -> bool:
     """The folder holds exactly the files of the last deploy from the page (name: the stack, when folder is not
-    its folder but the copy of the last deploy in it)."""
-    found = fingerprint(folder, compose_file, env_file)
-    with LOCK:
-        return found is not None and state()['deployed'].get(name or folder.name) == found
+    its own folder)."""
+    return matches(name or folder.name, fingerprint(folder, compose_file, env_file))
 
 
 def note(name: str) -> str:
@@ -249,7 +254,7 @@ def view(now: datetime) -> dict:
             next_run = f'{day.isoformat()}T{hour:02d}:{minute:02d}'
             if due(now, s):         # the thread starts it within its next look
                 next_run = now.strftime('%Y-%m-%dT%H:%M')
-        return {'enabled': s['enabled'], 'time': s['time'], 'serverTime': now.strftime('%Y-%m-%dT%H:%M'),
+        return {'enabled': s['enabled'], 'cleanup': s['cleanup'], 'time': s['time'], 'serverTime': now.strftime('%Y-%m-%dT%H:%M'),
                 'lastRun': s['lastRun'], 'nextRun': next_run, 'running': RUN_LOCK.locked(), 'auto': list(s['auto']),
                 'alerts': [dict(a) for a in s['alerts']], 'runs': json.loads(json.dumps(s['runs'])),
                 'saveError': SAVE_ERROR}

@@ -31,6 +31,7 @@ if hang_command and hang_command in sys.argv[1:]:
     if pids:
         with open(pids, 'a', encoding='utf-8') as fh:
             fh.write(f'{os.getpid()} {child.pid}\n')
+    print('fake podman-compose started', ' '.join(sys.argv[1:]), flush=True)
     time.sleep(float(hang_seconds))
 
 orphan_command, _, orphan_seconds = os.environ.get('FAKE_COMPOSE_ORPHAN', '').partition(':')

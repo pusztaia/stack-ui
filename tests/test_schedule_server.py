@@ -103,12 +103,30 @@ class ScheduleServerTest(RollbackBase):
         token = self.ui.api_token({})['token']
         bearer = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
         for method, path in (('GET', '/api/schedule'), ('POST', '/api/schedule'), ('POST', '/api/schedule/run'),
-                             ('POST', '/api/schedule/ack'), ('POST', '/api/stacks/web/auto'),
+                             ('POST', '/api/schedule/ack'), ('POST', '/api/stacks/web/auto'), ('POST', '/api/stacks/auto'),
                              ('POST', '/api/stacks/web/auto/'), ('GET', '/api/schedule/'), ('POST', '/api/schedule/run/')):
             self.assertEqual(self.call(method, path, {'auto': True}, bearer)[0], 403, path)
         self.assertEqual(self.call('GET', '/api/stacks', None, bearer)[0], 200)
         self.assertFalse(schedule.is_auto('web'))
 
+
+    def test_the_switch_of_several_stacks_at_once(self):
+        make_stack(self.stacks, 'db', compose_yaml('db'))
+        self.patch(self.ui, 'PROTECTED', {'db'})
+        code, r = self.call('POST', '/api/stacks/auto', {'names': ['web', 'db', 'nosuch'], 'auto': True})
+        self.assertEqual((code, r['changed']), (200, ['web']))
+        self.assertEqual([s['name'] for s in r['skipped']], ['db', 'nosuch'])
+        self.assertTrue(schedule.is_auto('web'))
+        code, r = self.call('POST', '/api/stacks/auto', {'names': ['web', 'db'], 'auto': False})
+        self.assertEqual((r['changed'], r['skipped']), (['web', 'db'], []))
+        self.assertEqual(self.call('POST', '/api/stacks/auto', {'names': 'web', 'auto': True})[0], 400)
+        self.assertEqual(self.call('POST', '/api/stacks/auto', {'names': ['web'], 'auto': 1})[0], 400)
+
+    def test_the_clean_up_switch_is_saved(self):
+        self.assertTrue(self.call('GET', '/api/schedule')[1]['cleanup'])
+        code, v = self.call('POST', '/api/schedule', {'enabled': True, 'time': '04:00', 'cleanup': False})
+        self.assertEqual((code, v['cleanup']), (200, False))
+        self.assertEqual(self.call('POST', '/api/schedule', {'enabled': True, 'time': '04:00', 'cleanup': 'x'})[0], 400)
 
 if __name__ == '__main__':
     unittest.main()

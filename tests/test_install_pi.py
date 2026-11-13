@@ -45,6 +45,12 @@ class InstallPiTest(Base):
         self.assertFalse(srv.check_password('another-password', h))
         self.assertEqual(h.split('$')[1], str(srv.HASH_ITERATIONS))
 
+    def test_the_image_starts_the_page_under_an_init_process(self):
+        """As PID 1 the page would never reap what a cancelled podman-compose leaves behind: tini does."""
+        text = (ROOT / 'Dockerfile').read_text(encoding='utf-8')
+        self.assertRegex(text, r'apt-get install -y --no-install-recommends[^\n&]*\btini\b')
+        self.assertIn('ENTRYPOINT ["tini", "--", "python3", "-m", "stack_ui", "--no-browser"]', text)
+
     def test_compose_is_valid_yaml_and_matches_the_example(self):
         text = ip.render_compose('ghcr.io/pusztaia/stack-ui:1', '192.168.50.3', 8770, '127.0.0.1,localhost', '', True)
         mine = yaml.safe_load(text.replace('@SOCK@', '/s').replace('@STACKS_DIR@', '/x'))['services']['stack-ui']

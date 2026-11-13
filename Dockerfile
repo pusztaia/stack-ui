@@ -8,7 +8,7 @@ FROM python:3.13-slim-trixie@sha256:b3575dcf816cdacc5292df77a6e3e59b894163107837
 # requirements.txt lists the exact files (with their hashes) pip may install
 COPY requirements.txt /tmp/requirements.txt
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends podman-remote \
+    && apt-get install -y --no-install-recommends podman-remote tini \
     && ln -s /usr/bin/podman-remote /usr/local/bin/podman \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
@@ -28,4 +28,5 @@ ENV STACK_UI_BIND=0.0.0.0 \
 
 VOLUME /data
 EXPOSE 8770
-ENTRYPOINT ["python3", "-m", "stack_ui", "--no-browser"]
+# tini is PID 1: it reaps the processes a cancelled podman-compose leaves behind, and passes signals on
+ENTRYPOINT ["tini", "--", "python3", "-m", "stack_ui", "--no-browser"]

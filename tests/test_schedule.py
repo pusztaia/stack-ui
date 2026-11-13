@@ -294,5 +294,18 @@ class ApprovalTest(Base):
         self.assertEqual(s['deployed'], {'web': {'compose.yaml': 'a' * 64}})
 
 
+class CleanupSettingTest(Base):
+    def test_on_by_default_and_saved_only_when_given(self):
+        self.assertTrue(schedule.clean({})['cleanup'])
+        self.assertTrue(schedule.clean({'cleanup': 'no'})['cleanup'])
+        self.assertTrue(schedule.cleanup_on())
+        schedule.configure(True, '04:00', at('2026-11-13 03:00'), cleanup=False)
+        self.assertFalse(schedule.cleanup_on())
+        self.assertFalse(schedule.view(at('2026-11-13 03:00'))['cleanup'])
+        schedule.configure(True, '05:00', at('2026-11-13 03:00'))            # not given: it stays
+        self.assertFalse(schedule.cleanup_on())
+        with self.assertRaises(ValueError):
+            schedule.configure(True, '05:00', at('2026-11-13 03:00'), cleanup='x')
+
 if __name__ == '__main__':
     unittest.main()

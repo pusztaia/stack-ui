@@ -1,12 +1,13 @@
 import importlib
 import json
+from datetime import datetime
 import os
 import shutil
 import threading
 import unittest
 
 from tests.support import Base, compose_yaml, make_stack
-from stack_ui import podman_api as pa, rollback, server as srv, stacks as st
+from stack_ui import podman_api as pa, rollback, schedule, server as srv, stacks as st
 
 V1 = compose_yaml('web')
 V2 = compose_yaml('web') + '# v2\n'
@@ -61,7 +62,7 @@ class PointFilesTest(RollbackBase):
         self.mock.containers.clear()
         self.assertIsNone(rollback.capture(self.folder, 'compose.yaml', '.env'))
         self.mock.containers.append(self.container)
-        shutil.rmtree(self.folder / st.DEPLOYED)
+        shutil.rmtree(st.record_dir(self.folder))
         self.assertIsNone(rollback.capture(self.folder, 'compose.yaml', '.env'))
 
     def test_a_point_is_written_and_read_back_whole(self):
@@ -192,11 +193,11 @@ class DeployPointTest(RollbackBase):
         self.assertEqual(point['files']['compose.yaml'], V1)               # not the new text
         self.assertEqual(point['images'], [{'container': 'web', 'ref': REF, 'id': 'old1'}])
         self.assertFalse((self.pdir.with_name('web.new')).exists())
-        self.assertEqual((self.folder / st.DEPLOYED / 'compose.yaml').read_text(encoding='utf-8'), V2)
+        self.assertEqual((st.record_dir(self.folder) / 'compose.yaml').read_text(encoding='utf-8'), V2)
 
     def test_a_first_create_writes_no_point(self):
         self.mock.containers.clear()
-        shutil.rmtree(self.folder / st.DEPLOYED)
+        shutil.rmtree(st.record_dir(self.folder))
         self.deploy()
         self.assertFalse((self.pdir).exists())
 
@@ -207,7 +208,7 @@ class DeployPointTest(RollbackBase):
         self.assertFalse(rollback.exists(self.folder))
 
     def test_an_update_without_a_record_of_its_own_says_so(self):
-        shutil.rmtree(self.folder / st.DEPLOYED)
+        shutil.rmtree(st.record_dir(self.folder))
         said = []
         st.deploy(self.folder, 'compose.yaml', '.env', approve=lambda c: True, pull=False, log=said.append)
         self.assertFalse(rollback.exists(self.folder))
@@ -239,7 +240,7 @@ class DeployPointTest(RollbackBase):
         self.update_to_v2()
         st.stack_action(self.folder, 'compose.yaml', '.env', 'delete', log=lambda _: None)
         self.assertFalse((self.pdir).exists())
-        self.assertFalse((self.folder / st.DEPLOYED).exists())
+        self.assertFalse(st.record_dir(self.folder).exists())
 
 
 class SplitRefTest(RollbackBase):
@@ -273,7 +274,7 @@ class RollBackTest(RollbackBase):
         self.assertEqual(self.tags()['old1'], [REF])                            # the old image has its name again
         self.assertFalse(self.tags()['new1'])
         self.assertEqual([c[-3:] for c in self.compose_calls()], [['up', '-d', '--force-recreate']])   # no pull
-        self.assertEqual((self.folder / st.DEPLOYED / 'compose.yaml').read_text(encoding='utf-8'), V1)
+        self.assertEqual((st.record_dir(self.folder) / 'compose.yaml').read_text(encoding='utf-8'), V1)
 
     def test_the_point_now_describes_the_state_rolled_back_from(self):
         self.update_to_v2()
@@ -483,10 +484,10 @@ class PointPlaceTest(RollbackBase):
         self.assertEqual(rollback.kept_images(), {})
 
     def test_an_oversized_file_of_the_last_deploy_is_not_captured(self):
-        with open(self.folder / st.DEPLOYED / 'big.json', 'wb') as fh:
+        with open(st.record_dir(self.folder) / 'big.json', 'wb') as fh:
             fh.truncate(st.MAX_FILE + 1)
         self.assertNotIn('big.json', rollback.capture(self.folder, 'compose.yaml', '.env')['files'])
-        with open(self.folder / st.DEPLOYED / 'compose.yaml', 'wb') as fh:
+        with open(st.record_dir(self.folder) / 'compose.yaml', 'wb') as fh:
             fh.truncate(st.MAX_FILE + 1)
         self.assertIsNone(rollback.capture(self.folder, 'compose.yaml', '.env'))
 
@@ -522,7 +523,7 @@ class PointPlaceTest(RollbackBase):
         said = []
         st.deploy(self.folder, 'compose.yaml', '.env', approve=lambda c: True, pull=False, log=said.append)
         self.assertTrue(any('no rollback point' in line for line in said), said)
-        self.assertEqual((self.folder / st.DEPLOYED / 'compose.yaml').read_text(encoding='utf-8'), V2)
+        self.assertEqual((st.record_dir(self.folder) / 'compose.yaml').read_text(encoding='utf-8'), V2)
 
     def test_deleting_the_folder_of_a_stack_without_containers_drops_its_point(self):
         self.update_to_v2()
@@ -536,6 +537,152 @@ class PointPlaceTest(RollbackBase):
         self.ui.upload({'name': 'up', 'files': {'compose.yaml': compose_yaml('up')}})
         self.assertFalse(rollback.exists(self.stacks / 'up'))
 
+
+class MinorFixTest(RollbackBase):
+    def test_a_roll_back_without_containers_keeps_its_point(self):
+        self.update_to_v2()
+        taken = rollback.load_record(self.folder)['taken']
+        self.mock.containers.clear()
+        said = []
+        rollback.roll_back(self.folder, 'compose.yaml', '.env', self.ui.write_file, said.append)
+        self.assertEqual(rollback.load_record(self.folder)['taken'], taken)
+        self.assertTrue(any('kept' in line for line in said), said)
+
+    def test_names_already_moved_are_put_back_when_a_tag_fails(self):
+        # two containers, two images under two names; the second tag fails
+        self.mock.images.append({'Id': 'oldb', 'RepoTags': ['docker.io/library/redis:7'], 'RepoDigests': [], 'Size': 5, 'Created': 1})
+        self.mock.add_container('cache', project='web', image='docker.io/library/redis:7', image_id='oldb')
+        self.update_to_v2()
+        self.mock.images[1]['RepoTags'] = None                               # oldb lost its name to a newer image
+        self.mock.images.append({'Id': 'newb', 'RepoTags': ['docker.io/library/redis:7'], 'RepoDigests': [], 'Size': 6, 'Created': 2})
+        real, calls = pa.tag_image, []
+
+        def flaky(iid, repo, tag):
+            calls.append(iid)
+            if len(calls) == 2:
+                raise pa.PodmanError('tag failed')
+            return real(iid, repo, tag)
+        self.patch(pa, 'tag_image', flaky)
+        before = self.tags()
+        with self.assertRaisesRegex(st.StackError, 'could not give the name'):
+            rollback.roll_back(self.folder, 'compose.yaml', '.env', self.ui.write_file, lambda _: None)
+        self.assertEqual(self.tags(), before)
+        self.assertEqual((self.folder / 'compose.yaml').read_text(encoding='utf-8'), V2)     # no file was written
+
+    def test_the_diff_does_not_list_files_a_roll_back_keeps(self):
+        self.update_to_v2()
+        (self.folder / 'later.txt').write_text('added after the point', encoding='utf-8')
+        point = rollback.load(self.folder)
+        self.assertNotIn('later.txt', rollback.diff(self.folder, 'compose.yaml', '.env', point)['files'])
+
+    def test_a_file_that_fails_the_check_stops_the_roll_back_before_anything_changes(self):
+        self.update_to_v2()
+        before = self.tags()
+
+        def check(fname, text):
+            if fname == 'compose.yaml':
+                raise ValueError('compose.yaml: not allowed')
+        with self.assertRaisesRegex(st.StackError, 'compose.yaml: not allowed'):
+            rollback.roll_back(self.folder, 'compose.yaml', '.env', self.ui.write_file, lambda _: None, check=check)
+        self.assertEqual(self.tags(), before)
+        self.assertEqual((self.folder / 'compose.yaml').read_text(encoding='utf-8'), V2)
+
+    def test_a_digest_like_reference_is_no_name(self):
+        self.assertIsNone(rollback.split_ref('sha256:' + 'a' * 64))
+        self.assertIsNone(rollback.split_ref('sha256:abc'))
+
+
+class CleanupTest(RollbackBase):
+    """An update that writes a new point removes the images only the replaced point kept."""
+
+    def second_update(self, **kw):
+        """A further update: new1 loses its name to new2, the point moves on to new1."""
+        (self.folder / 'compose.yaml').write_bytes((V2 + '# v3' + chr(10)).encode('utf-8'))
+        self.deploy(**kw)
+        return [i['Id'] for i in self.mock.images]
+
+    def test_the_images_of_the_replaced_point_are_removed(self):
+        self.update_to_v2()
+        said = []
+        st.deploy(self.folder, 'compose.yaml', '.env', approve=lambda c: True, pull=False, log=said.append)
+        self.assertNotIn('old1', [i['Id'] for i in self.mock.images])
+        self.assertTrue(any('removed the old image old1' in line for line in said), said)
+
+    def test_not_when_switched_off(self):
+        self.update_to_v2()
+        schedule.configure(True, '04:00', datetime(2026, 11, 13, 3, 0), cleanup=False)
+        self.assertIn('old1', self.second_update())
+
+    def test_an_image_with_a_name_in_use_or_kept_elsewhere_stays(self):
+        self.update_to_v2()
+        self.mock.images[0]['RepoTags'] = ['localhost/keep:1']               # it has a name again
+        self.assertIn('old1', self.second_update())
+
+    def test_an_image_a_container_uses_stays(self):
+        self.update_to_v2()
+        self.mock.add_container('other', project='', image='x', image_id='old1')
+        self.assertIn('old1', self.second_update())
+
+    def test_an_image_another_stack_s_point_keeps_stays(self):
+        self.update_to_v2()
+        db = make_stack(self.stacks, 'db', compose_yaml('db'))
+        rollback.write_point(db, {'taken': '2026-01-01T00:00:00Z', 'compose': 'compose.yaml', 'env': '.env',
+                                  'files': {'compose.yaml': compose_yaml('db')},
+                                  'images': [{'container': 'db', 'ref': REF, 'id': 'old1'}]})
+        self.assertIn('old1', self.second_update())
+
+    def test_a_roll_back_removes_nothing(self):
+        self.update_to_v2()
+        rollback.roll_back(self.folder, 'compose.yaml', '.env', self.ui.write_file, lambda _: None)
+        self.assertEqual(sorted(i['Id'] for i in self.mock.images), ['new1', 'old1'])
+
+    def test_a_removal_that_fails_is_logged_and_the_deploy_goes_on(self):
+        self.update_to_v2()
+
+        def refuse(iid, force=False):
+            raise pa.PodmanError('image is in use')
+        self.patch(pa, 'remove_image', refuse)
+        said = []
+        st.deploy(self.folder, 'compose.yaml', '.env', approve=lambda c: True, pull=False, log=said.append)
+        self.assertTrue(any('was not removed' in line for line in said), said)
+
+class ReviewFix2Test(RollbackBase):
+    def point_with_notes(self):
+        (self.folder / 'notes.txt').write_text('a', encoding='utf-8')
+        self.deploy()
+        self.update_to_v2()
+
+    def test_a_target_that_is_no_plain_file_stops_the_roll_back_before_a_name_is_moved(self):
+        self.point_with_notes()
+        (self.folder / 'notes.txt').unlink()
+        (self.folder / 'notes.txt').mkdir()                                  # (a link would do the same)
+        before = self.tags()
+        with self.assertRaisesRegex(st.StackError, 'notes.txt'):
+            rollback.roll_back(self.folder, 'compose.yaml', '.env', self.ui.write_file, lambda _: None)
+        self.assertEqual(self.tags(), before)
+        self.assertEqual((self.folder / 'compose.yaml').read_text(encoding='utf-8'), V2)
+
+    def test_a_write_that_fails_with_any_error_puts_the_names_back(self):
+        self.update_to_v2()
+        before = self.tags()
+
+        def broken(path, text):
+            raise ValueError(f'"{path.name}" is a link')
+        with self.assertRaisesRegex(st.StackError, 'is a link'):
+            rollback.roll_back(self.folder, 'compose.yaml', '.env', broken, lambda _: None)
+        self.assertEqual(self.tags(), before)
+
+    def test_a_folder_file_that_is_not_text_does_not_block_the_roll_back(self):
+        self.update_to_v2()
+        (self.folder / 'compose.yaml').write_bytes(bytes([0xff, 0xfe, 0x00, 0x80]))
+        rollback.roll_back(self.folder, 'compose.yaml', '.env', self.ui.write_file, lambda _: None)
+        self.assertEqual((self.folder / 'compose.yaml').read_text(encoding='utf-8'), V1)
+
+    def test_a_point_is_kept_also_when_its_stack_is_not_found_now(self):
+        self.update_to_v2()
+        shutil.copytree(self.pdir, self.pdir.with_name('gone'))              # a point whose folder is no stack now
+        (self.folder / 'compose.yaml').unlink()                              # and web is no stack either
+        self.assertEqual(rollback.kept_images(), {'old1': ['gone', 'web']})
 
 if __name__ == '__main__':
     import unittest
