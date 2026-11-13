@@ -3,7 +3,7 @@
 # it talk to the mounted Podman socket. The image runs as root: with a rootful socket it must (the socket is
 # root's); with a rootless one, rootless Podman maps root in the container to your user.
 # The base image is pinned by digest (Dependabot proposes the next one); the tag says which release it is.
-FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
 # requirements.txt lists the exact files (with their hashes) pip may install
 COPY requirements.txt /tmp/requirements.txt
