@@ -364,12 +364,16 @@ def save_deployed(folder: Path, compose_file: str, env_file: str | None) -> None
 
 
 def deploy(folder: Path, compose_file: str, env_file: str | None, *, approve, dry_run: bool = False,
-           pull: bool = True, recreate: bool = False, point: bool = True, log=print) -> str:
+           pull: bool = True, recreate: bool = False, point: bool = True, trusted: bool = True, before_up=None,
+           log=print) -> str:
     """Create or update the stack. approve(containers) decides about containers in its way. pull pulls first
     (before anything is removed) and recreates every container; recreate does it without a pull (after a
     secret changed). point: keep what the stack ran with as its rollback point (an update of a stack that was
-    deployed from here before; rollback.py). Returns 'create' or 'update'."""
+    deployed from here before; rollback.py). trusted: a person decided this deploy, so its files are the ones the
+    schedule may deploy again by itself (schedule.approve). before_up() is called after the pull, right before
+    anything is changed; it may raise StackError. Returns 'create' or 'update'."""
     from . import rollback      # (rollback imports this module)
+    from . import schedule
     p = plan(folder, compose_file, env_file)
     if p['missing_secrets']:
         raise StackError('these Podman secrets do not exist yet: ' + ', '.join(p['missing_secrets'])
@@ -392,6 +396,8 @@ def deploy(folder: Path, compose_file: str, env_file: str | None, *, approve, dr
         run_compose(folder, compose_file, env_file, ['pull'], log)
     if point and not unfinished:   # after the pull (a failed pull changed nothing, its old point stays)
         rollback.keep(folder, before and {**before, 'pending': True}, log if p['action'] == 'update' else None)
+    if before_up is not None:
+        before_up()
     for c in p['blocking']:
         pa.remove_container(str(c['Id']))
         log(f'  removed {cname(c)}')
@@ -401,6 +407,8 @@ def deploy(folder: Path, compose_file: str, env_file: str | None, *, approve, dr
     run_compose(folder, compose_file, env_file, ['up', '-d', *(['--force-recreate'] if pull or recreate else [])], log,
                 timeout=up_limit)
     save_deployed(folder, compose_file, env_file)
+    if trusted:
+        schedule.approve(folder, compose_file, env_file)
     if point:
         rollback.settle(folder)
     log(f'Stack "{folder.name}" {"created" if p["action"] == "create" else "updated"}.')

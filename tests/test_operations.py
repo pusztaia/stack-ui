@@ -163,7 +163,7 @@ class OperationRoutesTest(Base):
         return True
 
     def test_nothing_runs_nothing_to_cancel(self):
-        self.assertEqual(self.call('GET', '/api/operation'), (200, {'operation': None}))
+        self.assertEqual(self.call('GET', '/api/operation'), (200, {'operation': None, 'alerts': [], 'scheduleRunning': False}))
         status, body = self.call('POST', '/api/operation/cancel')
         self.assertEqual((status, body['error']), (409, 'nothing is running'))
 
@@ -188,7 +188,7 @@ class OperationRoutesTest(Base):
         self.assertLess(time.time() - started, 10)
         self.assertFalse(result['answer']['ok'])
         self.assertTrue(any('cancelled' in line for line in result['answer']['log']), result)
-        self.assertEqual(self.call('GET', '/api/operation'), (200, {'operation': None}))
+        self.assertEqual(self.call('GET', '/api/operation'), (200, {'operation': None, 'alerts': [], 'scheduleRunning': False}))
         if hasattr(os, 'killpg'):                              # the command and its child are both gone
             pids = [int(x) for line in self.pids.read_text().splitlines() for x in line.split()]
             deadline = time.time() + 5

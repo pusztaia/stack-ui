@@ -54,6 +54,11 @@ class Base(unittest.TestCase):
         self.patch(st, 'IGNORE', set())
         from stack_ui import rollback
         self.patch(rollback, 'DATA', self.tmp / 'data')
+        from stack_ui import schedule
+        self.patch(schedule, 'DATA', self.tmp / 'data')
+        self.patch(schedule, 'AUTOSTART', False)
+        schedule.reset()
+        self.addCleanup(schedule.reset)
         self.patch(st, 'COMPOSE_CMD', ' '.join(shlex.quote(Path(x).as_posix()) for x in (sys.executable, FAKE_COMPOSE)))
         self.compose_log = self.tmp / 'compose.log'
         os.environ['FAKE_COMPOSE_LOG'] = str(self.compose_log)

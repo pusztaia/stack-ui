@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.24
+
+- *Scheduled update check and automatic update.* The registries are asked once a day (Settings: on/off, the time,
+  *Run now*, the last runs). Per stack an *Automatic update* switch (Summary tab, off by default): after the check
+  a newer image is pulled and the containers are recreated, then watched (what ran before must run, nothing may be
+  unhealthy); an update that does not come up is rolled back to its rollback point, the failed image version is
+  not tried again, and a bar on every page reports it until dismissed. Held back, with the reason in the run's
+  record: files that are not exactly the ones last deployed from the page (their hashes are kept in the data
+  folder, so nothing written from inside a container is deployed by the schedule; a stack deployed before this
+  version needs one *Update* from the page first), a stopped stack, a plan that needs a decision, a protected
+  stack, another change in progress. No notification leaves the host. The API token of the scripts cannot read or change the schedule.
+
 ## 1.0.23
 
 - *Security: the rollback point moved out of the stack's folder.* 1.0.22 kept it in `.previous/` of the stack's

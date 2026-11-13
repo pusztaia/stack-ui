@@ -77,3 +77,12 @@ class PageTest(Base):
         for name in ('data-act="rollback"', 'function showRollback', '/rollback/discard', 'id="rb-go"', 'rb-discard',
                      'rb-open', 'r.rollback', 'keptFor', 'Kept for rollback', 's.rollback'):
             self.assertIn(name, page)
+
+    def test_the_scheduled_check_the_switch_and_the_alert_bar(self):
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('id="alertbar"', 'function renderAlerts', '/api/schedule/ack', '/api/schedule/run',
+                     'Scheduled check', 'id="sch-time"', 'id="sch-on"', 'id="sch-run"', 'function loadSchedule',
+                     'id="auto-sel"', '/auto', 's.autoNote', 'Automatic update', 'scheduleRunning',
+                     'rolled back', 'needs you'):
+            self.assertIn(name, page, name)

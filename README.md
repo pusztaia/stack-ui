@@ -20,7 +20,14 @@ One container, Python standard library + PyYAML, no database.
   `./name` are saved with it, checked (syntax, no secret literals), versioned in `.history/`, compared with the
   last deploy, viewable and deletable on the page.
 - **Image updates**: asks the registries (anonymous HEAD requests) whether a newer image exists for each running
-  tag and marks the stacks.
+  tag and marks the stacks. Once a day (04:00 by the server's clock unless changed on *Settings*; set `TZ`) it
+  asks by itself. A stack whose *Automatic update* is switched on (its Summary tab) is then updated like *Update*
+  does; an update whose containers do not come up is rolled back, that image version is not tried again, and a
+  bar on every page says so. Nothing that needs a decision is done automatically (files that are not exactly
+  the ones last deployed from the page, a stopped stack, a container in the way, the page's own stack), and
+  nothing is sent anywhere. After an upgrade to this version a stack must be updated from the page once before
+  the schedule touches it. Switch it on only for
+  images you trust: the page does not verify signatures.
 - **Containers**: every container, its stack, state and published ports (as links); start, stop, restart, logs,
   details (the inspect, secret-looking values masked), remove (only outside a stack).
 - **Images**: sizes and users; pull, tag, remove (only unused: tick several to remove them at once, *Select untagged*
@@ -160,7 +167,7 @@ devices or ports below 1024 — and then remember that this page is as powerful 
 | `STACK_UI_UP_TIMEOUT` | `300` | seconds a `podman-compose` `up` / `start` / `stop` / `down` may run before it is ended (at least 30) |
 | `STACK_UI_IGNORE` | — | folders of `STACKS_DIR` that are not stacks |
 | `STACK_UI_HIDE_UNDEPLOYED` | `false` | `true`: the Stacks page lists only the stacks that have containers (a new one shows up once created; its own page opens after *Add stack*) |
-| `STACK_UI_DATA` | `/data` | where the settings (the API token's hash) and the rollback points are kept; keep it a volume no stack mounts |
+| `STACK_UI_DATA` | `/data` | where the settings (the API token's hash) the rollback points and the schedule's state are kept; keep it a volume no stack mounts |
 | `PODMAN_SOCKET` | `/run/podman/podman.sock` | the Podman socket inside the container |
 | `STACK_UI_BIND`, `STACK_UI_PORT` | `0.0.0.0`, `8770` | where the page listens in the container |
 

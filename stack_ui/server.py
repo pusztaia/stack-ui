@@ -51,6 +51,7 @@ from . import __version__
 from . import health as hl
 from . import podman_api as pa
 from . import rollback
+from . import schedule
 from . import stacks as st
 
 HERE = Path(__file__).resolve().parent
@@ -183,7 +184,8 @@ class Operation:
             'image-pull': 'pulling {t}', 'image-tag': 'tagging image {t}', 'image-remove': 'removing image {t}',
             'images-remove': 'removing {t}', 'images-prune': 'removing {t}', 'network': 'the change of {t}',
             'volume': 'the change of {t}', 'secret': 'the change of {t}',
-            'rollback': 'the rollback of {t}', 'rollback-discard': 'discarding the rollback point of {t}'}
+            'rollback': 'the rollback of {t}', 'rollback-discard': 'discarding the rollback point of {t}',
+            'auto-update': 'the automatic update of {t}'}
 
     def __init__(self, kind: str, target: str = '', cancellable: bool = False):
         self.kind, self.target, self.cancellable = kind, target, cancellable
@@ -307,6 +309,7 @@ def overview() -> dict:
             stack = {'status': 1 if running else 2}
         rows.append({'name': name, 'compose': compose_file, 'env': env_file, 'stack': stack,
                      'rollback': rollback.exists(folder),
+                     'auto': schedule.is_auto(name), 'autoNote': schedule.note(name),
                      'protected': name in PROTECTED or name in own,
                      'containers': [{'name': st.cname(c), 'state': c.get('State'), 'status': c.get('Status'),
                                      'image': c.get('Image')} for c in mine]})
@@ -608,6 +611,7 @@ def upload(data: dict) -> dict:
         st.match_owner(*(tmp / f for f in [*pkg, st.MANIFEST]))
         os.replace(tmp, module)
     rollback.discard(module)        # a new stack does not inherit the point of an old one of that name
+    schedule.forget(name)
     return {'name': name, 'compose': compose, 'env': env, 'files': sorted(pkg)}
 
 
@@ -1526,17 +1530,22 @@ def rollback_view(name: str) -> dict:
     return rollback.view(folder, compose_file, env_file)
 
 
-def run_rollback(name: str) -> dict:
-    """Put the stack back to its rollback point (files, image names, containers); {ok, log} like a deploy."""
-    folder, compose_file, env_file = find_module(name)
-    log: list[str] = []
-
+def rollback_writer(folder: Path, compose_file: str, env_file: str | None):
+    """How a roll back writes a file of the stack: like a save on the page (history, the manifest)."""
     def put(path: Path, text: str) -> None:
         with FILES_LOCK:
             if path.name not in (compose_file, env_file):
                 pin_manifest(folder, compose_file, env_file)
             write_file(path, text)
+    return put
 
+
+def run_rollback(name: str) -> dict:
+    """Put the stack back to its rollback point (files, image names, containers); {ok, log} like a deploy."""
+    folder, compose_file, env_file = find_module(name)
+    log: list[str] = []
+
+    put = rollback_writer(folder, compose_file, env_file)
     with operation('rollback', name, cancellable=True):
         try:
             refuse_protected(name)
@@ -1554,6 +1563,163 @@ def discard_rollback(name: str) -> dict:
     with operation('rollback-discard', name):
         rollback.discard(folder)
     return {'discarded': True}
+
+
+# ---------- the scheduled check and the automatic update (schedule.py runs them) ----------
+
+VERIFY_SETTLE = 15.0    # seconds before the first look: a container that dies at once has died by then
+VERIFY_WAIT = 120.0     # how long a health check may stay "starting" before the look that counts
+VERIFY_STEP = 5.0
+
+
+def scheduled_check() -> dict:
+    """Ask the registries, and say per stack whether a newer image exists and at which digests."""
+    found = updates(check=True)['stacks']
+    out = {}
+    for name, info in found.items():
+        refs = sorted({i['image'] for i in info['images'] if i['status'] == 'update'})
+        out[name] = {'update': info['status'] == 'update',
+                     'digests': {ref: list(REMOTE.get(ref, ((), ''))[0]) for ref in refs}}
+    return out
+
+
+def verify(name: str, was_running: set[str]) -> str:
+    """After an `up`: '' when every container that ran before runs, and none is unhealthy; else what is wrong.
+    (podman-compose up -d returns 0 for a container that starts and dies.) A health check still starting is waited
+    for; one that is still starting at the end counts as fine (a long start_period is not a failure)."""
+    def cancelled() -> bool:
+        op = CURRENT
+        return op is not None and op.cancelled
+
+    def nap(seconds: float) -> None:
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and not cancelled():
+            time.sleep(min(0.5, max(0.0, end - time.monotonic())))
+
+    nap(VERIFY_SETTLE)
+    deadline = time.monotonic() + VERIFY_WAIT
+    while True:
+        if cancelled():
+            return 'cancelled'
+        rows = st.project_containers(name)
+        health = {st.cname(c): str(c.get('Status') or '').lower() for c in rows}
+        if not any('starting' in h for h in health.values()) or time.monotonic() >= deadline:
+            break
+        nap(VERIFY_STEP)
+    running = {st.cname(c) for c in rows if c.get('State') == 'running'}
+    problems = [f'{n} is not running' for n in sorted(was_running - running)]
+    problems += [f'{n} is unhealthy' for n, h in sorted(health.items()) if 'unhealthy' in h]
+    return '; '.join(problems)
+
+
+def auto_update(name: str) -> dict:
+    """The update of one stack by the schedule: {result, reason, log, alert}. Like Update on the page (pull,
+    recreate, rollback point), but nothing that needs a decision is done, the result is verified, and an update
+    that did not come up is rolled back. One change from start to end: nothing else runs in between."""
+    log: list[str] = []
+
+    def out(result: str, reason: str = '', alert: bool = False) -> dict:
+        return {'result': result, 'reason': reason, 'log': log, 'alert': alert}
+
+    try:
+        folder, compose_file, env_file = find_module(name)
+    except LookupError:
+        return out('skipped', 'no folder of that name any more')
+    try:
+        with operation('auto-update', name, cancellable=True) as op:
+            snap = require_podman_state()
+            if stack_protected(name):
+                return out('skipped', 'protected (this page itself, or STACK_UI_PROTECTED)')
+            if not deployed(name, snap):
+                return out('skipped', 'not deployed')
+            # only what a person deployed from the page before, unchanged: judged by the hashes kept in the data
+            # folder, since the folder's own record (.deployed/) can be written from inside a container too
+            if not schedule.approved(folder, compose_file, env_file) or not schedule.approved(
+                    folder / st.DEPLOYED, compose_file, env_file, folder.name):
+                d = st.deployed_diff(folder, compose_file, env_file, SOURCE)
+                if d is not None and st.has_differences(d):
+                    return out('skipped', 'its files differ from the last deploy: update it on the page')
+                return out('skipped', 'its files are not the ones last deployed from the page: update it on the page once')
+            p = st.plan(folder, compose_file, env_file)
+            needs = (p['errors'] + [f'missing secret {s}' for s in p['missing_secrets']]
+                     + [f'{st.cname(c)} is in its way' for c in p['blocking']])
+            if needs:
+                return out('skipped', 'it needs a decision on the page: ' + '; '.join(needs))
+            was_running = {st.cname(c) for c in st.project_containers(name, snap['containers'])
+                           if c.get('State') == 'running'}
+            if not was_running:
+                return out('skipped', 'stopped: an update would start it')
+            stage = {'changed': False, 'tampered': False}
+
+            def before_up() -> None:        # after the pull, which may take long: still the approved files?
+                if not schedule.approved(folder, compose_file, env_file):
+                    stage['tampered'] = True
+                    raise st.StackError('its files changed during the update: nothing was started')
+                stage['changed'] = True
+
+            try:
+                st.deploy(folder, compose_file, env_file, pull=True, approve=lambda c: False, trusted=False,
+                          before_up=before_up, log=log.append)
+                problem = verify(name, was_running)
+            except (st.StackError, pa.PodmanError, ValueError, OSError) as exc:
+                problem = str(exc) or type(exc).__name__
+            if not problem:
+                return out('updated')
+            log.append(f'ERROR: {problem}')
+            if op.cancelled:
+                return out('cancelled', problem, alert=True)
+            if not stage['changed']:        # the pull failed, or the files changed meanwhile: nothing was touched,
+                return out('failed', problem, alert=stage['tampered'])      # and no point of an older update is used
+            if rollback.load_record(folder) is None:
+                return out('failed', f'{problem}; there is no rollback point to go back to', alert=True)
+            try:
+                rollback.roll_back(folder, compose_file, env_file, rollback_writer(folder, compose_file, env_file),
+                                   log.append)
+                again = verify(name, was_running)
+            except (st.StackError, pa.PodmanError, ValueError, OSError) as exc:
+                again = str(exc) or type(exc).__name__
+            if again:
+                log.append(f'ERROR: roll back: {again}')
+                return out('rollback-failed', f'{problem}; the roll back failed too: {again}', alert=True)
+            log.append(f'Stack "{name}" rolled back.')
+            return out('rolled-back', problem, alert=True)
+    except Conflict as exc:
+        return out('skipped', str(exc))
+    except (st.StackError, pa.PodmanError, ValueError, OSError) as exc:
+        return out('failed', str(exc))
+
+
+def schedule_view() -> dict:
+    return schedule.view(datetime.now())
+
+
+def schedule_save(data: dict) -> dict:
+    schedule.configure(data.get('enabled'), data.get('time'), datetime.now())
+    return schedule_view()
+
+
+def schedule_run() -> dict:
+    try:
+        schedule.start(scheduled_check, auto_update)
+    except schedule.AlreadyRunning as exc:
+        raise Conflict(str(exc)) from None
+    return {'started': True}
+
+
+def schedule_ack() -> dict:
+    schedule.acknowledge()
+    return {'alerts': []}
+
+
+def stack_auto(name: str, data: dict) -> dict:
+    find_module(name)
+    on = data.get('auto')
+    if not isinstance(on, bool):
+        raise ValueError('auto must be true or false')
+    if on and stack_protected(name):
+        raise ValueError(f'"{name}" is protected (this page itself, or STACK_UI_PROTECTED): it is not updated from here')
+    schedule.set_auto(name, on)
+    return {'auto': on}
 
 
 OWN_FOLDERS = ('.history', st.DEPLOYED, rollback.LEGACY)   # Stack UI's own folders in a stack's folder: not the application's data
@@ -1615,6 +1781,7 @@ def stack_action(name: str, action: str, data: dict) -> dict:
         if remove_folder:
             remove_stack_folder(folder)
             rollback.discard(folder)
+            schedule.forget(name)
     return {'ok': True, 'action': action, 'folderRemoved': remove_folder}
 
 
@@ -1866,7 +2033,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.login(raw)
         bearer = (self.headers.get('Authorization') or '').strip()
         if bearer and path.startswith('/api/'):  # the deploy scripts: the API token, not a page session
-            if path == '/api/settings' or path.startswith('/api/settings/'):
+            where = path.strip('/').split('/')      # as api() reads it (a trailing slash is the same route)
+            if where[:2] in (['api', 'settings'], ['api', 'schedule']) or (len(where) == 4 and where[:2] == ['api', 'stacks'] and where[3] == 'auto'):
                 return self.json(403, {'error': 'the API token cannot read or change the settings'})
             if not bearer_ok(bearer):
                 return self.json(401, {'error': 'wrong or revoked API token (Settings of the page)'})
@@ -1908,7 +2076,16 @@ class Handler(BaseHTTPRequestHandler):
             if method == 'POST' and parts == ['api', 'settings', 'token']:
                 return self.json(200, api_token(data))
             if method == 'GET' and parts == ['api', 'operation']:
-                return self.json(200, {'operation': current_operation()})
+                return self.json(200, {'operation': current_operation(), 'alerts': schedule.alerts(),
+                                       'scheduleRunning': schedule.RUN_LOCK.locked()})
+            if method == 'GET' and parts == ['api', 'schedule']:
+                return self.json(200, schedule_view())
+            if method == 'POST' and parts == ['api', 'schedule']:
+                return self.json(200, schedule_save(data))
+            if method == 'POST' and parts == ['api', 'schedule', 'run']:
+                return self.json(200, schedule_run())
+            if method == 'POST' and parts == ['api', 'schedule', 'ack']:
+                return self.json(200, schedule_ack())
             if method == 'POST' and parts == ['api', 'operation', 'cancel']:
                 return self.json(200, cancel_operation(data))
             if method == 'GET' and parts == ['api', 'stacks']:
@@ -1986,6 +2163,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json(200, history_version(name, version) if version else {'versions': history(name)})
                 if method == 'POST' and action == 'restore':
                     return self.json(200, restore(name, data))
+                if method == 'POST' and action == 'auto':
+                    return self.json(200, stack_auto(name, data))
             return self.json(404, {'error': 'not found'})
         except Conflict as exc:
             return self.json(409, {'error': str(exc), **({'operation': exc.operation} if exc.operation else {})})
@@ -2084,6 +2263,7 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(signal.SIGTERM, stop)   # podman stop, systemd: leave at once instead of waiting for SIGKILL
     except ValueError:                        # not the main thread
         pass
+    schedule.start_thread(scheduled_check, auto_update)   # (after the handler: a stop must not find none)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
