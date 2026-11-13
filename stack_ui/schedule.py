@@ -238,9 +238,16 @@ def alerts() -> list[dict]:
         return [dict(a) for a in state()['alerts']]
 
 
-def acknowledge() -> None:
+def acknowledge(shown=None) -> None:
+    """Dismiss the alerts: all of them, or only the ones named ({stack, at}), so that one added since the page
+    last asked is not lost unseen."""
     with LOCK:
-        state()['alerts'] = []
+        s = state()
+        if shown is None:
+            s['alerts'] = []
+        else:
+            seen = {(a.get('stack'), a.get('at')) for a in shown if isinstance(a, dict)}
+            s['alerts'] = [a for a in s['alerts'] if (a['stack'], a['at']) not in seen]
         store()
 
 
@@ -281,7 +288,11 @@ def _run(check, update, trigger: str, now: datetime) -> dict:
         record['checked'] = len(found)
         record['updates'] = sorted(n for n, f in found.items() if f.get('update'))
         with LOCK:
-            wanted = [n for n in state()['auto'] if n in record['updates']]
+            s = state()
+            for name in [n for n in s['failed'] if n in found and not found[n].get('update')]:
+                del s['failed'][name]       # updated some other way since: nothing is waited for any more
+            store()
+            wanted = [n for n in s['auto'] if n in record['updates']]
         for name in wanted:
             digests = found[name].get('digests') or {}
             with LOCK:
@@ -350,7 +361,10 @@ def tick(check, update, now: datetime) -> bool:
         return False
     try:
         run(check, update, 'schedule', now)
-    except AlreadyRunning:
+    except AlreadyRunning:      # a Run now covers the set time: it is the day's run, no second one right after it
+        with LOCK:
+            state()['lastRun'] = now.date().isoformat()
+            store()
         return False
     return True
 

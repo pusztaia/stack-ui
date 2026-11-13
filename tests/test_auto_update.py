@@ -12,6 +12,7 @@ class AutoUpdateBase(RollbackBase):
         self.patch(self.ui, 'VERIFY_SETTLE', 0.0)
         self.patch(self.ui, 'VERIFY_WAIT', 0.3)
         self.patch(self.ui, 'VERIFY_STEP', 0.05)
+        self.patch(self.ui, 'VERIFY_CONFIRM', 0.3)
         schedule.approve(self.folder, 'compose.yaml', '.env')       # as a deploy from the page leaves it
 
     def commands(self):
@@ -267,6 +268,27 @@ class PartialTest(AutoUpdateBase):
         r = self.ui.auto_update('web')
         self.assertEqual(r['result'], 'rolled-back', r)
         self.assertEqual(self.compose_calls()[-1][-4:], ['up', '-d', '--force-recreate', 'app'])
+
+class RestartLoopTest(AutoUpdateBase):
+    """One look can catch a container between two restarts: the look that counts is taken twice."""
+
+    def test_a_container_that_dies_between_the_two_looks_is_caught(self):
+        threading.Timer(0.1, self.container.__setitem__, ('State', 'exited')).start()
+        self.assertIn('web is not running', self.ui.verify('web', {'web'}))
+
+    def test_a_container_that_restarted_between_the_two_looks_is_caught(self):
+        self.container['StartedAt'] = 100
+        threading.Timer(0.1, self.container.__setitem__, ('StartedAt', 160)).start()
+        self.assertIn('web restarted', self.ui.verify('web', {'web'}))
+
+    def test_a_restarting_container_is_not_running(self):
+        self.container['State'] = 'restarting'
+        self.assertIn('web is not running', self.ui.verify('web', {'web'}))
+
+    def test_steady_containers_pass_with_or_without_a_start_time(self):
+        self.assertEqual(self.ui.verify('web', {'web'}), '')
+        self.container['StartedAt'] = 100
+        self.assertEqual(self.ui.verify('web', {'web'}), '')
 
 if __name__ == '__main__':
     unittest.main()

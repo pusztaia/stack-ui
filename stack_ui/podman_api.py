@@ -333,6 +333,11 @@ def tag_image(iid: str, repo: str, tag: str) -> None:
     request('POST', f'/images/{quote(iid, safe="")}/tag', query={'repo': repo, 'tag': tag})
 
 
+def untag_image(iid: str, repo: str, tag: str) -> None:
+    """Take the name off the image; the image itself stays (removing by name would delete it with its last name)."""
+    request('POST', f'/images/{quote(iid, safe="")}/untag', query={'repo': repo, 'tag': tag})
+
+
 # ---------- networks ----------
 
 def networks() -> list[dict]:

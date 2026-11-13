@@ -1595,6 +1595,7 @@ def service_of(c: dict) -> str:
 VERIFY_SETTLE = 15.0    # seconds before the first look: a container that dies at once has died by then
 VERIFY_WAIT = 120.0     # how long a health check may stay "starting" before the look that counts
 VERIFY_STEP = 5.0
+VERIFY_CONFIRM = 10.0   # seconds between the two looks that count: a container in a restart loop shows in one of them
 
 
 def scheduled_check() -> dict:
@@ -1611,7 +1612,9 @@ def scheduled_check() -> dict:
 def verify(name: str, was_running: set[str]) -> str:
     """After an `up`: '' when every container that ran before runs, and none is unhealthy; else what is wrong.
     (podman-compose up -d returns 0 for a container that starts and dies.) A health check still starting is waited
-    for; one that is still starting at the end counts as fine (a long start_period is not a failure)."""
+    for; one that is still starting at the end counts as fine (a long start_period is not a failure). The look
+    that counts is taken twice, VERIFY_CONFIRM apart: a container that restarts in a loop runs at one moment and
+    not at the next, or shows a new start time."""
     def cancelled() -> bool:
         op = CURRENT
         return op is not None and op.cancelled
@@ -1631,8 +1634,19 @@ def verify(name: str, was_running: set[str]) -> str:
         if not any('starting' in h for h in health.values()) or time.monotonic() >= deadline:
             break
         nap(VERIFY_STEP)
-    running = {st.cname(c) for c in rows if c.get('State') == 'running'}
+    first = rows
+    nap(VERIFY_CONFIRM)
+    if cancelled():
+        return 'cancelled'
+    rows = st.project_containers(name)
+    health = {st.cname(c): str(c.get('Status') or '').lower() for c in rows}
+    running = ({st.cname(c) for c in first if c.get('State') == 'running'}
+               & {st.cname(c) for c in rows if c.get('State') == 'running'})
+    started = {st.cname(c): c.get('StartedAt') for c in first}
     problems = [f'{n} is not running' for n in sorted(was_running - running)]
+    problems += [f'{st.cname(c)} restarted during the check' for c in sorted(rows, key=st.cname)
+                 if st.cname(c) in running and c.get('StartedAt') and started.get(st.cname(c))
+                 and c.get('StartedAt') != started[st.cname(c)]]
     problems += [f'{n} is unhealthy' for n, h in sorted(health.items()) if 'unhealthy' in h]
     return '; '.join(problems)
 
@@ -1740,9 +1754,13 @@ def schedule_run() -> dict:
     return {'started': True}
 
 
-def schedule_ack() -> dict:
-    schedule.acknowledge()
-    return {'alerts': []}
+def schedule_ack(data: dict | None = None) -> dict:
+    """Dismiss the alerts the page showed ({alerts: [{stack, at}]}); without a list, all of them."""
+    shown = (data or {}).get('alerts')
+    if shown is not None and not isinstance(shown, list):
+        raise ValueError('alerts: a list of {stack, at}')
+    schedule.acknowledge(shown)
+    return {'alerts': schedule.alerts()}
 
 
 def stack_auto(name: str, data: dict) -> dict:
@@ -2157,7 +2175,7 @@ class Handler(BaseHTTPRequestHandler):
             if method == 'POST' and parts == ['api', 'schedule', 'run']:
                 return self.json(200, schedule_run())
             if method == 'POST' and parts == ['api', 'schedule', 'ack']:
-                return self.json(200, schedule_ack())
+                return self.json(200, schedule_ack(data))
             if method == 'POST' and parts == ['api', 'operation', 'cancel']:
                 return self.json(200, cancel_operation(data))
             if method == 'GET' and parts == ['api', 'stacks']:

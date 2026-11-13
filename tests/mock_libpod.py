@@ -124,6 +124,10 @@ def route(mock: MockPodman, h, method: str, seg: list[str], q: dict, body: bytes
                 other['RepoTags'] = [t for t in (other.get('RepoTags') or []) if t != name] or None
             img['RepoTags'] = (img.get('RepoTags') or []) + [name]
             return h.reply(201)
+        if method == 'POST' and seg[2:] == ['untag']:
+            name = f'{q["repo"]}:{q["tag"]}'
+            img['RepoTags'] = [t for t in (img.get('RepoTags') or []) if t != name] or None
+            return h.reply(201)
         if method == 'DELETE' and len(seg) == 2:
             if seg[1] != img['Id']:  # by a tag: untag; the image goes with its last name
                 img['RepoTags'] = [x for x in img['RepoTags'] if x != seg[1]]

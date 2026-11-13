@@ -128,5 +128,14 @@ class ScheduleServerTest(RollbackBase):
         self.assertEqual((code, v['cleanup']), (200, False))
         self.assertEqual(self.call('POST', '/api/schedule', {'enabled': True, 'time': '04:00', 'cleanup': 'x'})[0], 400)
 
+    def test_dismiss_names_what_was_shown(self):
+        with schedule.LOCK:
+            schedule.state()['alerts'] += [
+                {'stack': 'web', 'at': '2026-11-13T04:03:10Z', 'result': 'rolled-back', 'reason': 'r'},
+                {'stack': 'web', 'at': '2026-11-13T04:09:00Z', 'result': 'failed', 'reason': 'r'}]
+        code, r = self.call('POST', '/api/schedule/ack', {'alerts': [{'stack': 'web', 'at': '2026-11-13T04:03:10Z'}]})
+        self.assertEqual((code, [a['at'] for a in r['alerts']]), (200, ['2026-11-13T04:09:00Z']))
+        self.assertEqual(self.call('POST', '/api/schedule/ack', {'alerts': 'all'})[0], 400)
+
 if __name__ == '__main__':
     unittest.main()

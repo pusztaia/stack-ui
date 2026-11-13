@@ -307,5 +307,49 @@ class CleanupSettingTest(Base):
         with self.assertRaises(ValueError):
             schedule.configure(True, '05:00', at('2026-11-13 03:00'), cleanup='x')
 
+class SmallFixTest(Base):
+    def test_the_memory_of_a_failed_version_goes_when_the_stack_has_no_update_any_more(self):
+        schedule.set_auto('web', True)
+        with schedule.LOCK:
+            schedule.state()['failed']['web'] = {'at': '2026-11-13', 'digests': {'r:1': ['sha256:a']}}
+        schedule.run(lambda: {'web': {'update': False, 'digests': {}}}, lambda n: None, 'schedule', at('2026-11-14 04:00'))
+        self.assertEqual(schedule.note('web'), '')
+
+    def test_it_stays_while_the_update_is_still_there_or_the_stack_was_not_checked(self):
+        with schedule.LOCK:
+            schedule.state()['failed']['web'] = {'at': '2026-11-13', 'digests': {'r:1': ['sha256:a']}}
+        schedule.run(lambda: {'web': {'update': True, 'digests': {'r:1': ['sha256:a']}}}, lambda n: None, 'schedule', at('2026-11-14 04:00'))
+        self.assertTrue(schedule.note('web'))
+        schedule.run(lambda: {}, lambda n: None, 'schedule', at('2026-11-15 04:00'))
+        self.assertTrue(schedule.note('web'))
+
+    def test_a_run_now_that_covers_the_set_time_is_the_day_s_run(self):
+        import threading
+        inside, leave = threading.Event(), threading.Event()
+
+        def check():
+            inside.set()
+            leave.wait(10)
+            return {}
+        t = schedule.start(check, lambda n: None)
+        self.assertTrue(inside.wait(10))
+        self.assertFalse(schedule.tick(lambda: {}, lambda n: None, at('2026-11-13 04:00')))
+        leave.set()
+        t.join(10)
+        calls = []
+        self.assertFalse(schedule.tick(lambda: calls.append(1) or {}, lambda n: None, at('2026-11-13 04:01')))
+        self.assertEqual(calls, [])
+        self.assertTrue(schedule.tick(lambda: calls.append(1) or {}, lambda n: None, at('2026-11-14 04:00')))
+
+    def test_dismiss_clears_only_the_alerts_that_were_shown(self):
+        first = {'stack': 'web', 'at': '2026-11-13T04:03:10Z', 'result': 'rolled-back', 'reason': 'r'}
+        later = {'stack': 'db', 'at': '2026-11-13T04:05:00Z', 'result': 'failed', 'reason': 'r'}
+        with schedule.LOCK:
+            schedule.state()['alerts'] += [first, later]
+        schedule.acknowledge([{'stack': 'web', 'at': '2026-11-13T04:03:10Z'}, 'junk', {'stack': 'nosuch', 'at': 'x'}])
+        self.assertEqual(schedule.alerts(), [later])
+        schedule.acknowledge()
+        self.assertEqual(schedule.alerts(), [])
+
 if __name__ == '__main__':
     unittest.main()

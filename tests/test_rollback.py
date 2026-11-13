@@ -684,6 +684,26 @@ class ReviewFix2Test(RollbackBase):
         (self.folder / 'compose.yaml').unlink()                              # and web is no stack either
         self.assertEqual(rollback.kept_images(), {'old1': ['gone', 'web']})
 
+class UndoTest(RollbackBase):
+    def test_a_name_no_image_held_before_is_taken_off_again_when_a_later_tag_fails(self):
+        self.mock.images.append({'Id': 'oldb', 'RepoTags': ['docker.io/library/redis:7'], 'RepoDigests': [], 'Size': 5, 'Created': 1})
+        self.mock.add_container('cache', project='web', image='docker.io/library/redis:7', image_id='oldb')
+        self.update_to_v2()
+        for image in self.mock.images:                                       # nobody holds either name now
+            image['RepoTags'] = None
+        real, calls = pa.tag_image, []
+
+        def flaky(iid, repo, tag):
+            calls.append(iid)
+            if len(calls) == 2:
+                raise pa.PodmanError('tag failed')
+            return real(iid, repo, tag)
+        self.patch(pa, 'tag_image', flaky)
+        with self.assertRaisesRegex(st.StackError, 'could not give the name'):
+            rollback.roll_back(self.folder, 'compose.yaml', '.env', self.ui.write_file, lambda _: None)
+        self.assertEqual(set(self.tags().values()), {None})
+        self.assertEqual(sorted(self.tags()), ['new1', 'old1', 'oldb'])     # no image was removed
+
 if __name__ == '__main__':
     import unittest
     unittest.main()

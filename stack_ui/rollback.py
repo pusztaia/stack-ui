@@ -360,7 +360,7 @@ def roll_back(folder: Path, compose_file: str, env_file: str | None, write_file,
                 pa.tag_image(img['id'], *parts)
             except pa.PodmanError as exc:
                 raise st.StackError(f'could not give the name {img["ref"]} back to the image {img["id"][:12]}: {exc}') from None
-            moved.append((parts[0], parts[1], holder.get(name)))
+            moved.append((parts[0], parts[1], holder.get(name), img['id']))
             names.setdefault(img['id'], set()).add(name)
             log(f'  {name} is the image {img["id"][:12]} again')
         for fname, text in changed.items():
@@ -370,12 +370,14 @@ def roll_back(folder: Path, compose_file: str, env_file: str | None, write_file,
                 raise st.StackError(f'could not write {fname}: {exc}') from None
             log(f'  restored {fname}')
     except st.StackError:
-        for repo, tag, previous in reversed(moved):     # the newer images get their names back: not left unnamed
-            if previous:
-                try:
+        for repo, tag, previous, given in reversed(moved):  # the newer images get their names back: not left unnamed
+            try:
+                if previous:
                     pa.tag_image(previous, repo, tag)
-                except pa.PodmanError:
-                    pass
+                else:                                       # nobody held it: it goes off again (the image stays)
+                    pa.untag_image(given, repo, tag)
+            except pa.PodmanError:
+                pass
         raise
     if newer is None:
         log('the rollback point is kept: the stack has no containers, so there is no newer state to keep instead')

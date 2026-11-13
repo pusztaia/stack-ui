@@ -560,7 +560,11 @@ function renderAlerts() {
   bar.innerHTML = `<div class="alertbar${bad ? ' bad' : ''}" role="alert"><ul>${ALERTS.map((a) => `<li>${esc(alertText(a))}</li>`).join('')}</ul>
     <a class="small" href="#/settings">Details</a><button class="small" id="alert-ack">Dismiss</button></div>`;
   $('alert-ack').addEventListener('click', async () => {
-    try { ALERTS = (await api('/api/schedule/ack', { method: 'POST', body: '{}' })).alerts; renderAlerts(); }
+    try {   // only what this bar shows: an alert added since the last poll stays
+      ALERTS = (await api('/api/schedule/ack', { method: 'POST',
+        body: JSON.stringify({ alerts: ALERTS.map((a) => ({ stack: a.stack, at: a.at })) }) })).alerts;
+      renderAlerts();
+    }
     catch (e) { toast(e.message, 'bad'); }
   });
 }

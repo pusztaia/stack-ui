@@ -98,3 +98,8 @@ class PageTest(Base):
             page = r.read().decode('utf-8')
         for name in ('id="sch-clean"', 'cleanup:', 'sc.cleanup'):
             self.assertIn(name, page, name)
+
+    def test_dismiss_sends_the_alerts_it_showed(self):
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        self.assertIn('alerts: ALERTS.map((a) => ({ stack: a.stack, at: a.at }))', page)

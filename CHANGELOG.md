@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.26
+
+- *Automatic update, small fixes.* The look that decides whether an update came up is taken twice, 10 seconds
+  apart: a container that restarts in a loop (not running at one of the two moments, or with a new start time)
+  now counts as failed and is rolled back. The note "failed on ...: waiting for a newer image" goes away once the
+  daily check finds no update for the stack any more (it was updated by hand). A *Run now* still running at the
+  set time is the day's run: no second run follows it. *Dismiss* clears only the alerts the bar showed.
+- *Roll back.* When a roll back is undone after a failed step, a name that no image held before is taken off the
+  old image again (the image stays).
+
 ## 1.0.25
 
 - *Security: the record of the last deploy moved out of the stack's folder.* The files a deploy used were kept in
