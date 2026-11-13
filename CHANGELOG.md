@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.27
+
+- *Image.* Built on Python 3.14 (was 3.13), with PyYAML 6.0.3. Nothing changes in how the page behaves.
+- *CI.* Every push and pull request builds the image for both platforms and starts it, so a change that would
+  break the image build shows before a release.
+
 ## 1.0.26
 
 - *Automatic update, small fixes.* The look that decides whether an update came up is taken twice, 10 seconds
