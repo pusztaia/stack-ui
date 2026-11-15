@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 from . import core
+from . import lifecycle
 from . import podman_api as pa
 from . import rollback
 from . import schedule
@@ -100,7 +101,7 @@ def run_deploy(name: str, pull: bool, remove: list[str], only_update: bool = Fal
             snap = require_podman_state()
             if only_update and not deployed(name, snap):
                 return {'ok': False, 'log': ['not deployed yet: skipped']}
-            st.deploy(folder, compose_file, env_file, pull=pull, recreate=recreate, approve=approve, log=log.append)
+            lifecycle.deploy(folder, compose_file, env_file, pull=pull, recreate=recreate, approve=approve, log=log.append)
             return {'ok': True, 'log': log}
         except (st.StackError, pa.PodmanError, ValueError) as exc:
             return {'ok': False, 'log': log + [f'ERROR: {exc}'], 'rollback': rollback.exists(folder)}
@@ -147,7 +148,7 @@ def run_rollback(name: str) -> dict:
         try:
             refuse_protected(name)
             require_podman_state()
-            rollback.roll_back(folder, compose_file, env_file, put, log.append,
+            lifecycle.roll_back(folder, compose_file, env_file, put, log.append,
                                check=rollback_check(compose_file, env_file))
             log.append(f'Stack "{name}" rolled back.')
             return {'ok': True, 'log': log}
@@ -236,7 +237,7 @@ def stack_action(name: str, action: str, data: dict) -> dict:
         if not live and not remove_folder:
             raise NotDeployed(name)
         if live:
-            st.stack_action(folder, compose_file, env_file, action, log=lambda _: None)
+            lifecycle.stack_action(folder, compose_file, env_file, action, log=lambda _: None)
         if remove_folder:
             remove_stack_folder(folder)
             rollback.discard(folder)

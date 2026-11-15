@@ -8,6 +8,7 @@ import unittest
 
 from tests.support import Base, compose_yaml, make_stack
 from stack_ui import stacks as st
+from stack_ui import lifecycle
 
 POSIX = hasattr(os, 'killpg')
 
@@ -289,7 +290,7 @@ class UpLimitTest(Base):
 
         def deploy(pull):
             seen.clear()
-            st.deploy(self.folder, 'compose.yaml', '.env', approve=lambda c: True, pull=pull, log=lambda _: None)
+            lifecycle.deploy(self.folder, 'compose.yaml', '.env', approve=lambda c: True, pull=pull, log=lambda _: None)
             return dict(seen)
         self.assertEqual(deploy(pull=False)['up'], st.LONG_TIMEOUT)         # the image is missing: up pulls it
         self.assertIsNone(deploy(pull=True)['up'])                          # pulled first: the short limit

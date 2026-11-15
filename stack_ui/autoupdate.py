@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 
 from . import core
+from . import lifecycle
 from . import podman_api as pa
 from . import registry
 from . import rollback
@@ -137,7 +138,7 @@ def auto_update(name: str) -> dict:
                 stage['changed'] = True
 
             try:
-                st.deploy(folder, compose_file, env_file, pull=True, approve=lambda c: False, trusted=False,
+                lifecycle.deploy(folder, compose_file, env_file, pull=True, approve=lambda c: False, trusted=False,
                           before_up=before_up, services=services, log=log.append)
                 problem = verify(name, was_running)
             except (st.StackError, pa.PodmanError, ValueError, OSError) as exc:
@@ -152,7 +153,7 @@ def auto_update(name: str) -> dict:
             if rollback.load_record(folder) is None:
                 return out('failed', f'{problem}; there is no rollback point to go back to', alert=True)
             try:
-                rollback.roll_back(folder, compose_file, env_file, rollback_writer(folder, compose_file, env_file),
+                lifecycle.roll_back(folder, compose_file, env_file, rollback_writer(folder, compose_file, env_file),
                                    log.append, check=rollback_check(compose_file, env_file), services=services)
                 again = verify(name, was_running)
             except (st.StackError, pa.PodmanError, ValueError, OSError) as exc:

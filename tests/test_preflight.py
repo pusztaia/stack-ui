@@ -2,6 +2,7 @@ import importlib
 
 from tests.support import Base, make_stack, fresh_server
 from stack_ui import preflight as pf
+from stack_ui import lifecycle
 from stack_ui import server as srv
 from stack_ui import stacks as st
 
@@ -149,20 +150,20 @@ class DeployTest(Base):
     def test_a_deploy_with_an_error_stops_before_compose(self):
         f = self.stack()
         with self.assertRaises(st.StackError) as ctx:
-            st.deploy(f, 'compose.yaml', '.env', approve=lambda cs: True, log=lambda _: None)
+            lifecycle.deploy(f, 'compose.yaml', '.env', approve=lambda cs: True, log=lambda _: None)
         self.assertIn('proxy-net', str(ctx.exception))
         self.assertEqual(self.compose_calls(), [])
 
     def test_the_network_makes_it_deploy(self):
         f = self.stack()
         self.mock.networks.append({'name': 'proxy-net', 'driver': 'bridge', 'subnets': []})
-        st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
+        lifecycle.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
         self.assertTrue(self.compose_calls())
 
     def test_a_warning_does_not_stop_and_is_logged(self):
         f = self.stack(web(image='jc21/x:latest'))
         lines = []
-        st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lines.append)
+        lifecycle.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lines.append)
         self.assertTrue(self.compose_calls())
         self.assertTrue(any('docker.io/jc21/x' in line for line in lines))
 
@@ -178,7 +179,7 @@ class DeployTest(Base):
     def test_dry_run_logs_the_problems_and_does_not_raise_for_warnings(self):
         f = self.stack(web(image='jc21/x:latest'))
         lines = []
-        st.deploy(f, 'compose.yaml', '.env', dry_run=True, approve=lambda cs: True, log=lines.append)
+        lifecycle.deploy(f, 'compose.yaml', '.env', dry_run=True, approve=lambda cs: True, log=lines.append)
         self.assertTrue(any('docker.io/jc21/x' in line for line in lines))
         self.assertEqual(self.compose_calls(), [])
 

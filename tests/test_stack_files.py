@@ -4,6 +4,7 @@ import os
 
 from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import server as srv
+from stack_ui import lifecycle
 from stack_ui import stacks as st
 
 
@@ -70,7 +71,7 @@ class StackFilesTest(Base):
         (self.f / 'dash.json').write_bytes(b'{"a": 1}\n')
         f = self.ui.files('web')
         self.assertEqual(f['stackFiles'], [{'name': 'dash.json', 'size': 9, 'changed': None}])
-        st.deploy(self.f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
+        lifecycle.deploy(self.f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
         self.assertFalse(self.ui.files('web')['stackFiles'][0]['changed'])
         (self.f / 'dash.json').write_bytes(b'{"a": 2}\n')
         self.assertTrue(self.ui.files('web')['stackFiles'][0]['changed'])
@@ -117,7 +118,7 @@ class StackFilesTest(Base):
     def test_diff_reports_files(self):
         (self.f / 'dash.json').write_bytes(b'{"a": 1}\n')
         self.mock.add_container('web', project='web')
-        st.deploy(self.f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
+        lifecycle.deploy(self.f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
         (self.f / 'dash.json').write_bytes(b'{"a": 2}\n')
         (self.f / '.env').write_bytes((self.f / '.env').read_bytes() + b'A=1\nB=2\n')
         d = self.ui.diff('web')

@@ -3,6 +3,7 @@ import os
 
 from tests.support import Base, compose_yaml, make_stack
 from stack_ui import podman_api as pa
+from stack_ui import lifecycle
 from stack_ui import stacks as st
 
 
@@ -53,7 +54,7 @@ class StackOpsTest(Base):
 
     def test_deploy_without_env_has_no_env_file_argument(self):
         f = self.stack(env=None)
-        st.deploy(f, 'compose.yaml', None, pull=False, approve=lambda cs: True, log=lambda _: None)
+        lifecycle.deploy(f, 'compose.yaml', None, pull=False, approve=lambda cs: True, log=lambda _: None)
         self.assertEqual(self.compose_calls()[-1], ['--podman-path', st.PODMAN_PATH, '--in-pod', 'false', '-p', 'web',
                                                     '-f', 'compose.yaml', 'up', '-d'])
         self.assertEqual(sorted(p.name for p in st.record_dir(f).iterdir()), ['compose.yaml'])
@@ -61,13 +62,13 @@ class StackOpsTest(Base):
 
     def test_deploy_pull_then_up_records(self):
         f = self.stack()
-        self.assertEqual(st.deploy(f, 'compose.yaml', '.env', approve=lambda cs: True, log=lambda _: None), 'create')
+        self.assertEqual(lifecycle.deploy(f, 'compose.yaml', '.env', approve=lambda cs: True, log=lambda _: None), 'create')
         base = ['--podman-path', st.PODMAN_PATH, '--in-pod', 'false', '-p', 'web', '-f', 'compose.yaml', '--env-file', '.env']
         self.assertEqual(self.compose_calls(), [base + ['pull'], base + ['up', '-d', '--force-recreate']])
 
     def test_in_pod_left_to_the_compose_file(self):
         f = make_stack(self.stacks, 'pod', compose_yaml('pod') + 'x-podman:\n  in_pod: true\n')
-        st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
+        lifecycle.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
         self.assertNotIn('--in-pod', self.compose_calls()[-1])
 
     def test_in_pod_false_for_an_unreadable_compose(self):
@@ -79,37 +80,37 @@ class StackOpsTest(Base):
         self.mock.add_container('web')
         os.environ['FAKE_COMPOSE_FAIL_ON'] = 'pull'
         with self.assertRaises(st.StackError):
-            st.deploy(f, 'compose.yaml', '.env', approve=lambda cs: True, log=lambda _: None)
+            lifecycle.deploy(f, 'compose.yaml', '.env', approve=lambda cs: True, log=lambda _: None)
         self.assertEqual(len(self.mock.containers), 1)
 
     def test_blocking_needs_approval(self):
         f = self.stack()
         self.mock.add_container('web')
         with self.assertRaises(st.StackError):
-            st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: False, log=lambda _: None)
-        st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
+            lifecycle.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: False, log=lambda _: None)
+        lifecycle.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
         self.assertEqual(self.mock.containers, [])
 
     def test_missing_secret_refused_before_compose(self):
         f = self.stack(secrets=('tg',))
         with self.assertRaises(st.StackError):
-            st.deploy(f, 'compose.yaml', '.env', approve=lambda cs: True, log=lambda _: None)
+            lifecycle.deploy(f, 'compose.yaml', '.env', approve=lambda cs: True, log=lambda _: None)
         self.assertEqual(self.compose_calls(), [])
 
     def test_compose_failure_keeps_no_record(self):
         f = self.stack()
         os.environ['FAKE_COMPOSE_FAIL_ON'] = 'up'
         with self.assertRaises(st.StackError):
-            st.deploy(f, 'compose.yaml', '.env', approve=lambda cs: True, log=lambda _: None)
+            lifecycle.deploy(f, 'compose.yaml', '.env', approve=lambda cs: True, log=lambda _: None)
         self.assertFalse(st.record_dir(f).exists())
 
     def test_stack_actions(self):
         f = self.stack()
         for action, expect in (('stop', 'stop'), ('start', 'start'), ('delete', 'down')):
-            st.stack_action(f, 'compose.yaml', '.env', action, log=lambda _: None)
+            lifecycle.stack_action(f, 'compose.yaml', '.env', action, log=lambda _: None)
             self.assertEqual(self.compose_calls()[-1][-1], expect)
         with self.assertRaises(ValueError):
-            st.stack_action(f, 'compose.yaml', '.env', 'kill')
+            lifecycle.stack_action(f, 'compose.yaml', '.env', 'kill')
 
     def test_check_config(self):
         f = self.stack()
@@ -130,7 +131,7 @@ class StackOpsTest(Base):
         self.patch(st, '_is_root', lambda: True)
         self.patch(st, 'chown', lambda path, uid, gid: chowned.append(os.path.basename(path)))
         f = self.stack()
-        st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
+        lifecycle.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
         self.assertEqual(chowned, [])        # (it is in the data folder now, not in the owner's stack folder)
         self.assertTrue((st.record_dir(f) / 'compose.yaml').is_file())
 
@@ -145,7 +146,7 @@ class StackOpsTest(Base):
     def test_deployed_record_has_stack_files_and_diff(self):
         f = self.stack()
         (f / 'dash.json').write_bytes(b'{"a": 1}\n')
-        st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
+        lifecycle.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
         self.assertTrue((st.record_dir(f) / 'dash.json').is_file())
         d = st.deployed_diff(f, 'compose.yaml', '.env', 'host')
         self.assertFalse(st.has_differences(d))
@@ -159,7 +160,7 @@ class StackOpsTest(Base):
     def test_removed_file_differs(self):
         f = self.stack()
         (f / 'init.sh').write_bytes(b'echo hi\n')
-        st.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
+        lifecycle.deploy(f, 'compose.yaml', '.env', pull=False, approve=lambda cs: True, log=lambda _: None)
         (f / 'init.sh').unlink()
         d = st.deployed_diff(f, 'compose.yaml', '.env', 'host')
         self.assertIn('-echo hi', d['files']['init.sh'])
@@ -167,7 +168,7 @@ class StackOpsTest(Base):
 
     def test_deploy_can_name_the_services(self):
         f = self.stack()
-        st.deploy(f, 'compose.yaml', '.env', pull=True, approve=lambda cs: True, services=['a', 'b'], log=lambda _: None)
+        lifecycle.deploy(f, 'compose.yaml', '.env', pull=True, approve=lambda cs: True, services=['a', 'b'], log=lambda _: None)
         calls = self.compose_calls()
         self.assertEqual(calls[-2][-3:], ['pull', 'a', 'b'])
         self.assertEqual(calls[-1][-5:], ['up', '-d', '--force-recreate', 'a', 'b'])

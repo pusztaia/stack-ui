@@ -152,7 +152,7 @@ def exists(folder: Path) -> bool:
 
 
 def settle(folder: Path) -> None:
-    """The deploy that wrote the point finished: it is no longer pending (see stacks.deploy)."""
+    """The deploy that wrote the point finished: it is no longer pending (see lifecycle.deploy)."""
     point = load_record(folder)
     if point is None or not point.get('pending'):
         return
@@ -317,72 +317,3 @@ def split_ref(ref: str) -> tuple[str, str] | None:
         repo, _, tag = ref.rpartition(':')
         return (repo, tag) if repo and tag else None
     return ref, 'latest'
-
-
-def roll_back(folder: Path, compose_file: str, env_file: str | None, write_file, log, check=None,
-              services: list[str] | None = None) -> None:
-    """Put the stack back to its rollback point: the image names (the old image ids get their references back),
-    the files (write_file(path, text) keeps what it replaces in .history/) and the containers (recreated without a
-    pull). The state rolled back from becomes the new point, so the same call leads forward again.
-    check(fname, text) is asked about every file that would be written and raises ValueError for one that may not
-    be. StackError when there is no point, it cannot be used, a file fails the check or a name cannot be given
-    back: no file has been written then, and the names already moved are put back. services: only these compose
-    services are recreated (a partly stopped stack stays partly stopped)."""
-    point = load(folder)
-    if point is None:
-        raise st.StackError('there is no rollback point for this stack')
-    blocked = problems(folder, compose_file, env_file, point)
-    if blocked:
-        raise st.StackError('cannot roll back: ' + '; '.join(blocked))
-    changed = {fname: text for fname, text in point['files'].items()
-               if st.read_plain(folder / fname) != text.encode('utf-8')}
-    for fname in changed:                        # before a name is moved: every target can be written
-        if os.path.lexists(folder / fname) and not st.plain_file(folder / fname):
-            raise st.StackError(f'cannot roll back: "{fname}" in the stack\'s folder is a link or no regular file '
-                                '(remove it on the host first)')
-    if check is not None:
-        for fname, text in changed.items():      # like a save on the page, before anything is changed
-            try:
-                check(fname, text)
-            except ValueError as exc:
-                raise st.StackError(f'cannot roll back: {exc}') from None
-    newer = capture(folder, compose_file, env_file)
-    names = {short_id(i.get('Id')): set(i.get('RepoTags') or []) for i in pa.images()}
-    holder = {tag: iid for iid, tags in names.items() for tag in tags}
-    moved = []                                  # (repository, tag, the image that held the name)
-    try:
-        for img in point['images']:
-            parts = split_ref(str(img.get('ref') or ''))
-            name = f'{parts[0]}:{parts[1]}' if parts else ''
-            if parts is None or name in names.get(img['id'], set()):
-                continue
-            try:
-                pa.tag_image(img['id'], *parts)
-            except pa.PodmanError as exc:
-                raise st.StackError(f'could not give the name {img["ref"]} back to the image {img["id"][:12]}: {exc}') from None
-            moved.append((parts[0], parts[1], holder.get(name), img['id']))
-            names.setdefault(img['id'], set()).add(name)
-            log(f'  {name} is the image {img["id"][:12]} again')
-        for fname, text in changed.items():
-            try:
-                write_file(folder / fname, text)
-            except (OSError, ValueError) as exc:
-                raise st.StackError(f'could not write {fname}: {exc}') from None
-            log(f'  restored {fname}')
-    except st.StackError:
-        for repo, tag, previous, given in reversed(moved):  # the newer images get their names back: not left unnamed
-            try:
-                if previous:
-                    pa.tag_image(previous, repo, tag)
-                else:                                       # nobody held it: it goes off again (the image stays)
-                    pa.untag_image(given, repo, tag)
-            except pa.PodmanError:
-                pass
-        raise
-    if newer is None:
-        log('the rollback point is kept: the stack has no containers, so there is no newer state to keep instead')
-    else:
-        keep(folder, newer, log)
-    log('recreating the containers from the previous images')
-    st.deploy(folder, compose_file, env_file, approve=lambda containers: False, pull=False, recreate=True,
-              point=False, services=services, log=log)

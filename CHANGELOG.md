@@ -5,6 +5,10 @@
 - *Internal.* `server.py` (2375 lines) is split into its parts: `core`, `auth`, `stackfiles`, `stackops`,
   `registry`, `usage`, `image_ops`, `podman_objects`, `autoupdate`; `server.py` keeps the HTTP side (534 lines).
   Nothing changes in how the page behaves. The tests can no longer write to the real data folder.
+- *Internal.* The `/api/` routes are one table (method, path, what it runs, whether the scripts' API token may use
+  it) instead of a chain of `if`s; a test checks that every route is reached and which ones the token may not use.
+- *Internal.* `deploy`, `stack_action` and `roll_back` moved to `lifecycle.py`, above `stacks`, `rollback` and
+  `schedule`: none of those imports another one back any more.
 
 ## 1.0.27
 

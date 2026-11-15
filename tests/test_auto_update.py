@@ -4,6 +4,7 @@ import unittest
 
 from tests.test_rollback import REF, V1, V2, RollbackBase
 from stack_ui import rollback, schedule, stacks as st
+from stack_ui import lifecycle
 
 
 class AutoUpdateBase(RollbackBase):
@@ -227,7 +228,7 @@ class ReviewFixTest(AutoUpdateBase):
 
         def broken(*args, **kw):
             raise OSError('disk full')
-        self.patch(rollback, 'roll_back', broken)
+        self.patch(lifecycle, 'roll_back', broken)
         r = self.ui.auto_update('web')
         self.assertEqual((r['result'], r['alert']), ('rollback-failed', True), r)
         self.assertIn('disk full', r['reason'])

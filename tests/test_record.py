@@ -5,6 +5,7 @@ import unittest
 from tests.support import compose_yaml
 from tests.test_rollback import V1, V2, RollbackBase
 from stack_ui import rollback, schedule, stacks as st
+from stack_ui import lifecycle
 
 
 class RecordTest(RollbackBase):
@@ -53,7 +54,7 @@ class RecordTest(RollbackBase):
         blocker.write_text('x', encoding='utf-8')
         self.patch(st, 'DATA', blocker)
         said = []
-        st.deploy(self.folder, 'compose.yaml', '.env', approve=lambda c: True, pull=False, point=False, log=said.append)
+        lifecycle.deploy(self.folder, 'compose.yaml', '.env', approve=lambda c: True, pull=False, point=False, log=said.append)
         self.assertTrue(any('record' in line and 'could not be written' in line for line in said), said)
 
     def test_deleting_the_folder_and_uploading_drop_the_record(self):
@@ -138,7 +139,7 @@ class SnapshotTest(RollbackBase):
         with open(self.folder / 'big.json', 'wb') as fh:
             fh.truncate(st.MAX_FILE + 1)
         said = []
-        st.deploy(self.folder, 'compose.yaml', '.env', approve=lambda c: True, pull=False, log=said.append)
+        lifecycle.deploy(self.folder, 'compose.yaml', '.env', approve=lambda c: True, pull=False, log=said.append)
         self.assertFalse((st.record_dir(self.folder) / 'big.json').exists())
         self.assertTrue((st.record_dir(self.folder) / 'compose.yaml').is_file())
         self.assertTrue(any('big.json' in line for line in said), said)
