@@ -39,3 +39,28 @@ jobs:
           sbom: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+  notes:
+    # The GitHub release, with this version's section of CHANGELOG.md as its text. After the image: a build that
+    # fails publishes nothing. (The tests, run first, already fail when the changelog has no section for the version.)
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: notes from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: python3 tools/release-notes.py "$TAG" CHANGELOG.md notes.md
+      - name: publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # a prerelease (v1.0.0-rc1) is not marked latest
+          if [[ "$TAG" == *-* ]]; then kind=(--prerelease --latest=false); else kind=(--latest); fi
+          if gh release view "$TAG" > /dev/null 2>&1; then     # a re-run: the text is brought up to date
+            gh release edit "$TAG" --title "Stack UI ${TAG#v}" --notes-file notes.md "${kind[@]}"
+          else
+            gh release create "$TAG" --verify-tag --title "Stack UI ${TAG#v}" --notes-file notes.md "${kind[@]}"
+          fi
