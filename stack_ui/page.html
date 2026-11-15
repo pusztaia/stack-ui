@@ -211,6 +211,7 @@
   .alertbar.bad { background: var(--bad-soft); color: var(--bad); box-shadow: inset 3px 0 0 var(--bad); }
   .alertbar ul { margin: 0; padding-left: 18px; flex: 1 1 320px; }
   .runs .tr { grid-template-columns: 170px 90px 1fr; }
+  .settings-panel { max-width: 820px; }
   .ok-note { padding: 8px 12px; border-radius: var(--r); background: var(--ok-soft); color: var(--ok); margin-bottom: 10px; box-shadow: inset 3px 0 0 var(--ok); }
   .bad-note { padding: 8px 12px; border-radius: var(--r); background: var(--bad-soft); color: var(--bad); margin-bottom: 10px; box-shadow: inset 3px 0 0 var(--bad); }
   .warn-note { padding: 8px 12px; border-radius: var(--r); background: var(--warn-soft); color: var(--warn); margin-bottom: 10px; box-shadow: inset 3px 0 0 var(--warn); }
@@ -249,8 +250,10 @@
   .logbar { display: flex; gap: 12px; align-items: center; margin-top: 8px; min-height: 28px; }
   .res .tr { grid-template-columns: minmax(160px, 1.2fr) minmax(120px, 1fr) minmax(160px, 1.4fr) 170px; }
   .bk { margin-left: 6px; vertical-align: 1px; }
-  .ctab .tr { grid-template-columns: minmax(150px, 1.2fr) minmax(170px, 1.4fr) 110px minmax(120px, 1fr) 330px; }
-  .ctab .r button { margin-left: 4px; }
+  /* fixed tracks: every row is a grid of its own, so a column sized by its content would not line up */
+  .ctab .tr { grid-template-columns: minmax(150px, 1.2fr) minmax(170px, 1.4fr) 160px minmax(110px, 1fr) 350px; }
+  .ctab .ct { flex-wrap: wrap; row-gap: 2px; }          /* a health tag that does not fit goes under the state */
+  .ctab .r { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }   /* a larger font wraps, never cuts */
   .ports a { margin-right: 6px; }
   pre.json { max-height: 60vh; overflow: auto; font-size: 12px; }
 
@@ -2259,7 +2262,7 @@ async function viewSettings() {
   if (ROUTE.view !== 'settings') return;
   $('view').innerHTML = `
     <div class="page-head"><div><h1>Settings</h1><p class="sub">Stack UI ${esc(st.version)}</p></div></div>
-    <section class="panel" style="max-width:640px">
+    <section class="panel settings-panel">
       <h2>API token for scripts</h2>
       <div id="tok-msg"></div>
       <p class="muted small">${st.tokenSet ? 'A token is set.' : 'No token yet.'} Scripts (e.g. <code>client/stack-ui-client.py</code>) send it;
@@ -2267,14 +2270,14 @@ async function viewSettings() {
       <div class="head-actions" style="justify-content:flex-end">
         ${st.tokenSet ? '<button id="tok-revoke" class="danger">Revoke</button>' : ''}<button id="tok-new">${st.tokenSet ? 'Generate a new one' : 'Generate'}</button></div>
     </section>
-    <section class="panel" style="max-width:820px">
+    <section class="panel settings-panel">
       <h2>Scheduled check</h2>
       <div id="sch"><p class="muted">Loading…</p></div>
     </section>
-    <section class="panel" style="max-width:640px">
+    <section class="panel settings-panel">
       <h2>Resource numbers</h2>
       <p class="muted small">How often the CPU and memory numbers are read while a page that shows them is open (never while this tab is hidden). Kept in this browser.</p>
-      <label class="field"><span>Refresh</span><select id="res-refresh">${REFRESH_CHOICES.map((v) =>
+      <label class="field"><span>Refresh</span><select id="res-refresh" style="width:auto">${REFRESH_CHOICES.map((v) =>
         `<option value="${v}" ${v === REFRESH ? 'selected' : ''}>${v ? `every ${v} s` : 'Off (only the reload buttons)'}</option>`).join('')}</select></label>
     </section>`;
   $('res-refresh').addEventListener('change', (e) => {

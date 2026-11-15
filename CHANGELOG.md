@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.29
+
+- *Page.* Containers: the state column fits "running" with its health tag (it no longer runs into the ports), and
+  the buttons wrap instead of being cut off with a larger font. Settings: the panels have one width, and every
+  choice list is as wide as its choices.
+
 ## 1.0.28
 
 - *Internal.* `server.py` (2375 lines) is split into its parts: `core`, `auth`, `stackfiles`, `stackops`,
