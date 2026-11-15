@@ -39,6 +39,7 @@ import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Callable, NamedTuple
 from urllib.parse import parse_qs, urlsplit
 
 from . import __version__
@@ -121,6 +122,124 @@ const s=await fetch('/session').then((x)=>x.json()).catch(()=>({}));
 if(s.signedIn){location.replace('/');}else{document.getElementById('err').textContent=
 'The password is right, but this browser did not keep the sign-in cookie. Allow cookies for this address (in Brave: Shields, cookies) and try again.';}});</script>
 </body></html>'''
+
+
+class Route(NamedTuple):
+    """One /api/ route. path: its parts after /api/; a {placeholder} part takes any one non-empty part, handed to
+    run in order. run(args, data, query) gives the JSON answer; with stream, run(handler, args, query) answers by
+    itself. page_only: the scripts' API token may not use it (it changes or shows how the page itself works)."""
+    method: str
+    path: tuple
+    run: Callable
+    page_only: bool = False
+    stream: bool = False
+
+
+def route(method: str, path: str, run: Callable, **kw) -> Route:
+    return Route(method, tuple(path.split('/')), run, **kw)
+
+
+def deploy_route(args, data, query):
+    remove = [str(x) for x in data.get('remove') or []]
+    return run_deploy(args[0], bool(data.get('pull', True)), remove, bool(data.get('onlyUpdate')),
+                      bool(data.get('recreate')))
+
+
+def logs_route(args, data, query):
+    tail = (query.get('tail') or ['200'])[0]
+    return container_logs(args[0], int(tail) if tail.isdigit() else 0)
+
+
+def history_route(args, data, query):
+    version = (query.get('version') or [''])[0]
+    return history_version(args[0], version) if version else {'versions': history(args[0])}
+
+
+def operation_route(args, data, query):
+    return {'operation': current_operation(), 'alerts': schedule.alerts(), 'scheduleRunning': schedule.RUN_LOCK.locked()}
+
+
+# The functions are looked up when a request comes (a lambda, not the function itself): a test, or a later
+# reload, that replaces one is used. The first line that matches answers.
+ROUTES = [
+    route('GET', 'settings', lambda a, d, q: settings_view(), page_only=True),
+    route('POST', 'settings/token', lambda a, d, q: api_token(d), page_only=True),
+    route('GET', 'operation', lambda a, d, q: operation_route(a, d, q)),
+    route('POST', 'operation/cancel', lambda a, d, q: cancel_operation(d)),
+    route('GET', 'schedule', lambda a, d, q: schedule_view(), page_only=True),
+    route('POST', 'schedule', lambda a, d, q: schedule_save(d), page_only=True),
+    route('POST', 'schedule/run', lambda a, d, q: schedule_run(), page_only=True),
+    route('POST', 'schedule/ack', lambda a, d, q: schedule_ack(d), page_only=True),
+    route('GET', 'updates', lambda a, d, q: registry.updates(check=False)),   # the last check against what runs now
+    route('POST', 'updates', lambda a, d, q: registry.updates(check=True)),   # ask the registries
+    route('GET', 'drift', lambda a, d, q: drift()),
+    route('GET', 'resources', lambda a, d, q: resources()),
+    route('GET', 'health', lambda a, d, q: health_info()),
+    # stacks
+    route('GET', 'stacks', lambda a, d, q: overview()),
+    route('POST', 'stacks', lambda a, d, q: upload(d)),
+    route('POST', 'stacks/auto', lambda a, d, q: stacks_auto(d), page_only=True),
+    route('GET', 'stacks/{name}/files', lambda a, d, q: files(a[0])),
+    route('POST', 'stacks/{name}/files', lambda a, d, q: save_files(a[0], d)),
+    route('GET', 'stacks/{name}/files/{file}', lambda a, d, q: file_text(a[0], a[1])),
+    route('POST', 'stacks/{name}/files/delete', lambda a, d, q: delete_file(a[0], d)),
+    route('POST', 'stacks/{name}/files/preview', lambda a, d, q: preview_files(a[0], d)),
+    route('GET', 'stacks/{name}/diff', lambda a, d, q: diff(a[0])),
+    route('GET', 'stacks/{name}/plan', lambda a, d, q: plan(a[0])),
+    route('POST', 'stacks/{name}/deploy', lambda a, d, q: deploy_route(a, d, q)),
+    route('POST', 'stacks/{name}/start', lambda a, d, q: stack_action(a[0], 'start', d)),
+    route('POST', 'stacks/{name}/stop', lambda a, d, q: stack_action(a[0], 'stop', d)),
+    route('POST', 'stacks/{name}/delete', lambda a, d, q: stack_action(a[0], 'delete', d)),
+    route('POST', 'stacks/{name}/restart', lambda a, d, q: restart(a[0], d)),
+    route('GET', 'stacks/{name}/rollback', lambda a, d, q: rollback_view(a[0])),
+    route('POST', 'stacks/{name}/rollback', lambda a, d, q: run_rollback(a[0])),
+    route('POST', 'stacks/{name}/rollback/discard', lambda a, d, q: discard_rollback(a[0])),
+    route('GET', 'stacks/{name}/folder', lambda a, d, q: stack_folder(a[0])),
+    route('GET', 'stacks/{name}/history', lambda a, d, q: history_route(a, d, q)),
+    route('POST', 'stacks/{name}/restore', lambda a, d, q: restore(a[0], d)),
+    route('POST', 'stacks/{name}/auto', lambda a, d, q: stack_auto(a[0], d), page_only=True),
+    # containers
+    route('GET', 'containers', lambda a, d, q: container_table()),
+    route('POST', 'containers/action', lambda a, d, q: container_do(d)),
+    route('GET', 'containers/{name}/inspect', lambda a, d, q: container_details(a[0])),
+    route('GET', 'containers/{name}/logs', lambda a, d, q: logs_route(a, d, q)),
+    route('GET', 'containers/{name}/logs/stream', lambda h, a, q: h.stream_logs(a[0], q), stream=True),
+    # images
+    route('GET', 'images', lambda a, d, q: images()),
+    route('POST', 'images/prune', lambda a, d, q: prune(d)),
+    route('POST', 'images/pull', lambda a, d, q: image_pull(d)),
+    route('POST', 'images/tag', lambda a, d, q: image_tag(d)),
+    route('POST', 'images/delete', lambda a, d, q: image_remove(d)),
+    route('GET', 'images/{id}/inspect', lambda a, d, q: image_details(a[0])),
+    # networks, volumes, secrets
+    route('GET', 'networks', lambda a, d, q: network_list()),
+    route('POST', 'networks', lambda a, d, q: network_create(d)),
+    route('POST', 'networks/delete', lambda a, d, q: network_delete(d)),
+    route('GET', 'volumes', lambda a, d, q: volume_list()),
+    route('POST', 'volumes', lambda a, d, q: volume_create(d)),
+    route('POST', 'volumes/delete', lambda a, d, q: volume_delete(d)),
+    route('GET', 'secrets', lambda a, d, q: secret_list()),
+    route('POST', 'secrets', lambda a, d, q: secret_save(d)),
+    route('POST', 'secrets/delete', lambda a, d, q: secret_delete(d)),
+]
+
+
+def find_route(method: str, parts: list[str]) -> tuple[Route | None, list[str]]:
+    """The route for the request (parts: the path split at /, 'api' first) and the parts its placeholders took."""
+    for r in ROUTES:
+        if r.method != method or len(parts) != len(r.path) + 1 or parts[0] != 'api':
+            continue
+        args = []
+        for want, got in zip(r.path, parts[1:]):
+            if want.startswith('{'):
+                if not got:
+                    break
+                args.append(got)
+            elif want != got:
+                break
+        else:
+            return r, args
+    return None, []
 
 
 class Server(ThreadingHTTPServer):
@@ -291,8 +410,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.login(raw)
         bearer = (self.headers.get('Authorization') or '').strip()
         if bearer and path.startswith('/api/'):  # the deploy scripts: the API token, not a page session
-            where = path.strip('/').split('/')      # as api() reads it (a trailing slash is the same route)
-            if where[:2] in (['api', 'settings'], ['api', 'schedule']) or (len(where) in (3, 4) and where[:2] == ['api', 'stacks'] and where[-1] == 'auto'):
+            parts = path.strip('/').split('/')      # as api() reads it (a trailing slash is the same route)
+            found, _ = find_route(method, parts)
+            if (found and found.page_only) or parts[1:2] in (['settings'], ['schedule']):
                 return self.json(403, {'error': 'the API token cannot read or change the settings'})
             if not bearer_ok(bearer):
                 return self.json(401, {'error': 'wrong or revoked API token (Settings of the page)'})
@@ -328,104 +448,12 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(raw) if raw else {}
             if not isinstance(data, dict):
                 raise ValueError('the body must be a JSON object')
-            parts = path.strip('/').split('/')  # api, stacks[, name, action]
-            if method == 'GET' and parts == ['api', 'settings']:
-                return self.json(200, settings_view())
-            if method == 'POST' and parts == ['api', 'settings', 'token']:
-                return self.json(200, api_token(data))
-            if method == 'GET' and parts == ['api', 'operation']:
-                return self.json(200, {'operation': current_operation(), 'alerts': schedule.alerts(),
-                                       'scheduleRunning': schedule.RUN_LOCK.locked()})
-            if method == 'GET' and parts == ['api', 'schedule']:
-                return self.json(200, schedule_view())
-            if method == 'POST' and parts == ['api', 'schedule']:
-                return self.json(200, schedule_save(data))
-            if method == 'POST' and parts == ['api', 'schedule', 'run']:
-                return self.json(200, schedule_run())
-            if method == 'POST' and parts == ['api', 'schedule', 'ack']:
-                return self.json(200, schedule_ack(data))
-            if method == 'POST' and parts == ['api', 'operation', 'cancel']:
-                return self.json(200, cancel_operation(data))
-            if method == 'GET' and parts == ['api', 'stacks']:
-                return self.json(200, overview())
-            if method == 'POST' and parts == ['api', 'stacks', 'auto']:
-                return self.json(200, stacks_auto(data))
-            if method == 'POST' and parts == ['api', 'stacks']:
-                return self.json(200, upload(data))
-            if method == 'GET' and parts == ['api', 'drift']:
-                return self.json(200, drift())
-            if method == 'GET' and parts == ['api', 'resources']:
-                return self.json(200, resources())
-            if method == 'GET' and parts == ['api', 'health']:
-                return self.json(200, health_info())
-            if method == 'GET' and parts == ['api', 'containers']:
-                return self.json(200, container_table())
-            if method == 'POST' and parts == ['api', 'containers', 'action']:
-                return self.json(200, container_do(data))
-            if method == 'GET' and len(parts) == 4 and parts[1] == 'containers' and parts[3] == 'inspect':
-                return self.json(200, container_details(parts[2]))
-            if method == 'GET' and len(parts) == 5 and parts[1] == 'containers' and parts[3:] == ['logs', 'stream']:
-                return self.stream_logs(parts[2], query)
-            if method == 'GET' and len(parts) == 4 and parts[1] == 'containers' and parts[3] == 'logs':
-                tail = (query.get('tail') or ['200'])[0]
-                return self.json(200, container_logs(parts[2], int(tail) if tail.isdigit() else 0))
-            for kind, listing, create, delete in (('networks', network_list, network_create, network_delete),
-                                                  ('volumes', volume_list, volume_create, volume_delete),
-                                                  ('secrets', secret_list, secret_save, secret_delete)):
-                if parts == ['api', kind]:
-                    return self.json(200, listing() if method == 'GET' else create(data))
-                if method == 'POST' and parts == ['api', kind, 'delete']:
-                    return self.json(200, delete(data))
-            if method == 'GET' and parts == ['api', 'images']:
-                return self.json(200, images())
-            if method == 'POST' and parts == ['api', 'images', 'prune']:
-                return self.json(200, prune(data))
-            if method == 'POST' and len(parts) == 3 and parts[1] == 'images' and parts[2] in ('pull', 'tag', 'delete'):
-                return self.json(200, {'pull': image_pull, 'tag': image_tag, 'delete': image_remove}[parts[2]](data))
-            if method == 'GET' and len(parts) == 4 and parts[1] == 'images' and parts[3] == 'inspect':
-                return self.json(200, image_details(parts[2]))
-            if method == 'POST' and len(parts) == 5 and parts[1] == 'stacks' and parts[3:] == ['files', 'delete']:
-                return self.json(200, delete_file(parts[2], data))
-            if method == 'GET' and len(parts) == 5 and parts[1] == 'stacks' and parts[3] == 'files':
-                return self.json(200, file_text(parts[2], parts[4]))
-            if method == 'POST' and len(parts) == 5 and parts[1] == 'stacks' and parts[3:] == ['files', 'preview']:
-                return self.json(200, preview_files(parts[2], data))
-            if method == 'POST' and len(parts) == 5 and parts[1] == 'stacks' and parts[3:] == ['rollback', 'discard']:
-                return self.json(200, discard_rollback(parts[2]))
-            if parts == ['api', 'updates']:  # GET: the last check against what runs now; POST: ask the registries
-                return self.json(200, registry.updates(check=method == 'POST'))
-            if len(parts) == 4 and parts[1] == 'stacks':
-                name, action = parts[2], parts[3]
-                if action == 'files' and method == 'GET':
-                    return self.json(200, files(name))
-                if action == 'files' and method == 'POST':
-                    return self.json(200, save_files(name, data))
-                if method == 'GET' and action == 'diff':
-                    return self.json(200, diff(name))
-                if method == 'GET' and action == 'plan':
-                    return self.json(200, plan(name))
-                if method == 'POST' and action == 'deploy':
-                    remove = [str(x) for x in data.get('remove') or []]
-                    return self.json(200, run_deploy(name, bool(data.get('pull', True)), remove,
-                                                     bool(data.get('onlyUpdate')), bool(data.get('recreate'))))
-                if method == 'POST' and action in ('start', 'stop', 'delete'):
-                    return self.json(200, stack_action(name, action, data))
-                if method == 'POST' and action == 'restart':
-                    return self.json(200, restart(name, data))
-                if method == 'GET' and action == 'rollback':
-                    return self.json(200, rollback_view(name))
-                if method == 'POST' and action == 'rollback':
-                    return self.json(200, run_rollback(name))
-                if method == 'GET' and action == 'folder':
-                    return self.json(200, stack_folder(name))
-                if method == 'GET' and action == 'history':
-                    version = (query.get('version') or [''])[0]
-                    return self.json(200, history_version(name, version) if version else {'versions': history(name)})
-                if method == 'POST' and action == 'restore':
-                    return self.json(200, restore(name, data))
-                if method == 'POST' and action == 'auto':
-                    return self.json(200, stack_auto(name, data))
-            return self.json(404, {'error': 'not found'})
+            found, args = find_route(method, path.strip('/').split('/'))
+            if found is None:
+                return self.json(404, {'error': 'not found'})
+            if found.stream:
+                return found.run(self, args, query)
+            return self.json(200, found.run(args, data, query))
         except Conflict as exc:
             return self.json(409, {'error': str(exc), **({'operation': exc.operation} if exc.operation else {})})
         except Busy as exc:
