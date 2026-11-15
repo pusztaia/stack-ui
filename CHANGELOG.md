@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.28
 
 - *Internal.* `server.py` (2375 lines) is split into its parts: `core`, `auth`, `stackfiles`, `stackops`,
   `registry`, `usage`, `image_ops`, `podman_objects`, `autoupdate`; `server.py` keeps the HTTP side (534 lines).
