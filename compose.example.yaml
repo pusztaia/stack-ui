@@ -17,11 +17,15 @@ services:
       STACK_UI_SELF: stack-ui
       # behind a reverse proxy: its address / network, so the login throttle counts each client (README, Configuration)
       # STACK_UI_TRUSTED_PROXIES: 172.18.0.0/16
+      # Settings > Backup > Save on the server writes here (the volume line below); the download works without it
+      # STACK_UI_BACKUP_DIR: /backup
       TZ: ${TZ:-UTC}
     volumes:
       # the stacks, at the same path as on the host: podman-compose resolves ./paths there
       - ${STACKS_DIR}:${STACKS_DIR}
       - stack-ui-data:/data
+      # a host folder for the backups (STACK_UI_BACKUP_DIR above); best on another disk than the data
+      # - /srv/backup/stack-ui:/backup
       # rootful Podman (sudo systemctl enable --now podman.socket):
       - /run/podman/podman.sock:/run/podman/podman.sock
       # rootless Podman instead (systemctl --user enable --now podman.socket; your UID from `id -u`):

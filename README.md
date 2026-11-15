@@ -170,9 +170,71 @@ devices or ports below 1024 — and then remember that this page is as powerful 
 | `STACK_UI_UP_TIMEOUT` | `300` | seconds a `podman-compose` `up` / `start` / `stop` / `down` may run before it is ended (at least 30) |
 | `STACK_UI_IGNORE` | — | folders of `STACKS_DIR` that are not stacks |
 | `STACK_UI_HIDE_UNDEPLOYED` | `false` | `true`: the Stacks page lists only the stacks that have containers (a new one shows up once created; its own page opens after *Add stack*) |
-| `STACK_UI_DATA` | `/data` | where the settings (the API token's hash), the files of each stack's last deploy, the rollback points and the schedule's state are kept; keep it a volume no stack mounts |
+| `STACK_UI_DATA` | `/data` | where the settings (the API token's hash), the files of each stack's last deploy, the rollback points and the schedule's state are kept; keep it a volume no stack mounts, and back it up (see *Backup*) |
 | `PODMAN_SOCKET` | `/run/podman/podman.sock` | the Podman socket inside the container |
 | `STACK_UI_BIND`, `STACK_UI_PORT` | `0.0.0.0`, `8770` | where the page listens in the container |
+| `STACK_UI_BACKUP_DIR` | — | a folder in the container (mount a host folder there) where *Settings > Backup > Save on the server* writes; without it only the download is offered |
+| `STACK_UI_BACKUP_KEEP` | `10` | how many of its backups the page keeps in `STACK_UI_BACKUP_DIR` (the newest; nothing else there is touched) |
+
+## Backup
+
+The page keeps its own state in its data folder (`STACK_UI_DATA`, `/data` in the container):
+
+| | |
+|---|---|
+| `settings.json` | the API token's hash |
+| `schedule.json` | the daily check: its time, the stacks switched to *Automatic update*, the hashes of each stack's files as last deployed from the page, the image versions that failed, the last runs |
+| `deployed/<stack>/` | the files of each stack's last deploy (*Differs*, the *Diff* tab) |
+| `rollback/<stack>/` | each stack's rollback point |
+
+Lost, the page still works, but every stack shows *Unknown* until its next *Update*, no stack has a rollback
+point, the automatic update holds back every stack until it is updated from the page once, and the scripts need a
+new API token.
+
+It does not hold (back these up your own way): the stacks folder `STACKS_DIR` (the compose and env files and
+their `.history/`); the page's password hash (the `stack-ui-password` Podman secret, or the file your compose file
+mounts); the values of Podman secrets (Podman does not give them out: keep them where you made them); the stacks'
+own volumes; the images. A rollback point needs its old image on the host: on a new host, *Roll back* says the
+image is missing.
+
+*Settings > Backup* makes it: *Download backup* gives a `stack-ui-backup-<date>-<time>.tar.gz` to the browser
+(it survives the loss of the host), *Save on the server* writes it into `STACK_UI_BACKUP_DIR` (readable by its
+owner only: it holds the API token's hash) and keeps the newest `STACK_UI_BACKUP_KEEP`. It waits for no change to
+be running (*Busy* otherwise), so it never holds a deploy half way. The archive holds the files above and
+`stack-ui-backup.json` (the version and the time).
+
+By hand instead, while no change runs (the bar at the top of the page is empty). With rootful Podman, run the
+commands with `sudo`. First, where `/data` comes from: a volume (`volume <name> …`) or a host folder
+(`bind  <path>`):
+
+```bash
+podman inspect stack-ui --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Type}} {{.Name}} {{.Source}}{{end}}{{end}}'
+```
+
+A volume (Podman 4 or later):
+
+```bash
+podman volume export --output stack-ui-data.tar <name>
+```
+
+A host folder:
+
+```bash
+tar -C <path> -czf stack-ui-data.tar.gz .
+```
+
+To restore (a backup from the page, or one made by hand), stop the page, put the files back, and start it again.
+A backup from the page unpacks into the data folder as it is (`stack-ui-backup.json` can stay or go):
+
+```bash
+podman stop stack-ui
+podman volume import <name> stack-ui-data.tar     # a volume: the files are added to what is there
+tar -C <path> -xzf stack-ui-data.tar.gz           # a host folder
+podman start stack-ui
+```
+
+(The `podman volume export` / `import` lines follow Podman's documentation; they were not run against a real
+Podman while this was written.)
 
 ## Deploy from a script
 

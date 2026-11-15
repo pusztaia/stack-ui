@@ -2277,6 +2277,10 @@ async function viewSettings() {
       <div id="sch"><p class="muted">Loading…</p></div>
     </section>
     <section class="panel settings-panel">
+      <h2>Backup</h2>
+      <div id="bk"><p class="muted">Loading…</p></div>
+    </section>
+    <section class="panel settings-panel">
       <h2>Resource numbers</h2>
       <p class="muted small">How often the CPU and memory numbers are read while a page that shows them is open (never while this tab is hidden). Kept in this browser.</p>
       <label class="field"><span>Refresh</span><select id="res-refresh" style="width:auto">${REFRESH_CHOICES.map((v) =>
@@ -2301,6 +2305,60 @@ async function viewSettings() {
   });
   $('tok-revoke')?.addEventListener('click', () => { if (confirm('Revoke the token? Scripts using it stop working.')) tokenCall(true); });
   loadSchedule();
+  loadBackup();
+}
+
+// ---- Backup: the page's own state (its data folder), downloaded or saved into a folder on the server ----
+async function loadBackup() {
+  if (!$('bk')) return;
+  let b;
+  try { b = await api('/api/backup'); }
+  catch (e) { if ($('bk')) $('bk').innerHTML = errBox(e.message); return; }
+  if (!$('bk')) return;
+  const saved = b.backups.map((x) => `<div class="tr"><span class="small">${esc(new Date(x.modified * 1000).toLocaleString())}</span>
+      <span class="small">${fmtBytes(x.size)}</span><span class="files">${esc(x.name)}</span></div>`).join('');
+  $('bk').innerHTML = `
+    <div id="bk-msg"></div>
+    <p class="muted small">This page's own state: the API token's hash, the daily check's settings, the files of each stack's last
+      deploy and the rollback points. Not in it: the stacks' folders, the password, the Podman secrets' values, volumes and images.
+      Restoring is done by hand (README: <i>Backup</i>).</p>
+    ${b.ready ? `<p class="muted small">On the server: <code>${esc(b.folder)}</code> (the newest ${b.keep} are kept).</p>`
+      : '<p class="muted small">No backup folder on the server: mount one into the container and set <code>STACK_UI_BACKUP_DIR</code> to it. The download works without it.</p>'}
+    <div class="head-actions" style="justify-content:flex-end">
+      <button id="bk-save" ${b.ready ? '' : 'disabled title="Set STACK_UI_BACKUP_DIR first"'}>Save on the server</button>
+      <button class="primary" id="bk-download">Download backup</button></div>
+    ${b.ready ? `<h4>On the server</h4>${saved ? `<div class="table runs">${saved}</div>` : '<p class="muted small">No backup yet.</p>'}` : ''}`;
+  const say = (html) => { if ($('bk-msg')) $('bk-msg').innerHTML = html; };
+  $('bk-download').addEventListener('click', async () => {
+    const btn = $('bk-download');
+    btn.disabled = true;
+    try {   // a fetch, not a link: the request must carry the page token
+      const res = await fetch('/api/backup/download', { headers: { 'X-UI-Token': TOKEN } });
+      if (res.status === 401 && AUTH) { location.replace('/'); return; }
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { msg = (await res.json()).error || msg; } catch { /* not JSON */ }
+        throw new Error(msg);
+      }
+      const name = ((res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/) || [])[1] || 'stack-ui-backup.tar.gz';
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      say('');
+      toast(`Downloaded ${name}`);
+    } catch (e) { say(`<div class="bad-note">${esc(e.message)}</div>`); }
+    btn.disabled = false;
+  });
+  $('bk-save').addEventListener('click', async () => {
+    $('bk-save').disabled = true;
+    try {
+      const r = await api('/api/backup/save', { method: 'POST', body: '{}' });
+      toast(`Saved ${r.file}${r.removed.length ? `; ${plural(r.removed.length, 'older backup')} removed` : ''}`);
+      loadBackup();
+    } catch (e) { say(`<div class="bad-note">${esc(e.message)}</div>`); $('bk-save').disabled = false; }
+  });
 }
 const RESULT_TAG = { updated: 't-ok', skipped: 't-idle', failed: 't-warn', 'rolled-back': 't-warn', 'rollback-failed': 't-bad', cancelled: 't-warn' };
 async function loadSchedule() {

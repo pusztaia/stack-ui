@@ -37,7 +37,7 @@ def make_stack(base: Path, name: str, compose: str, env: str | None = 'TZ=Europe
     return folder
 
 
-SERVER_PARTS = ('core', 'auth', 'stackfiles', 'registry', 'usage', 'image_ops', 'podman_objects', 'stackops',
+SERVER_PARTS = ('core', 'backups', 'auth', 'stackfiles', 'registry', 'usage', 'image_ops', 'podman_objects', 'stackops',
                 'autoupdate', 'server')
 
 

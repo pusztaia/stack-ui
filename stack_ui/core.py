@@ -50,7 +50,7 @@ class Operation:
             'images-remove': 'removing {t}', 'images-prune': 'removing {t}', 'network': 'the change of {t}',
             'volume': 'the change of {t}', 'secret': 'the change of {t}',
             'rollback': 'the rollback of {t}', 'rollback-discard': 'discarding the rollback point of {t}',
-            'auto-update': 'the automatic update of {t}'}
+            'auto-update': 'the automatic update of {t}', 'backup': 'the backup {t}'}
 
     def __init__(self, kind: str, target: str = '', cancellable: bool = False):
         self.kind, self.target, self.cancellable = kind, target, cancellable

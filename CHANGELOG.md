@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.31
+
+- *Backup.* *Settings > Backup*: *Download backup* gives the page's own state (its data folder: the API token's
+  hash, the schedule, the record of each stack's last deploy, the rollback points) as a `.tar.gz`; *Save on the
+  server* writes it into `STACK_UI_BACKUP_DIR` (a mounted host folder; the newest `STACK_UI_BACKUP_KEEP`, 10, are
+  kept). Taken while no change runs; regular files only, no link followed; the page only, not the API token.
+  README *Backup*: what is in it, what is not, and how to restore.
+
 ## 1.0.30
 
 - *Page, on a phone.* The Containers table fell apart (the image column was 0 px wide, its text one letter per

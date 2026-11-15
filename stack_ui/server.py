@@ -44,6 +44,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import __version__
 from . import core, auth, stackfiles, registry, usage, image_ops, podman_objects, stackops, autoupdate
+from . import backups
 from . import podman_api as pa
 from . import schedule
 from . import stacks as st
@@ -175,6 +176,10 @@ ROUTES = [
     route('GET', 'drift', lambda a, d, q: drift()),
     route('GET', 'resources', lambda a, d, q: resources()),
     route('GET', 'health', lambda a, d, q: health_info()),
+    # the page's own state: a backup (it holds the API token's hash: the page only)
+    route('GET', 'backup', lambda a, d, q: backups.view(), page_only=True),
+    route('GET', 'backup/download', lambda h, a, q: h.send_backup(), stream=True, page_only=True),
+    route('POST', 'backup/save', lambda a, d, q: backups.save(), page_only=True),
     # stacks
     route('GET', 'stacks', lambda a, d, q: overview()),
     route('POST', 'stacks', lambda a, d, q: upload(d)),
@@ -313,6 +318,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    def send_backup(self) -> None:
+        name, body = backups.download()
+        self.send(200, body, 'application/gzip', {'Content-Disposition': f'attachment; filename="{name}"'})
 
     def json(self, code: int, obj, headers: dict | None = None) -> None:
         self.send(code, json.dumps(obj).encode('utf-8'), 'application/json; charset=utf-8', headers)

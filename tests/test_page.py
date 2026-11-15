@@ -115,3 +115,10 @@ class PageTest(Base):
         self.assertIn('.stacks .c-name { grid-area: name; }', page)
         self.assertNotRegex(page, r'\n\s*\.c-(sel|state|name|cont|drift|img|act|mem) \{ grid-area')
         self.assertIn('title="${esc(c.stack)}"', page)
+
+    def test_the_backup_panel(self):
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('<h2>Backup</h2>', 'function loadBackup', 'id="bk-download"', 'id="bk-save"', "'/api/backup'",
+                     "'/api/backup/download'", "'/api/backup/save'", 'STACK_UI_BACKUP_DIR', 'URL.createObjectURL'):
+            self.assertIn(name, page, name)
