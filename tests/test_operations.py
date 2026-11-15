@@ -6,7 +6,7 @@ import threading
 import time
 from http.server import ThreadingHTTPServer
 
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import server as srv
 from stack_ui import stacks as st
 
@@ -14,7 +14,7 @@ from stack_ui import stacks as st
 class OperationTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
 
     def test_a_second_change_is_refused_at_once_with_the_description(self):
         with self.ui.operation('deploy', 'web', cancellable=True):
@@ -40,13 +40,13 @@ class OperationTest(Base):
     def test_the_lock_is_free_again_after_a_return_an_exception_and_each_change(self):
         with self.ui.operation('deploy', 'web'):
             pass
-        self.assertIsNone(self.ui.CURRENT)
+        self.assertIsNone(self.ui.core.CURRENT)
         with self.assertRaises(ValueError):
             with self.ui.operation('deploy', 'web'):
                 raise ValueError('boom')
-        self.assertIsNone(self.ui.CURRENT)
+        self.assertIsNone(self.ui.core.CURRENT)
         with self.ui.operation('stack-start', 'web') as op:
-            self.assertIs(self.ui.CURRENT, op)
+            self.assertIs(self.ui.core.CURRENT, op)
 
     def test_the_handle_for_run_compose_is_per_thread(self):
         seen = {}
@@ -105,13 +105,13 @@ class OperationTest(Base):
         make_stack(self.stacks, 'web', compose_yaml('web'))
         self.assertTrue(self.ui.run_deploy('web', pull=False, remove=[])['ok'])
         self.assertEqual(self.ui.secret_save({'name': 's1', 'value': 'v'})['name'], 's1')
-        self.assertIsNone(self.ui.CURRENT)
+        self.assertIsNone(self.ui.core.CURRENT)
 
 
 class OperationRoutesTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         self.ui.Config.password_hash = ''
         make_stack(self.stacks, 'web', compose_yaml('web'))
         self.pids = self.tmp / 'pids'
@@ -144,12 +144,12 @@ class OperationRoutesTest(Base):
         t.start()
         deadline = time.time() + 10
         while time.time() < deadline:
-            op = self.ui.CURRENT
+            op = self.ui.core.CURRENT
             if op is not None and op.proc is not None:
                 break
             time.sleep(0.02)
-        self.assertIsNotNone(self.ui.CURRENT, 'the deploy never started')
-        self.assertIsNotNone(self.ui.CURRENT.proc, 'its command never started')
+        self.assertIsNotNone(self.ui.core.CURRENT, 'the deploy never started')
+        self.assertIsNotNone(self.ui.core.CURRENT.proc, 'its command never started')
         deadline = time.time() + 5                            # and the fake command really hangs (it wrote its pids)
         while time.time() < deadline and not (self.pids.exists() and self.pids.read_text().strip()):
             time.sleep(0.02)
@@ -210,14 +210,14 @@ class OperationRoutesTest(Base):
         t = threading.Thread(target=worker)
         t.start()
         deadline = time.time() + 10
-        while time.time() < deadline and not (self.ui.CURRENT and self.ui.CURRENT.proc):
+        while time.time() < deadline and not (self.ui.core.CURRENT and self.ui.core.CURRENT.proc):
             time.sleep(0.02)
         self.assertEqual(self.call('POST', '/api/operation/cancel')[0], 200)
         t.join(10)
         self.assertFalse(t.is_alive())
         self.assertEqual(answer['status'], 502)
         self.assertIn('cancelled', answer['body']['error'])
-        self.assertIsNone(self.ui.CURRENT)
+        self.assertIsNone(self.ui.core.CURRENT)
 
     def test_a_quick_change_cannot_be_cancelled(self):
         with self.ui.operation('secret', 'secret s'):
@@ -225,8 +225,8 @@ class OperationRoutesTest(Base):
             self.assertEqual(status, 409)
             self.assertIn('is a quick change and cannot be cancelled', body['error'])
             self.assertEqual(body['operation']['kind'], 'secret')
-            self.assertFalse(self.ui.CURRENT.cancelled)         # nothing was touched
-        self.assertIsNone(self.ui.CURRENT)
+            self.assertFalse(self.ui.core.CURRENT.cancelled)         # nothing was touched
+        self.assertIsNone(self.ui.core.CURRENT)
 
     def test_a_cancel_names_the_change_it_means_and_a_different_one_is_left_alone(self):
         with self.ui.operation('deploy', 'web', cancellable=True) as op:
@@ -250,7 +250,7 @@ class OperationRoutesTest(Base):
         self.assertEqual((status, body['error']), (409, 'nothing is running'))
 
     def test_the_api_token_can_see_and_cancel_too(self):
-        self.patch(self.ui, 'SETTINGS_FILE', self.tmp / 'settings.json')
+        self.patch(self.ui.auth, 'SETTINGS_FILE', self.tmp / 'settings.json')
         self.ui.Config.password_hash = self.ui.hash_password('right-password', 1000)
         token = self.ui.api_token({})['token']
         auth = {'Authorization': f'Bearer {token}', 'X-UI-Token': ''}

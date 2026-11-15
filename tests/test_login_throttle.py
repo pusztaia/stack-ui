@@ -5,14 +5,14 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 
-from tests.support import Base
+from tests.support import Base, fresh_server
 from stack_ui import server as srv
 
 
 class LoginThrottleTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         self.ui.Config.password_hash = self.ui.hash_password('right-password', 1000)
         self.patch(self.ui.time, 'sleep', lambda _: None)
         server = ThreadingHTTPServer(('127.0.0.1', 0), self.ui.Handler)

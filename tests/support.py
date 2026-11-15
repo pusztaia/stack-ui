@@ -37,6 +37,20 @@ def make_stack(base: Path, name: str, compose: str, env: str | None = 'TZ=Europe
     return folder
 
 
+SERVER_PARTS = ('core', 'auth', 'stackfiles', 'registry', 'usage', 'image_ops', 'podman_objects', 'stackops',
+                'autoupdate', 'server')
+
+
+def fresh_server():
+    """The server with every part of it loaded again, in order: each test starts from clean state (no running
+    change, no sessions, no registry answers), as it did when the server was one module."""
+    import importlib
+    from stack_ui import server  # noqa: F401 - imports them all
+    for name in SERVER_PARTS:
+        module = importlib.reload(importlib.import_module(f'stack_ui.{name}'))
+    return module
+
+
 class Base(unittest.TestCase):
     """A temp STACKS_DIR, the mock libpod API and the fake podman-compose."""
 
@@ -53,6 +67,18 @@ class Base(unittest.TestCase):
         self.patch(st, 'STACKS_DIR', self.stacks)
         self.patch(st, 'IGNORE', set())
         self.patch(st, 'DATA', self.tmp / 'data')
+        # the real data folder is never written: the server parts read these when they are loaded again
+        # (fresh_server), and the ones loaded already are pointed here too
+        for var, value in (('STACK_UI_DATA', self.tmp / 'data'),
+                           ('STACK_UI_SETTINGS_FILE', self.tmp / 'data' / 'settings.json')):
+            if var in os.environ:
+                self.addCleanup(os.environ.__setitem__, var, os.environ[var])
+            else:
+                self.addCleanup(os.environ.pop, var, None)
+            os.environ[var] = str(value)
+        from stack_ui import auth, core
+        self.patch(auth, 'SETTINGS_FILE', self.tmp / 'data' / 'settings.json')
+        self.patch(core, 'DATA', self.tmp / 'data')
         from stack_ui import rollback
         self.patch(rollback, 'DATA', self.tmp / 'data')
         from stack_ui import schedule

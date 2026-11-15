@@ -3,14 +3,14 @@ import socket
 import threading
 import time
 
-from tests.support import Base
+from tests.support import Base, fresh_server
 from stack_ui import server as srv
 
 
 class ConnectionLimitsTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         self.ui.Config.password_hash = ''
         self.patch(self.ui.Handler, 'timeout', 1)
 

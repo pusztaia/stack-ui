@@ -61,7 +61,7 @@ class ServerRollbackTest(RollbackBase):
 
     def test_the_protected_stack_is_refused(self):
         self.update_to_v2()
-        self.patch(self.ui, 'PROTECTED', {'web'})
+        self.patch(self.ui.core, 'PROTECTED', {'web'})
         r = self.ui.run_rollback('web')
         self.assertFalse(r['ok'])
         self.assertIn('protected', ' '.join(r['log']))

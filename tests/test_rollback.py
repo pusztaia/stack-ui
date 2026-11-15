@@ -6,7 +6,7 @@ import shutil
 import threading
 import unittest
 
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import podman_api as pa, rollback, schedule, server as srv, stacks as st
 
 V1 = compose_yaml('web')
@@ -19,7 +19,7 @@ class RollbackBase(Base):
 
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         self.folder = make_stack(self.stacks, 'web', V1)
         self.mock.images.append({'Id': 'old1', 'RepoTags': [REF], 'RepoDigests': [], 'Size': 10, 'Created': 1})
         self.container = self.mock.add_container('web', project='web', image=REF, image_id='old1')

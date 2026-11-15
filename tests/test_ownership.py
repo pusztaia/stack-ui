@@ -1,7 +1,7 @@
 import importlib
 from pathlib import Path
 
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import podman_api as pa, server as srv, stacks as st
 
 
@@ -10,7 +10,7 @@ class OwnerTest(Base):
 
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         self.chowned: list[str] = []
         self.patch(st, '_is_root', lambda: True)
         self.patch(st, 'chown', lambda path, uid, gid: self.chowned.append(Path(path).name))

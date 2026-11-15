@@ -1,7 +1,7 @@
 import importlib
 import os
 
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import __version__
 from stack_ui import server as srv
 from stack_ui import stacks as st
@@ -10,8 +10,8 @@ from stack_ui import stacks as st
 class ServerTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
-        self.patch(self.ui, 'SETTINGS_FILE', self.tmp / 'settings.json')
+        self.ui = fresh_server()
+        self.patch(self.ui.auth, 'SETTINGS_FILE', self.tmp / 'settings.json')
         make_stack(self.stacks, 'web', compose_yaml('web'))
 
     def test_overview_and_deploy(self):
@@ -25,8 +25,8 @@ class ServerTest(Base):
         self.assertFalse(self.ui.overview()['hideUndeployed'])
         os.environ['STACK_UI_HIDE_UNDEPLOYED'] = 'true'
         self.addCleanup(os.environ.pop, 'STACK_UI_HIDE_UNDEPLOYED', None)
-        self.ui = importlib.reload(srv)
-        self.patch(self.ui, 'SETTINGS_FILE', self.tmp / 'settings.json')
+        self.ui = fresh_server()
+        self.patch(self.ui.auth, 'SETTINGS_FILE', self.tmp / 'settings.json')
         data = self.ui.overview()
         self.assertTrue(data['hideUndeployed'])
         self.assertEqual([s['name'] for s in data['stacks']], ['web'])
@@ -58,7 +58,7 @@ class ServerTest(Base):
         self.assertEqual(r['env'], '.env')
 
     def test_self_project_protected(self):
-        self.patch(self.ui, 'SELF', 'stack-ui')
+        self.patch(self.ui.core, 'SELF', 'stack-ui')
         self.mock.add_container('stack-ui', project='tools')
         self.mock.add_container('tools-helper', project='tools')
         rows = {r['name']: r for r in self.ui.container_table()['containers']}
@@ -68,13 +68,13 @@ class ServerTest(Base):
                 self.ui.container_do({'name': 'tools-helper', 'action': action})
 
     def test_self_by_container_id(self):
-        self.patch(self.ui, 'SELF', 'id-stac')       # HOSTNAME is the short container id
+        self.patch(self.ui.core, 'SELF', 'id-stac')       # HOSTNAME is the short container id
         self.mock.add_container('stack-ui')
         self.assertTrue(self.ui.container_table()['containers'][0]['protected'])
 
     def test_protected_env_lists(self):
-        self.patch(self.ui, 'PROTECTED', {'db'})
-        self.patch(self.ui, 'PROTECTED_NETWORKS', {'podman', 'lan'})
+        self.patch(self.ui.core, 'PROTECTED', {'db'})
+        self.patch(self.ui.podman_objects, 'PROTECTED_NETWORKS', {'podman', 'lan'})
         self.mock.add_container('db')
         self.mock.networks.append({'name': 'lan', 'driver': 'bridge', 'subnets': []})
         self.assertTrue({r['name']: r for r in self.ui.container_table()['containers']}['db']['protected'])

@@ -1,14 +1,14 @@
 import importlib
 import os
 
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import server as srv, stacks as st
 
 
 class StackDeleteTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         self.folder = make_stack(self.stacks, 'web', compose_yaml('web'))
 
     def deployed(self):
@@ -51,7 +51,7 @@ class StackDeleteTest(Base):
         self.assertTrue(self.folder.is_dir())
 
     def test_a_protected_stack_keeps_its_folder(self):
-        self.patch(self.ui, 'PROTECTED', {'web'})
+        self.patch(self.ui.core, 'PROTECTED', {'web'})
         for deleted in (True, False):
             with self.assertRaises(ValueError):
                 self.ui.stack_action('web', 'delete', {'confirm': 'web', 'deleteFolder': deleted})

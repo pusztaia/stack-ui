@@ -1,13 +1,13 @@
 import importlib
 import json
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import podman_api as pa, server as srv, stacks as st
 
 
 class ImagesTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         make_stack(self.stacks, 'web', compose_yaml('web'))
         self.mock.add_container('web', project='web', image='docker.io/library/nginx:latest', image_id='used1')
         self.mock.images += [
@@ -79,10 +79,10 @@ class ImagesTest(Base):
         self.assertEqual(r, {'removed': 'free2', 'freed': 20})
 
     def test_updates_compare_digests(self):
-        self.patch(self.ui, 'check_ref', lambda ref, local, platform: (('sha256:bbb',), ''))
+        self.patch(self.ui.registry, 'check_ref', lambda ref, local, platform: (('sha256:bbb',), ''))
         data = self.ui.updates(check=True)
         self.assertEqual(data['stacks']['web']['status'], 'update')
-        self.patch(self.ui, 'check_ref', lambda ref, local, platform: (('sha256:aaa',), ''))
+        self.patch(self.ui.registry, 'check_ref', lambda ref, local, platform: (('sha256:aaa',), ''))
         self.assertEqual(self.ui.updates(check=True)['stacks']['web']['status'], 'current')
 
     def test_local_image_with_a_digest_is_built_here(self):
@@ -93,7 +93,7 @@ class ImagesTest(Base):
         self.mock.images.append({'Id': 'built1', 'RepoTags': ['localhost/tools:1.3-beta'],
                                  'RepoDigests': ['localhost/tools@sha256:loc'], 'Size': 10, 'Created': 3,
                                  'Os': 'linux', 'Architecture': 'arm64'})
-        self.patch(self.ui, 'check_ref', lambda ref, local, platform: (('sha256:aaa',), '') if 'nginx' in ref
+        self.patch(self.ui.registry, 'check_ref', lambda ref, local, platform: (('sha256:aaa',), '') if 'nginx' in ref
                    else self.fail(f'{ref} must not be asked of a registry'))
         tools = self.ui.updates(check=True)['stacks']['tools']
         self.assertEqual(tools['status'], 'local')
@@ -110,7 +110,7 @@ class ImagesTest(Base):
         def fetch(url, token, method):
             calls.append(method)
             return index_digest, self.ui.INDEX_TYPES[0], json.dumps(index).encode() if method == 'GET' else b''
-        self.patch(self.ui, 'registry_fetch', fetch)
+        self.patch(self.ui.registry, 'registry_fetch', fetch)
         return calls
 
     def test_new_index_with_the_same_platform_image_is_current(self):

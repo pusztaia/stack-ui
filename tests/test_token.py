@@ -5,15 +5,15 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import podman_api as pa, server as srv, stacks as st
 
 
 class TokenTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
-        self.patch(self.ui, 'SETTINGS_FILE', self.tmp / 'settings.json')
+        self.ui = fresh_server()
+        self.patch(self.ui.auth, 'SETTINGS_FILE', self.tmp / 'settings.json')
         self.ui.Config.password_hash = ''
         server = ThreadingHTTPServer(('127.0.0.1', 0), self.ui.Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()

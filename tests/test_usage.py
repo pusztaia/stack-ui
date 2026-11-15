@@ -5,7 +5,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 
-from tests.support import Base
+from tests.support import Base, fresh_server
 from stack_ui import podman_api as pa, server as srv
 
 MEMINFO = 'MemTotal:        4000000 kB\nMemFree:          500000 kB\nMemAvailable:    1000000 kB\n'
@@ -43,16 +43,16 @@ class StatsApiTest(Base):
 class UsageTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         self.meminfo = self.tmp / 'meminfo'
         self.proc_stat = self.tmp / 'stat'
         self.meminfo.write_text(MEMINFO)
         self.proc_stat.write_text(proc_stat(100, 100, 800))
-        self.patch(self.ui, 'PROC_MEMINFO', self.meminfo)
-        self.patch(self.ui, 'PROC_STAT', self.proc_stat)
+        self.patch(self.ui.usage, 'PROC_MEMINFO', self.meminfo)
+        self.patch(self.ui.usage, 'PROC_STAT', self.proc_stat)
         self.pauses = 0
         self.next_stat = None
-        self.patch(self.ui, 'pause', self.pause)
+        self.patch(self.ui.usage, 'pause', self.pause)
 
     def pause(self):
         """The wait between two readings: counted, and the host's /proc/stat moves on meanwhile."""
@@ -136,15 +136,15 @@ class UsageTest(Base):
         self.assertEqual(r['host']['cpu'], 10.0)
 
     def test_unreadable_proc_files_leave_the_host_out(self):
-        self.patch(self.ui, 'PROC_MEMINFO', self.tmp / 'missing')
+        self.patch(self.ui.usage, 'PROC_MEMINFO', self.tmp / 'missing')
         self.mock.stats = [stat('app', 1_000_000_000, 10_000_000_000)]
         self.mock.stats_next = [[stat('app', 1_500_000_000, 11_000_000_000)]]
         r = self.ui.resources()
         self.assertIsNone(r['host'])
         self.assertIn('/proc/meminfo', r['error'])
         self.assertEqual(r['containers']['app']['cpu'], 12.5)
-        self.patch(self.ui, 'PROC_MEMINFO', self.meminfo)
-        self.patch(self.ui, 'PROC_STAT', self.tmp / 'missing')
+        self.patch(self.ui.usage, 'PROC_MEMINFO', self.meminfo)
+        self.patch(self.ui.usage, 'PROC_STAT', self.tmp / 'missing')
         r = self.ui.resources()
         self.assertIsNone(r['host'])
         self.assertIn('/proc/stat', r['error'])
@@ -153,13 +153,13 @@ class UsageTest(Base):
 class UsageApiTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
-        self.patch(self.ui, 'SETTINGS_FILE', self.tmp / 'settings.json')
+        self.ui = fresh_server()
+        self.patch(self.ui.auth, 'SETTINGS_FILE', self.tmp / 'settings.json')
         (self.tmp / 'meminfo').write_text(MEMINFO)
         (self.tmp / 'stat').write_text(proc_stat(100, 100, 800))
-        self.patch(self.ui, 'PROC_MEMINFO', self.tmp / 'meminfo')
-        self.patch(self.ui, 'PROC_STAT', self.tmp / 'stat')
-        self.patch(self.ui, 'pause', lambda: None)
+        self.patch(self.ui.usage, 'PROC_MEMINFO', self.tmp / 'meminfo')
+        self.patch(self.ui.usage, 'PROC_STAT', self.tmp / 'stat')
+        self.patch(self.ui.usage, 'pause', lambda: None)
         self.ui.Config.password_hash = ''
         server = ThreadingHTTPServer(('127.0.0.1', 0), self.ui.Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()

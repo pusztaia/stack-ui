@@ -2,7 +2,7 @@ import importlib
 import json
 import os
 
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import server as srv
 from stack_ui import stacks as st
 
@@ -10,7 +10,7 @@ from stack_ui import stacks as st
 class StackFilesTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         self.f = make_stack(self.stacks, 'web', compose_yaml('web'))
         self.base = {'composeText': compose_yaml('web'), 'envText': 'TZ=Europe/Budapest\n'}
 

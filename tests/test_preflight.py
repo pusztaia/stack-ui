@@ -1,6 +1,6 @@
 import importlib
 
-from tests.support import Base, make_stack
+from tests.support import Base, make_stack, fresh_server
 from stack_ui import preflight as pf
 from stack_ui import server as srv
 from stack_ui import stacks as st
@@ -185,7 +185,7 @@ class DeployTest(Base):
 
 class ApiTest(Base):
     def test_the_plan_answer_carries_errors_and_warnings(self):
-        ui = importlib.reload(srv)
+        ui = fresh_server()
         make_stack(self.stacks, 'web', NET.replace('docker.io/library/nginx:latest', 'jc21/x:latest'))
         p = ui.plan('web')
         self.assertIn('proxy-net', p['errors'][0])

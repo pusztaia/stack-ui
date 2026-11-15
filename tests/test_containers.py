@@ -1,15 +1,15 @@
 import importlib
 import json
 
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import podman_api as pa, server as srv, stacks as st
 
 
 class ContainersTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
-        self.patch(self.ui, 'SELF', 'stack-ui')
+        self.ui = fresh_server()
+        self.patch(self.ui.core, 'SELF', 'stack-ui')
         make_stack(self.stacks, 'web', compose_yaml('web'))
         self.mock.add_container('web', project='web', ports=[{'host_ip': '', 'host_port': 8080, 'container_port': 80,
                                                               'protocol': 'tcp'}, {'host_ip': '', 'host_port': 0,
@@ -77,7 +77,7 @@ class ContainersTest(Base):
 class ImagesManageTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         make_stack(self.stacks, 'web', compose_yaml('web'))
         self.mock.add_container('web', project='web', image_id='used1')
         self.mock.images += [
@@ -134,7 +134,7 @@ class RealPodmanFormatsTest(Base):
 
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
 
     def test_created_as_iso_date(self):
         c = self.mock.add_container('web')

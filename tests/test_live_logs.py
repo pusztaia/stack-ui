@@ -5,7 +5,7 @@ import threading
 import time
 from http.server import ThreadingHTTPServer
 
-from tests.support import Base
+from tests.support import Base, fresh_server
 from stack_ui import server as srv
 
 
@@ -16,7 +16,7 @@ def frame(stream, text):
 class LiveLogsTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         self.ui.Config.password_hash = ''
         self.mock.add_container('web', project='web')
         server = ThreadingHTTPServer(('127.0.0.1', 0), self.ui.Handler)
@@ -65,7 +65,7 @@ class LiveLogsTest(Base):
         self.assertEqual((call['tail'], call['since'], call['follow']), ('500', '2026-11-07T10:00:00Z', 'true'))
 
     def test_a_quiet_log_gets_heartbeats(self):
-        self.patch(self.ui, 'LOG_HEARTBEAT', 0.05)
+        self.patch(self.ui.podman_objects, 'LOG_HEARTBEAT', 0.05)
         _, resp = self.stream()
         self.assertEqual(self.message(resp), {'hb': 1})
 
@@ -89,7 +89,7 @@ class LiveLogsTest(Base):
         self.assertEqual(json.loads(resp.read())['error'], 'no container "nope"')
 
     def test_a_refused_podman_call_is_a_502_and_gives_the_slot_back(self):
-        self.patch(self.ui, 'LOG_STREAMS', threading.BoundedSemaphore(1))
+        self.patch(self.ui.podman_objects, 'LOG_STREAMS', threading.BoundedSemaphore(1))
         self.mock.fail[('GET', '/containers/id-web/logs')] = (500, 'no log driver')
         _, resp = self.stream()
         self.assertEqual(resp.status, 502)
@@ -100,8 +100,8 @@ class LiveLogsTest(Base):
         self.assertEqual(resp.status, 200)
 
     def test_the_stream_limit_and_a_slot_that_comes_back_when_the_client_leaves(self):
-        self.patch(self.ui, 'LOG_STREAMS', threading.BoundedSemaphore(2))
-        self.patch(self.ui, 'LOG_HEARTBEAT', 0.05)        # a write every 50 ms notices a client that left
+        self.patch(self.ui.podman_objects, 'LOG_STREAMS', threading.BoundedSemaphore(2))
+        self.patch(self.ui.podman_objects, 'LOG_HEARTBEAT', 0.05)        # a write every 50 ms notices a client that left
         first, r1 = self.stream()
         second, r2 = self.stream()
         self.assertEqual((r1.status, r2.status), (200, 200))
@@ -130,7 +130,7 @@ class LiveLogsTest(Base):
         self.assertEqual(self.message(resp), {'l': '2026-11-07T11:00:00Z fresh'})
 
     def test_access_needs_a_session_with_its_token_or_the_api_token(self):
-        self.patch(self.ui, 'SETTINGS_FILE', self.tmp / 'settings.json')
+        self.patch(self.ui.auth, 'SETTINGS_FILE', self.tmp / 'settings.json')
         self.ui.Config.password_hash = self.ui.hash_password('right-password', 1000)
         api_token = self.ui.api_token({})['token']
         sid, page_token = self.ui.new_session()

@@ -13,7 +13,7 @@ class ScheduleServerTest(RollbackBase):
     def setUp(self):
         super().setUp()
         self.ui.Config.password_hash = ''
-        self.patch(self.ui, 'SETTINGS_FILE', self.tmp / 'settings.json')
+        self.patch(self.ui.auth, 'SETTINGS_FILE', self.tmp / 'settings.json')
         server = ThreadingHTTPServer(('127.0.0.1', 0), self.ui.Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)
@@ -49,7 +49,7 @@ class ScheduleServerTest(RollbackBase):
         self.assertEqual(self.call('POST', '/api/stacks/web/auto', {'auto': False}), (200, {'auto': False}))
 
     def test_a_protected_stack_cannot_be_switched_on(self):
-        self.patch(self.ui, 'PROTECTED', {'web'})
+        self.patch(self.ui.core, 'PROTECTED', {'web'})
         code, r = self.call('POST', '/api/stacks/web/auto', {'auto': True})
         self.assertEqual(code, 400)
         self.assertIn('protected', r['error'])
@@ -62,7 +62,7 @@ class ScheduleServerTest(RollbackBase):
             inside.set()
             leave.wait(10)
             return {}
-        self.patch(self.ui, 'scheduled_check', check)
+        self.patch(self.ui.autoupdate, 'scheduled_check', check)
         self.assertEqual(self.call('POST', '/api/schedule/run'), (200, {'started': True}))
         self.assertTrue(inside.wait(10))
         self.assertTrue(self.call('GET', '/api/operation')[1]['scheduleRunning'])
@@ -112,7 +112,7 @@ class ScheduleServerTest(RollbackBase):
 
     def test_the_switch_of_several_stacks_at_once(self):
         make_stack(self.stacks, 'db', compose_yaml('db'))
-        self.patch(self.ui, 'PROTECTED', {'db'})
+        self.patch(self.ui.core, 'PROTECTED', {'db'})
         code, r = self.call('POST', '/api/stacks/auto', {'names': ['web', 'db', 'nosuch'], 'auto': True})
         self.assertEqual((code, r['changed']), (200, ['web']))
         self.assertEqual([s['name'] for s in r['skipped']], ['db', 'nosuch'])

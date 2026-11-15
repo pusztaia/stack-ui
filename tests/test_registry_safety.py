@@ -2,7 +2,7 @@ import importlib
 import urllib.error
 import urllib.request
 
-from tests.support import Base
+from tests.support import Base, fresh_server
 from stack_ui import server as srv
 
 PUBLIC = '104.16.0.1'
@@ -11,7 +11,7 @@ PUBLIC = '104.16.0.1'
 class RegistrySafetyTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         self.dns = {'auth.docker.io': [PUBLIC], 'evil.example': ['10.0.0.5'], 'mixed.example': [PUBLIC, '127.0.0.1']}
 
         def getaddrinfo(host, port, proto=0):
@@ -39,7 +39,7 @@ class RegistrySafetyTest(Base):
     def test_check_ref_reports_a_refused_realm_instead_of_asking_it(self):
         def fetch(url, token, method):
             raise urllib.error.HTTPError(url, 401, 'no', {'WWW-Authenticate': 'Bearer realm="https://evil.example/t"'}, None)
-        self.patch(self.ui, 'registry_fetch', fetch)
+        self.patch(self.ui.registry, 'registry_fetch', fetch)
         digests, message = self.ui.check_ref('nginx:latest', set(), None)
         self.assertEqual(digests, ())
         self.assertIn('not allowed', message)

@@ -1,7 +1,7 @@
 import importlib
 import json
 
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import server as srv
 from stack_ui import stacks as st
 
@@ -9,7 +9,7 @@ from stack_ui import stacks as st
 class StackFilesReviewTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
 
     def single_yaml_stack(self):
         """A folder found by the 'only *.yaml' rule (no stack.json, no known compose name)."""

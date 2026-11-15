@@ -7,7 +7,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import server as srv
 from stack_ui import stacks as st
 
@@ -15,12 +15,12 @@ from stack_ui import stacks as st
 class ReviewFixesTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
-        self.patch(self.ui, 'SETTINGS_FILE', self.tmp / 'settings.json')
+        self.ui = fresh_server()
+        self.patch(self.ui.auth, 'SETTINGS_FILE', self.tmp / 'settings.json')
 
     # Critical 1: the page cannot stop, delete or recreate its own stack
     def test_own_stack_refused(self):
-        self.patch(self.ui, 'SELF', 'stack-ui')
+        self.patch(self.ui.core, 'SELF', 'stack-ui')
         make_stack(self.stacks, 'stack-ui', compose_yaml('stack-ui'))
         self.mock.add_container('stack-ui', project='stack-ui')
         r = self.ui.run_deploy('stack-ui', pull=True, remove=[])
@@ -33,7 +33,7 @@ class ReviewFixesTest(Base):
         self.assertTrue(self.ui.overview()['stacks'][0]['protected'])
 
     def test_protected_list_covers_stacks(self):
-        self.patch(self.ui, 'PROTECTED', {'db'})
+        self.patch(self.ui.core, 'PROTECTED', {'db'})
         make_stack(self.stacks, 'db', compose_yaml('db'))
         self.assertFalse(self.ui.run_deploy('db', pull=False, remove=[])['ok'])
 

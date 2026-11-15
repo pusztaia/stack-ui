@@ -4,7 +4,7 @@ import os
 import shutil
 import unittest
 
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import server as srv
 from stack_ui import stacks as st
 
@@ -19,7 +19,7 @@ def link(target, path):
 class StackPathsTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
         self.outside = self.tmp / 'outside.txt'
         self.outside.write_text('services:\n  x: {image: nginx}\n', encoding='utf-8')
 

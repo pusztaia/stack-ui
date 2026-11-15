@@ -1,14 +1,14 @@
 import importlib
 import json
 
-from tests.support import Base, compose_yaml, make_stack
+from tests.support import Base, compose_yaml, make_stack, fresh_server
 from stack_ui import podman_api as pa, server as srv, stacks as st
 
 
 class ResourcesTest(Base):
     def setUp(self):
         super().setUp()
-        self.ui = importlib.reload(srv)
+        self.ui = fresh_server()
 
     def test_container_list_and_logs(self):
         self.mock.add_container('web', project='web')
@@ -29,7 +29,7 @@ class ResourcesTest(Base):
             self.ui.network_list()
 
     def test_networks_protected_and_in_use(self):
-        self.patch(self.ui, 'PROTECTED_NETWORKS', {'podman', 'proxy-net'})
+        self.patch(self.ui.podman_objects, 'PROTECTED_NETWORKS', {'podman', 'proxy-net'})
         self.mock.networks += [{'name': 'podman', 'driver': 'bridge', 'subnets': []},
                                {'name': 'proxy-net', 'driver': 'bridge', 'subnets': [{'subnet': '10.89.0.0/24'}]},
                                {'name': 'web_default', 'driver': 'bridge', 'subnets': []},

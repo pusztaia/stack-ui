@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- *Internal.* `server.py` (2375 lines) is split into its parts: `core`, `auth`, `stackfiles`, `stackops`,
+  `registry`, `usage`, `image_ops`, `podman_objects`, `autoupdate`; `server.py` keeps the HTTP side (534 lines).
+  Nothing changes in how the page behaves. The tests can no longer write to the real data folder.
+
 ## 1.0.27
 
 - *Image.* Built on Python 3.14 (was 3.13), with PyYAML 6.0.3. Nothing changes in how the page behaves.

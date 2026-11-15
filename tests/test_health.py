@@ -5,7 +5,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 
-from tests.support import Base
+from tests.support import Base, fresh_server
 from stack_ui import health as hl
 from stack_ui import podman_api as pa
 from stack_ui import server as srv
@@ -193,7 +193,7 @@ class HealthTest(Base):
 
 class ApiTest(Base):
     def test_the_api_answer(self):
-        ui = importlib.reload(srv)
+        ui = fresh_server()
         (self.tmp / 'temp').write_text('61000\n', encoding='utf-8')
         self.patch(hl, 'THERMAL', self.tmp / 'temp')
         h = ui.health_info()
@@ -203,8 +203,8 @@ class ApiTest(Base):
         self.assertIn('podman', h)
 
     def test_the_route_needs_the_token_and_answers_json(self):
-        ui = importlib.reload(srv)
-        self.patch(ui, 'SETTINGS_FILE', self.tmp / 'settings.json')
+        ui = fresh_server()
+        self.patch(ui.auth, 'SETTINGS_FILE', self.tmp / 'settings.json')
         ui.Config.password_hash = ''
         server = ThreadingHTTPServer(('127.0.0.1', 0), ui.Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()

@@ -9,10 +9,10 @@ from stack_ui import rollback, schedule, stacks as st
 class AutoUpdateBase(RollbackBase):
     def setUp(self):
         super().setUp()
-        self.patch(self.ui, 'VERIFY_SETTLE', 0.0)
-        self.patch(self.ui, 'VERIFY_WAIT', 0.3)
-        self.patch(self.ui, 'VERIFY_STEP', 0.05)
-        self.patch(self.ui, 'VERIFY_CONFIRM', 0.3)
+        self.patch(self.ui.autoupdate, 'VERIFY_SETTLE', 0.0)
+        self.patch(self.ui.autoupdate, 'VERIFY_WAIT', 0.3)
+        self.patch(self.ui.autoupdate, 'VERIFY_STEP', 0.05)
+        self.patch(self.ui.autoupdate, 'VERIFY_CONFIRM', 0.3)
         schedule.approve(self.folder, 'compose.yaml', '.env')       # as a deploy from the page leaves it
 
     def commands(self):
@@ -37,7 +37,7 @@ class VerifyTest(AutoUpdateBase):
 
     def test_starting_is_waited_for(self):
         self.container['Status'] = 'starting'
-        self.patch(self.ui, 'VERIFY_WAIT', 5.0)
+        self.patch(self.ui.autoupdate, 'VERIFY_WAIT', 5.0)
         threading.Timer(0.2, self.container.__setitem__, ('Status', 'unhealthy')).start()
         self.assertIn('unhealthy', self.ui.verify('web', {'web'}))
 
@@ -81,22 +81,22 @@ class AutoUpdateTest(AutoUpdateBase):
 
     def test_an_update_that_does_not_verify_is_rolled_back(self):
         answers = iter(['web is not running', ''])
-        self.patch(self.ui, 'verify', lambda name, was: next(answers))
+        self.patch(self.ui.autoupdate, 'verify', lambda name, was: next(answers))
         r = self.ui.auto_update('web')
         self.assertEqual((r['result'], r['reason']), ('rolled-back', 'web is not running'), r)
         self.assertEqual(self.commands(), ['pull', 'up', 'up'])
 
     def test_a_roll_back_that_does_not_verify_is_reported(self):
-        self.patch(self.ui, 'verify', lambda name, was: 'web is not running')
+        self.patch(self.ui.autoupdate, 'verify', lambda name, was: 'web is not running')
         r = self.ui.auto_update('web')
         self.assertEqual((r['result'], r['alert']), ('rollback-failed', True), r)
         self.assertIn('roll back failed too', r['reason'])
 
     def test_a_cancelled_update_is_not_rolled_back(self):
         def cancelled(name, was):
-            self.ui.CURRENT.cancelled = True
+            self.ui.core.CURRENT.cancelled = True
             return 'cancelled'
-        self.patch(self.ui, 'verify', cancelled)
+        self.patch(self.ui.autoupdate, 'verify', cancelled)
         r = self.ui.auto_update('web')
         self.assertEqual((r['result'], r['alert']), ('cancelled', True), r)
         self.assertEqual(self.commands(), ['pull', 'up'])
@@ -122,11 +122,11 @@ class AutoUpdateTest(AutoUpdateBase):
         self.assertEqual(self.commands(), [])
 
     def test_skipped_when_protected_not_deployed_or_gone(self):
-        self.patch(self.ui, 'PROTECTED', {'web'})
+        self.patch(self.ui.core, 'PROTECTED', {'web'})
         r = self.ui.auto_update('web')
         self.assertEqual(r['result'], 'skipped', r)
         self.assertIn('protected', r['reason'])
-        self.patch(self.ui, 'PROTECTED', set())
+        self.patch(self.ui.core, 'PROTECTED', set())
         self.mock.containers.clear()
         self.assertIn('not deployed', self.ui.auto_update('web')['reason'])
         self.assertIn('no folder', self.ui.auto_update('nosuch')['reason'])
@@ -154,8 +154,8 @@ class ScheduledCheckTest(AutoUpdateBase):
             'web': {'status': 'update', 'images': [{'container': 'web', 'image': REF, 'status': 'update', 'message': ''},
                                                    {'container': 'side', 'image': 'x:1', 'status': 'current', 'message': ''}]},
             'db': {'status': 'current', 'images': []}}}
-        self.patch(self.ui, 'updates', lambda check: fake if check else None)
-        self.patch(self.ui, 'REMOTE', {REF: (('sha256:idx', 'sha256:arm'), ''), 'x:1': (('sha256:x',), '')})
+        self.patch(self.ui.registry, 'updates', lambda check: fake if check else None)
+        self.patch(self.ui.registry, 'REMOTE', {REF: (('sha256:idx', 'sha256:arm'), ''), 'x:1': (('sha256:x',), '')})
         self.assertEqual(self.ui.scheduled_check(), {
             'web': {'update': True, 'digests': {REF: ['sha256:idx', 'sha256:arm']}},
             'db': {'update': False, 'digests': {}}})
@@ -223,7 +223,7 @@ class ReviewFixTest(AutoUpdateBase):
         self.assertEqual((r['result'], r['alert']), ('failed', True), r)
 
     def test_a_roll_back_that_cannot_write_is_reported(self):
-        self.patch(self.ui, 'verify', lambda name, was: 'web is not running')
+        self.patch(self.ui.autoupdate, 'verify', lambda name, was: 'web is not running')
 
         def broken(*args, **kw):
             raise OSError('disk full')
@@ -264,7 +264,7 @@ class PartialTest(AutoUpdateBase):
     def test_a_failed_partial_update_rolls_back_only_the_running_services(self):
         self.two()
         answers = iter(['web is not running', ''])
-        self.patch(self.ui, 'verify', lambda name, was: next(answers))
+        self.patch(self.ui.autoupdate, 'verify', lambda name, was: next(answers))
         r = self.ui.auto_update('web')
         self.assertEqual(r['result'], 'rolled-back', r)
         self.assertEqual(self.compose_calls()[-1][-4:], ['up', '-d', '--force-recreate', 'app'])
