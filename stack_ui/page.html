@@ -160,6 +160,7 @@
   .empty { padding: 28px 18px; text-align: center; color: var(--muted); }
   .sec-title { margin: 22px 0 8px; font: 600 11.5px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
   a.tag { text-decoration: none; }
+  .table .tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 
   /* selection bar */
   .selbar { position: sticky; bottom: 18px; display: flex; gap: 10px; align-items: center; width: fit-content;
@@ -254,7 +255,7 @@
   .ctab .tr { grid-template-columns: minmax(150px, 1.2fr) minmax(170px, 1.4fr) 160px minmax(110px, 1fr) 350px; }
   .ctab .ct { flex-wrap: wrap; row-gap: 2px; }          /* a health tag that does not fit goes under the state */
   .ctab .r { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }   /* a larger font wraps, never cuts */
-  .ports a { margin-right: 6px; }
+  .ports { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; }
   pre.json { max-height: 60vh; overflow: auto; font-size: 12px; }
 
   @media (max-width: 760px) {
@@ -273,8 +274,9 @@
     .table .th { display: none; }
     .stacks .tr { grid-template-columns: 22px 30px minmax(0, 1fr) auto;
                   grid-template-areas: "sel state name act" "sel state cont cont" "sel state mem mem" "sel state drift img"; gap: 6px 10px; }
-    .c-sel { grid-area: sel; } .c-state { grid-area: state; } .c-name { grid-area: name; } .c-cont { grid-area: cont; }
-    .c-drift { grid-area: drift; } .c-img { grid-area: img; justify-self: start; } .c-act { grid-area: act; } .c-mem { grid-area: mem; }
+    /* the stacks list's areas only: other tables use c-name too (a named area they lack breaks their grid) */
+    .stacks .c-sel { grid-area: sel; } .stacks .c-state { grid-area: state; } .stacks .c-name { grid-area: name; } .stacks .c-cont { grid-area: cont; }
+    .stacks .c-drift { grid-area: drift; } .stacks .c-img { grid-area: img; justify-self: start; } .stacks .c-act { grid-area: act; } .stacks .c-mem { grid-area: mem; }
     .c-drift > .muted, .c-img > .muted, .c-mem > .muted { display: none; }
     .images .tr { grid-template-columns: 22px minmax(0, 1fr) auto auto; grid-template-areas: "isel iname iupd iact" "isel iused iused iused" "isel isize icreated icreated"; gap: 4px 10px; }
     .i-sel { grid-area: isel; } .i-act { grid-area: iact; }
@@ -1583,7 +1585,7 @@ async function viewContainers() {
         const n = esc(c.name);
         const run = c.state === 'running';
         const btn = (act, label, ok = true, cls = 'small') => `<button class="${cls}" data-ca="${act}" data-c="${n}" ${ok ? '' : 'disabled'}>${label}</button>`;
-        const stackTag = !c.stack ? '' : c.inStack ? ` <a class="tag t-idle bk" href="#/stacks/${enc(c.stack)}/summary">${esc(c.stack)}</a>` : ` <span class="tag t-idle bk">${esc(c.stack)}</span>`;
+        const stackTag = !c.stack ? '' : c.inStack ? ` <a class="tag t-idle bk" href="#/stacks/${enc(c.stack)}/summary" title="${esc(c.stack)}">${esc(c.stack)}</a>` : ` <span class="tag t-idle bk" title="${esc(c.stack)}">${esc(c.stack)}</span>`;
         return `<div class="tr">
           <span class="c-name"><b>${n}</b>${stackTag}${c.protected ? ' <span class="tag t-idle bk">Protected</span>' : ''}<span class="files">${esc(ago(c.created))}</span></span>
           <span class="files">${esc(c.image)}</span>
@@ -2036,7 +2038,7 @@ function renderImages() {
       : upd.status === 'local' ? '<span class="tag t-idle">Built here</span>' : `<span class="tag t-idle" title="${esc(upd.message)}">Check failed</span>`;
     const used = img.usedBy.length
       ? img.usedBy.map((u) => (modules.has(u) ? `<a href="#/stacks/${enc(u)}/summary">${esc(u)}</a>` : esc(u))).join(', ')
-      : img.keptFor.length ? `<span class="tag t-warn" title="Roll back needs this image. Discard the rollback point on the stack's page to free it.">Kept for rollback: ${img.keptFor.map(esc).join(', ')}</span>`
+      : img.keptFor.length ? `<span class="tag t-warn" title="Kept for the rollback of ${esc(img.keptFor.join(', '))}: roll back needs this image. Discard the rollback point on the stack's page to free it.">Kept for rollback: ${img.keptFor.map(esc).join(', ')}</span>`
       : img.removable ? '<span class="tag t-idle">Unused, can be removed</span>' : '<span class="muted small">Unused</span>';
     return `<div class="tr${IMG_SEL.has(img.id) ? ' selected' : ''}">
       <span class="i-sel">${INFO.podman && !img.usedBy.length && !img.keptFor.length ? `<input type="checkbox" data-img-sel="${esc(img.id)}" aria-label="Select ${esc(img.tags[0] || img.id.slice(0, 12))}" ${IMG_SEL.has(img.id) ? 'checked' : ''}>` : ''}</span>
@@ -2245,7 +2247,7 @@ function renderResources() {
     rows.map(([name, r]) => {
       const stack = owner(name);
       return `<div class="tr"><span><b>${esc(name)}</b></span>
-        <span>${stack ? `<a class="tag t-idle" href="#/stacks/${enc(stack)}/summary">${esc(stack)}</a>` : '<span class="muted small">—</span>'}</span>
+        <span>${stack ? `<a class="tag t-idle" href="#/stacks/${enc(stack)}/summary" title="${esc(stack)}">${esc(stack)}</a>` : '<span class="muted small">—</span>'}</span>
         <span class="small">${fmtCpu(r.cpu)}</span>
         <span class="small">${usageBar(r.mem, r.limit || (h ? h.memTotal : 0), BAR_CLASS[memClass(r.mem, r.limit)])} ${fmtMem(r.mem)}</span>
         <span class="small">${r.limit ? fmtMem(r.limit) : 'no limit'}</span>

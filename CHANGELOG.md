@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.30
+
+- *Page, on a phone.* The Containers table fell apart (the image column was 0 px wide, its text one letter per
+  line): a rule of the stacks list's phone layout reached its name cell too. It now applies to the stacks list only.
+- *Page.* A tag in a table (a stack's name on Containers and Resources, *Kept for rollback* on Images) is cut at
+  its cell with an ellipsis, the whole text on hover, instead of running into the next column; many ports wrap.
+
 ## 1.0.29
 
 - *Page.* Containers: the state column fits "running" with its health tag (it no longer runs into the ports), and

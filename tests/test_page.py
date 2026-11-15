@@ -103,3 +103,15 @@ class PageTest(Base):
         with urllib.request.urlopen(self.base + '/', timeout=10) as r:
             page = r.read().decode('utf-8')
         self.assertIn('alerts: ALERTS.map((a) => ({ stack: a.stack, at: a.at }))', page)
+
+    def test_long_values_stay_in_their_table_cells(self):
+        """A tag in a table is cut at its cell with an ellipsis (the whole text in its title), ports wrap, and the
+        stacks list's phone layout names only its own cells (the Containers table has a c-name cell too: a named
+        area it lacks collapsed its grid, the image column was 0 px wide)."""
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        self.assertIn('.table .tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis;', page)
+        self.assertIn('.ports { display: flex; flex-wrap: wrap;', page)
+        self.assertIn('.stacks .c-name { grid-area: name; }', page)
+        self.assertNotRegex(page, r'\n\s*\.c-(sel|state|name|cont|drift|img|act|mem) \{ grid-area')
+        self.assertIn('title="${esc(c.stack)}"', page)
