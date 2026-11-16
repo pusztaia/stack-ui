@@ -44,6 +44,18 @@ class RegistrySafetyTest(Base):
         self.assertEqual(digests, ())
         self.assertIn('not allowed', message)
 
+    def test_a_basic_challenge_and_an_http_error_are_named(self):
+        def basic(url, token, method):
+            raise urllib.error.HTTPError(url, 401, 'no', {'WWW-Authenticate': 'Basic realm="r"'}, None)
+        self.patch(self.ui.registry, 'registry_fetch', basic)
+        self.assertEqual(self.ui.check_ref('nginx:latest', set(), None), ((), 'registry: the registry asks for a login'))
+
+        def missing(url, token, method):
+            raise urllib.error.HTTPError(url, 404, 'Not Found', {}, None)
+        self.patch(self.ui.registry, 'registry_fetch', missing)
+        self.assertEqual(self.ui.check_ref('ghcr.io/a/b:nope', set(), None), ((), 'registry: HTTP 404'))
+        self.assertEqual(self.ui.check_ref('nginx@sha256:' + 'a' * 64, set(), None), ((), 'pinned to a digest or built locally'))
+
     def test_redirects_to_private_or_plain_http_hosts_are_not_followed(self):
         handler = self.ui.SafeRedirect()
         req = urllib.request.Request('https://auth.docker.io/token')

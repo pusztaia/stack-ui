@@ -95,6 +95,21 @@ class PumpTest(unittest.TestCase):
         pa._pump(Fake(), out.append, lambda: states.pop(0) if states else True)
         self.assertEqual(out, [pa._END])
 
+    def test_a_close_during_a_read_ends_the_thread_quietly(self):
+        """close() from another thread empties http.client's response under a running read1(), which then fails with
+        AttributeError ('NoneType' object has no attribute 'close'): the reader must end with _END, not die with a
+        traceback on stderr (the container's log)."""
+        class Fake:
+            def read1(self, n):
+                raise AttributeError("'NoneType' object has no attribute 'close'")
+        out = []
+        states = [False]
+        pa._pump(Fake(), out.append, lambda: states.pop(0) if states else True)
+        self.assertEqual(out, [pa._END])
+        out = []
+        pa._pump(Fake(), out.append, lambda: False)         # not stopped: a broken stream, reported
+        self.assertIsInstance(out[0], pa._Failure)
+
 
 class LogStreamTest(Base):
     def setUp(self):

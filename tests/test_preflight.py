@@ -83,6 +83,15 @@ class PortTest(Base):
         long = web() + '    ports:\n      - target: 80\n        published: "8764-8766"\n'
         self.assertEqual(pf.check(long, None, held, [])['errors'], [])
 
+    def test_every_default_form_is_read_like_podman_compose(self):
+        # ${A-x}: x only when A is unset; ${A:+x} / ${A+x}: x when A is set (and not empty / even if empty)
+        held = [holder(host_port=8080)]
+        cases = [('"${P-8080}:80"', '', 1), ('"${P-8080}:80"', 'P=9090\n', 0), ('"${P-9090}:80"', 'P=\n', 0),
+                 ('"${P:+8080}:80"', 'P=1\n', 1), ('"${P:+8080}:80"', 'P=\n', 0),
+                 ('"${P+8080}:80"', 'P=\n', 1), ('"${P+8080}:80"', '', 0)]
+        for spec, env, errors in cases:
+            self.assertEqual(len(pf.check(web(spec), env, held, [])['errors']), errors, (spec, env))
+
     def test_the_env_file_sets_the_port(self):
         text = web('"${HTTP_PORT:-8080}:80"')
         self.assertEqual(pf.check(text, 'HTTP_PORT=9090\n', [holder()], [])['errors'], [])

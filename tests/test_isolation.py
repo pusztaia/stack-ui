@@ -4,7 +4,7 @@ from tests.support import Base, fresh_server
 
 
 class IsolationTest(Base):
-    """No test may write to the real data folder (/data, or C:\data on Windows): a forgotten patch of a setting
+    """No test may write to the real data folder (/data, or C:\\data on Windows): a forgotten patch of a setting
     must not reach it, also after the server parts are loaded again."""
 
     def test_the_settings_file_and_the_data_folder_are_the_test_s_own(self):

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.35
+
+- *Live logs.* Closing a followed log (leaving the Logs page, Pause) could end its reader thread with a traceback
+  (`AttributeError: 'NoneType' object has no attribute 'close'`) in the page's own container log: http.client fails
+  that way when the connection is closed under a running read. The reader now ends quietly.
+- *Tests.* The refusals of the stack file checks (env lines, the compose file, the files field, uploads: name, ignored
+  or existing stack, file names, the chosen compose / env file, a save through a link, an unknown saved version), every
+  `${VAR...}` default form of the deploy check, and the registry's login and HTTP errors; a SyntaxWarning in a test.
+
 ## 1.0.34
 
 - *Why an image check failed.* The toast after *Check for updates* names each stack whose registry could not be asked

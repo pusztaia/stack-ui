@@ -222,7 +222,8 @@ def _pump(response, put, stopped) -> None:
         for line in frames.rest():
             put(line)
         put(_END)
-    except (OSError, http.client.HTTPException, ValueError) as exc:
+    except (OSError, http.client.HTTPException, ValueError, AttributeError) as exc:
+        # AttributeError: close() from another thread empties http.client's response under a running read1()
         put(_END if stopped() else _Failure(f'the Podman log stream broke: {exc}'))
 
 
