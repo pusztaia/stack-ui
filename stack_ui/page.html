@@ -746,6 +746,9 @@ function healthChips() {
   if (h.power && h.power.level !== 'ok') {
     parts.push(`<a href="#/health" class="tag ${LEVEL_TAG[h.power.level]}" title="${esc(powerLines(h.power).join('. '))}">${h.power.level === 'bad' ? 'Power problem' : 'Power dipped'}</a>`);
   }
+  for (const l of (h.podman && h.podman.looping) || []) {
+    parts.push(`<a href="#/health" class="tag t-bad" title="${esc(plural(l.restarts, 'restart'))}, the last within 10 minutes">Restart loop: ${esc(l.name)}</a>`);
+  }
   for (const d of h.disks.filter((x) => x.level !== 'ok')) {
     parts.push(`<a href="#/health" class="tag ${LEVEL_TAG[d.level]}" title="${esc(d.path)}">Disk ${Math.round(d.percent)} % full</a>`);
   }
@@ -800,7 +803,7 @@ const FILTERS = [
   ['all', 'All', () => true],
   ['running', 'Running', (s) => stackState(s) === 'run'],
   ['partly', 'Not every container runs', (s) => stackState(s) === 'part'],
-  ['unhealthy', 'Unhealthy', (s) => s.containers.some((c) => c.status === 'unhealthy')],
+  ['unhealthy', 'Unhealthy', (s) => s.containers.some((c) => c.status === 'unhealthy' || c.looping)],
   ['stopped', 'Stopped', (s) => stackState(s) === 'stop'],
   ['differs', 'Differs from deployed', (s) => DRIFT[s.name]?.state === 'differs'],
   ['updates', 'Image updates', (s) => UPDATES.stacks[s.name]?.status === 'update'],
@@ -877,11 +880,19 @@ function healthTag(status) {
   const cls = { healthy: 't-ok', unhealthy: 't-bad', starting: 't-warn' }[status];
   return cls ? `<span class="tag hl ${cls}" title="Healthcheck">${status}</span>` : '';
 }
+// how often the restart policy started the container again; red "Restart loop" when it keeps crashing (see health.py)
+function restartTag(c) {
+  if (!c.restarts) return '';
+  const n = plural(c.restarts, 'restart');
+  return c.looping
+    ? `<span class="tag hl t-bad" title="${n} by its restart policy, the last within 10 minutes: it keeps crashing (see its Logs)">Restart loop</span>`
+    : `<span class="tag hl t-idle" title="${n} by its restart policy since it was created">${c.restarts}× restarted</span>`;
+}
 function stackRow(s) {
   const n = esc(s.name);
   const state = stackState(s);
   const conts = s.containers.length
-    ? s.containers.map((c) => `<span class="ct" title="${esc(c.image)} – ${esc(c.status || c.state)}"><i class="dot ${dotClass(c.state)}"></i>${esc(c.name)}${healthTag(c.status)}</span>`).join('')
+    ? s.containers.map((c) => `<span class="ct" title="${esc(c.image)} – ${esc(c.status || c.state)}"><i class="dot ${dotClass(c.state)}"></i>${esc(c.name)}${healthTag(c.status)}${c.looping ? restartTag(c) : ''}</span>`).join('')
       + (!s.stack ? '<span class="small">not deployed: Create asks to replace it</span>' : '')
     : '<span class="muted small">No container</span>';
   return `<div class="tr${SELECTED.has(s.name) ? ' selected' : ''}" data-row="${n}">
@@ -1025,7 +1036,7 @@ function tabSummary(name) {
   const rows = s.containers.map((c) => `<div class="tr" data-container="${esc(c.name)}">
       <span class="k-name ct"><i class="dot ${dotClass(c.state)}"></i><b>${esc(c.name)}</b></span>
       <span class="k-img files">${esc(c.image)}</span>
-      <span class="k-stat small muted">${esc(c.state)} ${healthTag(c.status)}</span>
+      <span class="k-stat small muted">${esc(c.state)} ${healthTag(c.status)}${restartTag(c)}</span>
       <span class="k-cpu small">${usageOf(c.name) ? fmtCpu(usageOf(c.name).cpu) : '—'}</span>
       <span class="k-mem">${memTag(usageOf(c.name))}</span>
       <span class="k-upd">${updTag(c.name)}</span>
@@ -1597,7 +1608,7 @@ async function viewContainers() {
         return `<div class="tr">
           <span class="c-name"><b>${n}</b>${stackTag}${c.protected ? ' <span class="tag t-idle bk">Protected</span>' : ''}<span class="files">${esc(ago(c.created))}</span></span>
           <span class="files">${esc(c.image)}</span>
-          <span class="ct"><i class="dot ${dotClass(c.state)}"></i>${esc(c.state)}${healthTag(c.status)}</span>
+          <span class="ct"><i class="dot ${dotClass(c.state)}"></i>${esc(c.state)}${healthTag(c.status)}${restartTag(c)}</span>
           <span class="ports small">${portLinks(c)}</span>
           <span class="r">${run ? btn('stop', 'Stop', !c.protected) : btn('start', 'Start')}${btn('restart', 'Restart', run && !c.protected)}${btn('logs', 'Logs')}${btn('details', 'Details')}${btn('remove', 'Remove', !c.inStack && !c.protected, 'small danger')}</span></div>`;
       }).join('') || '<div class="empty">No container matches.</div>'}</div>`;
@@ -2227,6 +2238,8 @@ function renderHealth() {
   const podman = p.error ? errBox(`Podman could not be read: ${p.error}`) : `<dl class="kv">
       <dt>Version</dt><dd>${esc(p.version || '—')}</dd>
       <dt>Containers</dt><dd>${p.containers.running} running of ${p.containers.total}</dd>
+      <dt>Restart loops</dt><dd>${(p.looping || []).length ? p.looping.map((l) => `<div><span class="tag t-bad">Restart loop</span> <b>${esc(l.name)}</b> <span class="muted small">${plural(l.restarts, 'restart')}, the last within 10 minutes: see its Logs</span></div>`).join('')
+        : '<span class="muted small">none: no container keeps restarting</span>'}</dd>
       <dt>Images</dt><dd>${p.images.count} · ${fmtMem(p.images.size)}</dd></dl>`;
   $('hl-body').innerHTML = `<section class="panel"><dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></section>
     <h2 class="sec-title">Disks</h2>${disks}

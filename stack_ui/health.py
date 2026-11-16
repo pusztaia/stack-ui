@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from pathlib import Path
 
 from . import podman_api as pa
@@ -16,6 +17,9 @@ UPTIME = Path('/proc/uptime')
 THROTTLED = Path('/sys/devices/platform/soc/soc:firmware/get_throttled')   # the Raspberry Pi firmware's flags (hex)
 THROTTLED_ROOT = Path('/sys/devices/platform')                            # where another firmware device is looked for
 
+# a restart loop: at least LOOP_RESTARTS restarts by the restart policy and the last start less than LOOP_WINDOW
+# seconds ago (a crashing container looks "running" between two crashes)
+LOOP_RESTARTS, LOOP_WINDOW = 3, 600
 TEMP_WARN, TEMP_BAD = 70.0, 80.0    # a Raspberry Pi 4 starts to slow itself down at 80 °C
 DISK_WARN, DISK_BAD = 80.0, 90.0    # percent of the filesystem in use
 RANK = {'ok': 0, 'warn': 1, 'bad': 2}
@@ -111,6 +115,29 @@ def disks(paths: list[str]) -> list[dict]:
     return out
 
 
+def restarts(c: dict) -> int:
+    """How often the container's restart policy started it again (libpod's Restarts; 0 when an older Podman has none)."""
+    try:
+        return max(0, int(c.get('Restarts') or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def looping(c: dict, now: float | None = None) -> bool:
+    """Whether the container restarts in a loop: LOOP_RESTARTS or more restarts, and restarting now or started again
+    within LOOP_WINDOW. A stopped container is not (whatever its count)."""
+    if restarts(c) < LOOP_RESTARTS:
+        return False
+    if c.get('State') == 'restarting':
+        return True
+    try:
+        started = int(c.get('StartedAt') or 0)
+    except (TypeError, ValueError):
+        return False
+    now = time.time() if now is None else now
+    return c.get('State') == 'running' and started > 0 and now - started < LOOP_WINDOW
+
+
 def podman_info() -> dict:
     if not pa.configured():
         return {'error': f'no Podman socket at {pa.SOCKET}'}
@@ -119,6 +146,8 @@ def podman_info() -> dict:
         images = pa.images()
         return {'version': pa.version(),
                 'containers': {'running': sum(1 for c in containers if c.get('State') == 'running'), 'total': len(containers)},
+                'looping': [{'name': (c.get('Names') or ['?'])[0].lstrip('/'), 'restarts': restarts(c)}
+                            for c in containers if looping(c)],
                 'images': {'count': len(images), 'size': sum(int(i.get('Size') or 0) for i in images)}}
     except pa.PodmanError as exc:
         return {'error': str(exc)}
@@ -135,5 +164,6 @@ def health(paths: list[str], cpus: int) -> dict:
     rows = disks(paths)
     podman = podman_info()
     levels = [x['level'] for x in (temperature, loaded, supply) if x] + [d['level'] for d in rows] + (['bad'] if 'error' in podman else [])
+    levels += ['warn'] if podman.get('looping') else []
     return {'temperature': temperature, 'load': loaded, 'power': supply, 'uptime': uptime, 'disks': rows,
             'podman': podman, 'level': worst(levels)}

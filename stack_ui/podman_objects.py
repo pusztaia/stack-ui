@@ -9,6 +9,7 @@ import threading
 import yaml
 
 from . import core
+from . import health as hl
 from . import podman_api as pa
 from . import stacks as st
 from .core import Busy, NoContainer, operation, require_podman, self_projects
@@ -64,7 +65,7 @@ def container_table() -> dict:
         rows.append({'name': st.cname(c), 'id': str(c.get('Id') or ''), 'state': c.get('State'),
                      'status': c.get('Status'), 'image': c.get('Image'), 'created': unix_time(c.get('Created')),
                      'stack': stack, 'ports': published_ports(c), 'inStack': bool(owner) or stack in names,
-                     'protected': is_protected(c, own_projects)})
+                     'protected': is_protected(c, own_projects), 'restarts': hl.restarts(c), 'looping': hl.looping(c)})
     return {'containers': sorted(rows, key=lambda r: (r['stack'] or '~', r['name']))}
 
 

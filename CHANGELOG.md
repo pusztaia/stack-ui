@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.37
+
+- *Restart loops.* A container that keeps crashing looked "running" between two crashes. libpod's `Restarts` (how
+  often the restart policy started it again) and `StartedAt` show it: 3 or more restarts and the last start within 10
+  minutes (or the state `restarting`) is a *Restart loop*: a red tag on its stack (which then counts as Unhealthy), in
+  Containers and on the stack's Summary, a row on the Health page, a header chip, and the Health level warns. A
+  container restarted earlier shows the count (`2× restarted`) in Containers and on the Summary.
+
 ## 1.0.36
 
 - *Many connections at once.* The page's listen queue was socketserver's default of 5: a burst of connections beyond it
