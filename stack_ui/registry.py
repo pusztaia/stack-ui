@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import socket
 import threading
@@ -9,6 +10,7 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 from . import podman_api as pa
@@ -66,7 +68,10 @@ class SafeRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not target_ok(newurl, urlsplit(req.full_url).hostname or ''):
             raise urllib.error.URLError(f'a redirect to {urlsplit(newurl).netloc or newurl} is not followed')
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        moved = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if moved is not None and urlsplit(newurl).hostname != urlsplit(req.full_url).hostname:
+            moved.remove_header('Authorization')   # a login or a pull token is for the host it was meant for only
+        return moved
 
 
 REGISTRY_OPENER = urllib.request.build_opener(SafeRedirect)
@@ -80,15 +85,38 @@ def registry_fetch(url: str, token: str, method: str) -> tuple[str, str, bytes]:
                 resp.read() if method == 'GET' else b'')
 
 
+def registry_login(registry: str) -> str:
+    """The login (base64 of user:password) that the REGISTRY_AUTH_FILE (podman login --authfile) holds for the
+    registry's host; '' when there is no such file, entry or valid value. Podman pulls with the same file."""
+    path = os.environ.get('REGISTRY_AUTH_FILE', '')
+    raw = st.read_plain(Path(path), 256 * 1024) if path else None
+    try:
+        auths = json.loads(raw.decode('utf-8')).get('auths') if raw else None
+    except (ValueError, AttributeError):
+        return ''
+    want = (urlsplit(f'//{registry}').hostname or '').lower()
+    for key, entry in (auths.items() if isinstance(auths, dict) else ()):
+        key = str(key)
+        host = urlsplit(key if '//' in key else f'//{key}').hostname or ''   # ghcr.io, ghcr.io/owner, https://ghcr.io/v1/
+        login = entry.get('auth') if isinstance(entry, dict) else None
+        if host == want and isinstance(login, str) and re.fullmatch(r'[A-Za-z0-9+/]+={0,2}', login):
+            return login
+    return ''
+
+
 def registry_token(challenge: str, registry: str, repo: str) -> str:
-    """An anonymous pull token for the registry's Bearer challenge."""
+    """A pull token for the registry's Bearer challenge: with the registry's login from REGISTRY_AUTH_FILE when the
+    token address is on the registry's own host (a private image), anonymous otherwise."""
     params = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
     if not challenge.lower().startswith('bearer') or 'realm' not in params:
         raise ValueError('the registry asks for a login')
     if not target_ok(params['realm'], urlsplit(f'//{registry}').hostname or ''):
         raise ValueError('the registry named a token address that is not allowed (not https, or not a public host)')
     query = urlencode({'service': params.get('service', registry), 'scope': params.get('scope', f'repository:{repo}:pull')})
-    with REGISTRY_OPENER.open(f'{params["realm"]}?{query}', timeout=15) as resp:
+    own = urlsplit(params['realm']).hostname == urlsplit(f'//{registry}').hostname
+    login = registry_login(registry) if own else ''
+    request = urllib.request.Request(f'{params["realm"]}?{query}', headers={'Authorization': f'Basic {login}'} if login else {})
+    with REGISTRY_OPENER.open(request, timeout=15) as resp:
         data = json.loads(resp.read().decode('utf-8'))
     return data.get('token') or data.get('access_token') or ''
 

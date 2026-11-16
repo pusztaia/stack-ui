@@ -20,8 +20,8 @@ One container, Python standard library + PyYAML, no database.
 - **A stack's other files**: the scripts, JSON/YAML configs and dashboards its compose file mounts with
   `./name` are saved with it, checked (syntax, no secret literals), versioned in `.history/`, compared with the
   last deploy, viewable and deletable on the page.
-- **Image updates**: asks the registries (anonymous HEAD requests) whether a newer image exists for each running
-  tag and marks the stacks. Once a day (04:00 by the server's clock unless changed on *Settings*; set `TZ`) it
+- **Image updates**: asks the registries (HEAD requests) whether a newer image exists for each running
+  tag and marks the stacks. A private image is asked with the login of `REGISTRY_AUTH_FILE` (see *Configuration*), the rest anonymously. Once a day (04:00 by the server's clock unless changed on *Settings*; set `TZ`) it
   asks by itself. A stack whose *Automatic update* is switched on (its Summary tab) is then updated like *Update*
   does; an update whose containers do not come up is rolled back, that image version is not tried again, and a
   bar on every page says so. Nothing that needs a decision is done automatically (files that are not exactly
@@ -171,6 +171,7 @@ devices or ports below 1024 — and then remember that this page is as powerful 
 | `STACK_UI_IGNORE` | — | folders of `STACKS_DIR` that are not stacks |
 | `STACK_UI_HIDE_UNDEPLOYED` | `false` | `true`: the Stacks page lists only the stacks that have containers (a new one shows up once created; its own page opens after *Add stack*) |
 | `STACK_UI_DATA` | `/data` | where the settings (the API token's hash), the files of each stack's last deploy, the rollback points and the schedule's state are kept; keep it a volume no stack mounts, and back it up (see *Backup*) |
+| `REGISTRY_AUTH_FILE` | — | a `podman login --authfile` file: Podman pulls private images with it, and the update check asks a private image's registry with the login it holds for that registry (sent only to a token address on the registry's own host, over https) |
 | `PODMAN_SOCKET` | `/run/podman/podman.sock` | the Podman socket inside the container |
 | `STACK_UI_BIND`, `STACK_UI_PORT` | `0.0.0.0`, `8770` | where the page listens in the container |
 | `STACK_UI_BACKUP_DIR` | — | a folder in the container (mount a host folder there) where *Settings > Backup > Save on the server* writes; without it only the download is offered |

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.33
+
+- *Update check, private images.* A private image (for example a private GHCR package) always showed *Check failed*:
+  the check asked the registry anonymously, so a stack of such an image never showed *Update available* and its
+  automatic update never ran. The check now asks the registry's token with the login that `REGISTRY_AUTH_FILE` (the
+  file Podman already pulls with) holds for that registry, only when the token address is on the registry's own host.
+- *Registry redirects.* A redirect to another host no longer carries the login or the pull token along.
+
 ## 1.0.32
 
 - *Containers, port ranges.* libpod returns neighbouring published ports (for example 8764 and 8765) as ONE entry with
