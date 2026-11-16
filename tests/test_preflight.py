@@ -60,6 +60,14 @@ class PortTest(Base):
         self.assertIn('8080', r['errors'][0])
         self.assertIn('other', r['errors'][0])
 
+    def test_a_port_inside_a_range_another_container_holds_is_an_error(self):
+        # libpod returns 8764 and 8765 as ONE entry (host_port 8764, range 2): the second port is held too
+        held = {'Names': ['pair'], 'State': 'running', 'Ports': [{'host_ip': '0.0.0.0', 'host_port': 8764, 'container_port': 8764, 'range': 2, 'protocol': 'tcp'}]}
+        r = pf.check(web('"8765:80"'), None, [held], [])
+        self.assertEqual(len(r['errors']), 1)
+        self.assertIn('8765', r['errors'][0])
+        self.assertEqual(pf.check(web('"8766:80"'), None, [held], [])['errors'], [])
+
     def test_the_env_file_sets_the_port(self):
         text = web('"${HTTP_PORT:-8080}:80"')
         self.assertEqual(pf.check(text, 'HTTP_PORT=9090\n', [holder()], [])['errors'], [])

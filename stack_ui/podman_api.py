@@ -402,3 +402,19 @@ def create_secret(name: str, value: bytes, replace: bool = False) -> None:
 
 def remove_secret(name: str) -> None:
     request('DELETE', f'/secrets/{quote(check_name(name, "secret name"), safe="")}')
+
+
+def host_ports(c: dict) -> list[dict]:
+    """Every port a container publishes on the host, one dict each: {host_ip, host_port, container_port, protocol}.
+
+    libpod merges neighbouring ports into ONE entry with a `range` (8764 and 8765 come back as host_port 8764, range 2), so reading
+    only `host_port` shows the first of them and loses the rest; this spells the range out. A port without a host port is not published."""
+    out = []
+    for p in c.get('Ports') or []:
+        host, container = int(p.get('host_port') or 0), int(p.get('container_port') or 0)
+        if host <= 0:
+            continue
+        for i in range(max(1, min(int(p.get('range') or 1), 65535))):
+            out.append({'host_ip': str(p.get('host_ip') or ''), 'host_port': host + i, 'container_port': container + i,
+                        'protocol': str(p.get('protocol') or 'tcp')})
+    return out

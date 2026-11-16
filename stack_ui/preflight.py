@@ -10,6 +10,8 @@ import re
 
 import yaml
 
+from . import podman_api as pa
+
 WILD = {'', '0.0.0.0', '::'}
 VAR = re.compile(r'\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?+])([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)')
 PORT = re.compile(r'^(?:(?P<ip>\[[^\]]+\]|[\d.]+):)?(?P<host>\d+):\d+(?:-\d+)?$')
@@ -100,9 +102,8 @@ def _holds(containers: list[dict]) -> list[tuple[str, int, str, str]]:
     for c in containers:
         if c.get('State') != 'running':
             continue
-        for p in c.get('Ports') or []:
-            if int(p.get('host_port') or 0) > 0:
-                held.append((str(p.get('host_ip') or ''), int(p['host_port']), str(p.get('protocol') or 'tcp').lower(), _cname(c)))
+        for p in pa.host_ports(c):   # a range libpod merged (8764-8765) holds every port in it
+            held.append((p['host_ip'], p['host_port'], p['protocol'].lower(), _cname(c)))
     return held
 
 

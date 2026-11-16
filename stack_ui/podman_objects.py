@@ -46,9 +46,8 @@ def is_protected(c: dict, own_projects: set[str]) -> bool:
 
 
 def published_ports(c: dict) -> list[dict]:
-    return [{'host': str(p.get('host_ip') or ''), 'port': int(p.get('host_port') or 0),
-             'container': int(p.get('container_port') or 0), 'protocol': str(p.get('protocol') or 'tcp')}
-            for p in c.get('Ports') or [] if int(p.get('host_port') or 0) > 0]
+    return [{'host': p['host_ip'], 'port': p['host_port'], 'container': p['container_port'], 'protocol': p['protocol']}
+            for p in pa.host_ports(c)]   # a range libpod merged (8764-8765) is spelled out
 
 
 def container_table() -> dict:

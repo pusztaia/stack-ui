@@ -14,6 +14,8 @@ class ContainersTest(Base):
         self.mock.add_container('web', project='web', ports=[{'host_ip': '', 'host_port': 8080, 'container_port': 80,
                                                               'protocol': 'tcp'}, {'host_ip': '', 'host_port': 0,
                                                               'container_port': 9000, 'protocol': 'tcp'}], created=1760000000)
+        self.mock.add_container('pair', project='web', ports=[{'host_ip': '0.0.0.0', 'host_port': 8764, 'container_port': 8764, 'range': 2,
+                                                               'protocol': 'tcp'}])   # libpod merges 8764 and 8765 into one entry
         self.mock.add_container('orphan', project='gone')
         self.mock.add_container('stack-ui', project='stack-ui')
 
@@ -27,6 +29,11 @@ class ContainersTest(Base):
         self.assertTrue(rows['stack-ui']['protected'])
         self.assertEqual(rows['web']['ports'], [{'host': '', 'port': 8080, 'container': 80, 'protocol': 'tcp'}])
         self.assertEqual(rows['web']['created'], 1760000000)
+
+    def test_a_range_of_ports_is_spelled_out(self):
+        # libpod hands neighbouring ports back as one entry with a range: both must show, not only the first
+        self.assertEqual(self.rows()['pair']['ports'], [{'host': '0.0.0.0', 'port': 8764, 'container': 8764, 'protocol': 'tcp'},
+                                                        {'host': '0.0.0.0', 'port': 8765, 'container': 8765, 'protocol': 'tcp'}])
 
     def test_actions(self):
         self.ui.container_do({'name': 'web', 'action': 'stop'})
