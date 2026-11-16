@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.34
+
+- *Why an image check failed.* The toast after *Check for updates* names each stack whose registry could not be asked
+  and the reason (it said only how many, and to hover a badge); the stack's Summary shows the reason as text under
+  *Why the check failed* (a hover title cannot be read on a phone).
+- *Deploy check, port ranges in the compose file.* A range the stack publishes (`"8764-8765:8764-8765"`) was skipped
+  by the port check, so a port of it that another container holds was found only when `up` failed. Each port of the
+  range is now checked; a host range for one container port (`"8764-8766:80"`) is still left to Podman, which takes
+  any free port of it.
+
 ## 1.0.33
 
 - *Update check, private images.* A private image (for example a private GHCR package) always showed *Check failed*:

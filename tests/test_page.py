@@ -116,6 +116,15 @@ class PageTest(Base):
         self.assertNotRegex(page, r'\n\s*\.c-(sel|state|name|cont|drift|img|act|mem) \{ grid-area')
         self.assertIn('title="${esc(c.stack)}"', page)
 
+    def test_a_failed_image_check_names_the_stack_and_the_reason(self):
+        """The toast names each stack whose registry could not be asked and why; the stack's Summary shows the reason
+        as text (a badge's hover title cannot be read on a phone)."""
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('function checkFailures', 'checkFailures(UPDATES.stacks)', '<dt>Why the check failed</dt>', 'id="upd-why"'):
+            self.assertIn(name, page, name)
+        self.assertNotIn('hover its badge for the reason', page)
+
     def test_the_backup_panel(self):
         with urllib.request.urlopen(self.base + '/', timeout=10) as r:
             page = r.read().decode('utf-8')

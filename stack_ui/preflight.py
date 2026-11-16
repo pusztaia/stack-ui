@@ -14,7 +14,7 @@ from . import podman_api as pa
 
 WILD = {'', '0.0.0.0', '::'}
 VAR = re.compile(r'\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?+])([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)')
-PORT = re.compile(r'^(?:(?P<ip>\[[^\]]+\]|[\d.]+):)?(?P<host>\d+):\d+(?:-\d+)?$')
+PORT = re.compile(r'^(?:(?P<ip>\[[^\]]+\]|[\d.]+):)?(?P<host>\d+)(?:-(?P<host_end>\d+))?:(?P<cont>\d+)(?:-(?P<cont_end>\d+))?$')
 
 
 def parse_env(text: str | None) -> dict[str, str]:
@@ -80,7 +80,9 @@ def _external_networks(data: dict) -> list[str]:
 
 
 def _published(service: dict) -> list[tuple[str, int, str]]:
-    """(host address, host port, protocol) of every port the service publishes with a single host port."""
+    """(host address, host port, protocol) of every host port the service asks for by number. A range mapped onto a
+    range of the same length ("8764-8765:80-81") asks for each of its ports; a host range for one container port
+    ("8764-8766:80") lets Podman take any free one of them, so it names no port."""
     found = []
     for item in service.get('ports') or []:
         ip, port, proto = '', 0, 'tcp'
@@ -91,7 +93,12 @@ def _published(service: dict) -> list[tuple[str, int, str]]:
             spec, _, p = item.partition('/')
             m = PORT.match(spec.strip())
             if m:
-                ip, port, proto = (m.group('ip') or '').strip('[]'), int(m.group('host')), (p or 'tcp').lower()
+                ip, proto = (m.group('ip') or '').strip('[]'), (p or 'tcp').lower()
+                first, last = int(m.group('host')), int(m.group('host_end') or m.group('host'))
+                count = int(m.group('cont_end') or m.group('cont')) - int(m.group('cont')) + 1
+                if last - first + 1 == count and 0 < first <= last <= 65535:
+                    found.extend((ip, port, proto) for port in range(first, last + 1))
+                continue
         if port:
             found.append((ip, port, proto))
     return found

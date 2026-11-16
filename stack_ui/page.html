@@ -430,6 +430,12 @@ function diffHtml(text) {
   }).join('') + '</pre>';
 }
 
+// [[stack, reason], ...]: the stacks whose registry could not be asked, each with the reason of its first such image
+function checkFailures(stacks) {
+  return Object.entries(stacks || {}).filter(([, u]) => u.status === 'unknown')
+    .map(([name, u]) => [name, (u.images.find((i) => i.status === 'unknown') || {}).message || 'no reason given']);
+}
+
 function toast(msg, kind = 'ok') {
   const t = document.createElement('div');
   t.className = `toast ${kind}`;
@@ -665,9 +671,9 @@ async function checkUpdates(btn) {
   try {
     UPDATES = await api('/api/updates', { method: 'POST', body: '{}' });
     const n = Object.values(UPDATES.stacks).filter((u) => u.status === 'update').length;
-    const failed = Object.values(UPDATES.stacks).filter((u) => u.status === 'unknown').length;
+    const failed = checkFailures(UPDATES.stacks);
     toast(n ? `${plural(n, 'stack')} can be updated to a newer image` : 'Every image is up to date');
-    if (failed) toast(`The registry could not be asked for ${plural(failed, 'stack')}; hover its badge for the reason`, 'bad');
+    if (failed.length) toast(`The registry could not be asked for ${failed.map(([s, why]) => `${s} (${why})`).join(', ')}`, 'bad');
     if (n && ROUTE.view === 'stacks') FILTER = 'updates';
   } catch (e) {
     toast(`Update check failed: ${e.message}`, 'bad');
@@ -1039,6 +1045,8 @@ function tabSummary(name) {
         <dt>Compose file</dt><dd><code>${esc(s.compose)}</code></dd>
         <dt>Env file</dt><dd><code>${esc(s.env)}</code></dd>
         <dt>Last image check</dt><dd>${UPDATES.checkedAt ? esc(new Date(UPDATES.checkedAt).toLocaleString()) : 'Not checked yet'}</dd>
+        ${u?.images.some((i) => i.status === 'unknown') ? `<dt>Why the check failed</dt><dd id="upd-why">${u.images.filter((i) => i.status === 'unknown')
+          .map((i) => `<div class="small"><b>${esc(i.container)}</b>: ${esc(i.message)}</div>`).join('')}</dd>` : ''}
         <dt>Automatic update</dt><dd>${s.protected ? '<span class="muted small">Not for a protected stack</span>'
           : `<select id="auto-sel" aria-label="Automatic update" style="width:auto"><option value="off" ${s.auto ? '' : 'selected'}>Off</option><option value="on" ${s.auto ? 'selected' : ''}>On</option></select>
              <div class="muted small" style="margin-top:6px">${s.autoNote ? esc(s.autoNote.charAt(0).toUpperCase() + s.autoNote.slice(1)) + '.'

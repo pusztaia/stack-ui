@@ -68,6 +68,21 @@ class PortTest(Base):
         self.assertIn('8765', r['errors'][0])
         self.assertEqual(pf.check(web('"8766:80"'), None, [held], [])['errors'], [])
 
+    def test_a_range_the_stack_publishes_is_checked_port_by_port(self):
+        held = [holder(name='other', host_port=8765)]
+        for spec in ('"8764-8765:8764-8765"', '"192.168.50.3:8764-8766:80-82/tcp"', '"${A:-8764}-${B:-8765}:80-81"'):
+            r = pf.check(web(spec), None, held, [])
+            self.assertEqual(r['errors'], ['port 8765/tcp is already used by the container "other"'], spec)
+        self.assertEqual(pf.check(web('"8766-8767:80-81"'), None, held, [])['errors'], [])
+        self.assertEqual(pf.check(web('"8764-8765:80-81/udp"'), None, held, [])['errors'], [])
+
+    def test_a_host_range_for_one_container_port_is_left_to_podman(self):
+        # "8764-8766:80" (and the long form's published range): Podman takes any free port of the range
+        held = [holder(host_port=8765)]
+        self.assertEqual(pf.check(web('"8764-8766:80"'), None, held, [])['errors'], [])
+        long = web() + '    ports:\n      - target: 80\n        published: "8764-8766"\n'
+        self.assertEqual(pf.check(long, None, held, [])['errors'], [])
+
     def test_the_env_file_sets_the_port(self):
         text = web('"${HTTP_PORT:-8080}:80"')
         self.assertEqual(pf.check(text, 'HTTP_PORT=9090\n', [holder()], [])['errors'], [])
