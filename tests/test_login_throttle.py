@@ -3,7 +3,6 @@ import json
 import threading
 import urllib.error
 import urllib.request
-from http.server import ThreadingHTTPServer
 
 from tests.support import Base, fresh_server
 from stack_ui import server as srv
@@ -15,7 +14,7 @@ class LoginThrottleTest(Base):
         self.ui = fresh_server()
         self.ui.Config.password_hash = self.ui.hash_password('right-password', 1000)
         self.patch(self.ui.time, 'sleep', lambda _: None)
-        server = ThreadingHTTPServer(('127.0.0.1', 0), self.ui.Handler)
+        server = self.ui.Server(('127.0.0.1', 0), self.ui.Handler)   # the page's own server: its listen queue
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
@@ -38,6 +37,11 @@ class LoginThrottleTest(Base):
         self.assertEqual([self.login('no') for _ in range(4)], [401] * 4)
         self.assertEqual(self.login('right-password'), 200)
         self.assertEqual([self.login('no'), self.login('no')], [401, 429])   # 4 earlier failures + 1: the right one did not count
+
+    def test_the_listen_queue_holds_as_many_as_may_run(self):
+        # socketserver's default queue is 5: a burst of connections (a page load, parallel guesses on a slow host)
+        # beyond it was reset by the kernel before the page ever saw it
+        self.assertGreaterEqual(self.ui.Server.request_queue_size, self.ui.MAX_CONNECTIONS)
 
     def test_parallel_guesses_are_all_counted(self):
         codes = []

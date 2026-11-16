@@ -251,6 +251,7 @@ class Server(ThreadingHTTPServer):
     """A thread per request, at most MAX_CONNECTIONS at once: a flood of open connections must not use up the
     container's process limit (and with it podman-compose); the surplus is closed at once."""
     daemon_threads = True
+    request_queue_size = MAX_CONNECTIONS   # the listen queue (socketserver's default is 5: a burst beyond it was reset)
 
     def __init__(self, *args, **kw):
         super().__init__(*args, **kw)

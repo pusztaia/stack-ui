@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.36
+
+- *Many connections at once.* The page's listen queue was socketserver's default of 5: a burst of connections beyond it
+  (a page load with its parallel requests and followed logs, on a busy Pi) could be reset by the kernel before the page
+  saw it. The queue now holds as many as may run at once (`MAX_CONNECTIONS`, 64). Found by a test that failed now and
+  then on GitHub (20 parallel logins, 2 reset).
+
 ## 1.0.35
 
 - *Live logs.* Closing a followed log (leaving the Logs page, Pause) could end its reader thread with a traceback
