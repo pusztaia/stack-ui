@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.32
+
+- *Containers, port ranges.* libpod returns neighbouring published ports (for example 8764 and 8765) as ONE entry with
+  a `range`, and the page read only its first port: the Containers table showed 8764 and lost 8765. The ports are now
+  spelled out one by one (`podman_api.host_ports`). The deploy's port check had the same blind spot: a port inside
+  such a range counted as free, so a stack asking for it passed the check and failed at start. It now counts every
+  port of a range as held.
+
 ## 1.0.31
 
 - *Backup.* *Settings > Backup*: *Download backup* gives the page's own state (its data folder: the API token's
