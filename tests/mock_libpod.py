@@ -12,7 +12,8 @@ PREFIX = '/v4.0.0/libpod'
 
 class MockPodman:
     def __init__(self):
-        self.containers: list[dict] = []   # libpod list entries (+ MockVolumes: the volume names it uses)
+        self.containers: list[dict] = []   # libpod list entries (+ MockVolumes: the volume names it uses, MockOOM)
+        self.inspected: list[str] = []     # the container ids inspected, in order
         self.images: list[dict] = []       # Id, RepoTags, RepoDigests, Size, Created
         self.networks: list[dict] = []     # name, driver, subnets
         self.volumes: list[dict] = []      # Name, Driver, Mountpoint
@@ -97,7 +98,10 @@ def route(mock: MockPodman, h, method: str, seg: list[str], q: dict, body: bytes
                 return h.follow(mock.logs.get(c['Id'], b''), mock.log_queue(c['Id']))
             return h.reply(200, raw=mock.logs.get(c['Id'], b''))
         if method == 'GET' and seg[2:] == ['json']:
-            return h.reply(200, {'Id': c['Id'], 'Name': c['Names'][0], 'State': {'Status': c['State']},
+            mock.inspected.append(c['Id'])
+            return h.reply(200, {'Id': c['Id'], 'Name': c['Names'][0],
+                                 'State': {'Status': c['State'], 'OOMKilled': c.get('MockOOM', False),
+                                           'ExitCode': c.get('ExitCode', 0)},
                                  'Config': {'Env': c.get('MockEnv', []), 'Labels': c['Labels'],
                                             'CreateCommand': c.get('MockCreate', []), 'Cmd': c.get('MockCmd', [])},
                                  'Args': c.get('MockCmd', [])})

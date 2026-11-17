@@ -46,6 +46,8 @@ One container, Python standard library + PyYAML, no database.
   A container that keeps crashing looks "running" between two crashes: one that its restart policy started again
   3 or more times, the last within 10 minutes, is a *Restart loop* (red, on the Health page, in the header, on its
   stack and in Containers, and the stack counts as Unhealthy); the containers also show how often they were restarted.
+  A container whose last exit was the kernel's out-of-memory kill (it reached its `mem_limit`) is marked *Out of
+  memory*: raise its limit in the env file.
   The Stacks list shows the temperature, and a disk that is filling up, next to the host's RAM and CPU. What the
   container cannot read (no thermal zone in a virtual machine) shows as not available; the rest still works.
   On a Raspberry Pi it also reads the firmware's flags: under-voltage and throttling right now (red) or since boot

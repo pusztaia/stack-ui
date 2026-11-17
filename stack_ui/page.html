@@ -747,7 +747,7 @@ function healthChips() {
     parts.push(`<a href="#/health" class="tag ${LEVEL_TAG[h.power.level]}" title="${esc(powerLines(h.power).join('. '))}">${h.power.level === 'bad' ? 'Power problem' : 'Power dipped'}</a>`);
   }
   for (const l of (h.podman && h.podman.looping) || []) {
-    parts.push(`<a href="#/health" class="tag t-bad" title="${esc(plural(l.restarts, 'restart'))}, the last within 10 minutes">Restart loop: ${esc(l.name)}</a>`);
+    parts.push(`<a href="#/health" class="tag t-bad" title="${esc(plural(l.restarts, 'restart'))}, the last within 10 minutes${l.oom ? '; out of memory: raise its mem_limit' : ''}">Restart loop: ${esc(l.name)}</a>`);
   }
   for (const d of h.disks.filter((x) => x.level !== 'ok')) {
     parts.push(`<a href="#/health" class="tag ${LEVEL_TAG[d.level]}" title="${esc(d.path)}">Disk ${Math.round(d.percent)} % full</a>`);
@@ -882,17 +882,18 @@ function healthTag(status) {
 }
 // how often the restart policy started the container again; red "Restart loop" when it keeps crashing (see health.py)
 function restartTag(c) {
-  if (!c.restarts) return '';
+  const oom = c.oom ? `<span class="tag hl t-bad" title="Its last exit was the kernel's out-of-memory kill: it reached its memory limit. Raise its mem_limit in the env file (or find what grows).">Out of memory</span>` : '';
+  if (!c.restarts) return oom;
   const n = plural(c.restarts, 'restart');
   return c.looping
-    ? `<span class="tag hl t-bad" title="${n} by its restart policy, the last within 10 minutes: it keeps crashing (see its Logs)">Restart loop</span>`
-    : `<span class="tag hl t-idle" title="${n} by its restart policy since it was created">${c.restarts}× restarted</span>`;
+    ? `<span class="tag hl t-bad" title="${n} by its restart policy, the last within 10 minutes: it keeps crashing (see its Logs)">Restart loop</span>${oom}`
+    : `<span class="tag hl t-idle" title="${n} by its restart policy since it was created">${c.restarts}× restarted</span>${oom}`;
 }
 function stackRow(s) {
   const n = esc(s.name);
   const state = stackState(s);
   const conts = s.containers.length
-    ? s.containers.map((c) => `<span class="ct" title="${esc(c.image)} – ${esc(c.status || c.state)}"><i class="dot ${dotClass(c.state)}"></i>${esc(c.name)}${healthTag(c.status)}${c.looping ? restartTag(c) : ''}</span>`).join('')
+    ? s.containers.map((c) => `<span class="ct" title="${esc(c.image)} – ${esc(c.status || c.state)}"><i class="dot ${dotClass(c.state)}"></i>${esc(c.name)}${healthTag(c.status)}${c.looping || c.oom ? restartTag(c) : ''}</span>`).join('')
       + (!s.stack ? '<span class="small">not deployed: Create asks to replace it</span>' : '')
     : '<span class="muted small">No container</span>';
   return `<div class="tr${SELECTED.has(s.name) ? ' selected' : ''}" data-row="${n}">
@@ -2238,7 +2239,7 @@ function renderHealth() {
   const podman = p.error ? errBox(`Podman could not be read: ${p.error}`) : `<dl class="kv">
       <dt>Version</dt><dd>${esc(p.version || '—')}</dd>
       <dt>Containers</dt><dd>${p.containers.running} running of ${p.containers.total}</dd>
-      <dt>Restart loops</dt><dd>${(p.looping || []).length ? p.looping.map((l) => `<div><span class="tag t-bad">Restart loop</span> <b>${esc(l.name)}</b> <span class="muted small">${plural(l.restarts, 'restart')}, the last within 10 minutes: see its Logs</span></div>`).join('')
+      <dt>Restart loops</dt><dd>${(p.looping || []).length ? p.looping.map((l) => `<div><span class="tag t-bad">Restart loop</span> <b>${esc(l.name)}</b>${l.oom ? ' <span class="tag t-bad">Out of memory</span>' : ''} <span class="muted small">${plural(l.restarts, 'restart')}, the last within 10 minutes: ${l.oom ? 'it reached its memory limit, raise its mem_limit in the env file' : 'see its Logs'}</span></div>`).join('')
         : '<span class="muted small">none: no container keeps restarting</span>'}</dd>
       <dt>Images</dt><dd>${p.images.count} · ${fmtMem(p.images.size)}</dd></dl>`;
   $('hl-body').innerHTML = `<section class="panel"><dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></section>

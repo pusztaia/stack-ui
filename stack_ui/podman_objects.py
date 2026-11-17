@@ -65,7 +65,7 @@ def container_table() -> dict:
         rows.append({'name': st.cname(c), 'id': str(c.get('Id') or ''), 'state': c.get('State'),
                      'status': c.get('Status'), 'image': c.get('Image'), 'created': unix_time(c.get('Created')),
                      'stack': stack, 'ports': published_ports(c), 'inStack': bool(owner) or stack in names,
-                     'protected': is_protected(c, own_projects), 'restarts': hl.restarts(c), 'looping': hl.looping(c)})
+                     'protected': is_protected(c, own_projects), 'restarts': hl.restarts(c), 'looping': hl.looping(c), 'oom': hl.oom_killed(c)})
     return {'containers': sorted(rows, key=lambda r: (r['stack'] or '~', r['name']))}
 
 

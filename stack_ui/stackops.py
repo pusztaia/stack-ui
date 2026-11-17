@@ -35,7 +35,7 @@ def overview() -> dict:
                      'auto': schedule.is_auto(name), 'autoNote': schedule.note(name),
                      'protected': name in core.PROTECTED or name in own,
                      'containers': [{'name': st.cname(c), 'state': c.get('State'), 'status': c.get('Status'),
-                                     'image': c.get('Image'), 'restarts': hl.restarts(c), 'looping': hl.looping(c)}
+                                     'image': c.get('Image'), 'restarts': hl.restarts(c), 'looping': hl.looping(c), 'oom': hl.oom_killed(c)}
                                     for c in mine]})
     return {'stacks': rows, 'podmanError': snap['podmanError'], 'source': core.SOURCE, 'hideUndeployed': HIDE_UNDEPLOYED}
 

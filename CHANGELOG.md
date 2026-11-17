@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.38
+
+- *Out of memory.* A container whose last exit was the kernel's out-of-memory kill (it reached its `mem_limit`, the
+  most common cause of a restart loop on a 4 GB Pi) is marked *Out of memory* on its stack, in Containers, on the
+  Summary and in the Health page's restart loops, with the advice to raise its `mem_limit`. Podman sets `OOMKilled`
+  once and never clears it, so it counts only when the last exit code is a kill (137); only such a container is
+  inspected, once for each exit.
+
 ## 1.0.37
 
 - *Restart loops.* A container that keeps crashing looked "running" between two crashes. libpod's `Restarts` (how

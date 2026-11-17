@@ -20,6 +20,8 @@ THROTTLED_ROOT = Path('/sys/devices/platform')                            # wher
 # a restart loop: at least LOOP_RESTARTS restarts by the restart policy and the last start less than LOOP_WINDOW
 # seconds ago (a crashing container looks "running" between two crashes)
 LOOP_RESTARTS, LOOP_WINDOW = 3, 600
+OOM_EXIT = 137                      # a SIGKILL: what the kernel's out-of-memory killer sends
+_OOM: dict[tuple[str, str], bool] = {}   # (container id, its last exit) -> killed for memory: one question per exit
 TEMP_WARN, TEMP_BAD = 70.0, 80.0    # a Raspberry Pi 4 starts to slow itself down at 80 °C
 DISK_WARN, DISK_BAD = 80.0, 90.0    # percent of the filesystem in use
 RANK = {'ok': 0, 'warn': 1, 'bad': 2}
@@ -138,6 +140,27 @@ def looping(c: dict, now: float | None = None) -> bool:
     return c.get('State') == 'running' and started > 0 and now - started < LOOP_WINDOW
 
 
+def oom_killed(c: dict) -> bool:
+    """Whether the container's last exit was the kernel's out-of-memory kill (its mem_limit was reached). Podman sets
+    OOMKilled once and never clears it, so it counts only when the last exit code (libpod's list) is a kill, 137; only
+    such a container is inspected, once for each exit."""
+    try:
+        if int(c.get('ExitCode') or 0) != OOM_EXIT:
+            return False
+    except (TypeError, ValueError):
+        return False
+    key = (str(c.get('Id') or ''), str(c.get('ExitedAt') or ''))
+    if key not in _OOM:
+        try:
+            state = pa.inspect_container(key[0]).get('State') or {}
+        except pa.PodmanError:
+            return False
+        if len(_OOM) > 500:
+            _OOM.clear()
+        _OOM[key] = bool(state.get('OOMKilled'))
+    return _OOM[key]
+
+
 def podman_info() -> dict:
     if not pa.configured():
         return {'error': f'no Podman socket at {pa.SOCKET}'}
@@ -146,7 +169,7 @@ def podman_info() -> dict:
         images = pa.images()
         return {'version': pa.version(),
                 'containers': {'running': sum(1 for c in containers if c.get('State') == 'running'), 'total': len(containers)},
-                'looping': [{'name': (c.get('Names') or ['?'])[0].lstrip('/'), 'restarts': restarts(c)}
+                'looping': [{'name': (c.get('Names') or ['?'])[0].lstrip('/'), 'restarts': restarts(c), 'oom': oom_killed(c)}
                             for c in containers if looping(c)],
                 'images': {'count': len(images), 'size': sum(int(i.get('Size') or 0) for i in images)}}
     except pa.PodmanError as exc:
