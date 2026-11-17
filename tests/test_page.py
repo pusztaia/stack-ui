@@ -125,6 +125,19 @@ class PageTest(Base):
             self.assertIn(name, page, name)
         self.assertNotIn('hover its badge for the reason', page)
 
+    def test_memory_near_the_limit_is_warned_about(self):
+        """A container whose readings show it at or above 90 % of its memory limit for 30 s (a spike is not enough; the
+        page reads twice right after it opens) gets a yellow chip in the header and a row on the Health page, before
+        the kernel kills it."""
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('const NEAR_LIMIT = 0.9', 'function trackNear', 'function nearLimit', 'trackNear();',
+                     'const NEAR_HOLD = 30000', 'NEAR_AT - NEAR[name] >= NEAR_HOLD', 'Memory near limit', "rows.push(['Memory near limit'"):
+            self.assertIn(name, page, name)
+        # counted once per reading, right where a new reading arrives
+        start = page.index('async function loadResources')
+        self.assertLess(page.index('trackNear();', start), page.index('refreshResourceCells();', start))
+
     def test_the_backup_panel(self):
         with urllib.request.urlopen(self.base + '/', timeout=10) as r:
             page = r.read().decode('utf-8')

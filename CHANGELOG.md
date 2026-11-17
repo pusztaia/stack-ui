@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.39
+
+- *Memory near the limit.* A container whose readings show it at or above 90 % of its memory limit for 30 seconds (a
+  spike is not enough) gets a yellow *Memory near limit* chip in the header and a row on the Health page, with the
+  advice to raise its `mem_limit` before the kernel kills it. Podman's usage leaves out the page cache the kernel can
+  drop (`memory.current - inactive_file`), so a container that only caches files is not warned about.
+
 ## 1.0.38
 
 - *Out of memory.* A container whose last exit was the kernel's out-of-memory kill (it reached its `mem_limit`, the

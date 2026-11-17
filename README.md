@@ -48,6 +48,8 @@ One container, Python standard library + PyYAML, no database.
   stack and in Containers, and the stack counts as Unhealthy); the containers also show how often they were restarted.
   A container whose last exit was the kernel's out-of-memory kill (it reached its `mem_limit`) is marked *Out of
   memory*: raise its limit in the env file.
+  Before that: a container whose readings show it at or above 90 % of its memory limit for 30 seconds gets a yellow
+  *Memory near limit* (in the header and on the Health page); the usage leaves out the page cache the kernel can drop.
   The Stacks list shows the temperature, and a disk that is filling up, next to the host's RAM and CPU. What the
   container cannot read (no thermal zone in a virtual machine) shows as not available; the rest still works.
   On a Raspberry Pi it also reads the firmware's flags: under-voltage and throttling right now (red) or since boot

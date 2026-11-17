@@ -735,10 +735,31 @@ function powerLines(pw) {
   return [...pw.now.map((k) => POWER_NOW[k]), ...pw.since_boot.map((k) => POWER_SINCE[k])];
 }
 // the temperature always, a disk only when it is filling up: coloured only when something is wrong
+// containers at or above NEAR_LIMIT of their memory limit: warned about once every reading for NEAR_HOLD has shown it
+// (a spike is not enough; the page reads twice right after it opens), before the kernel's out-of-memory kill. The
+// usage leaves out the page cache the kernel can drop.
+const NEAR_LIMIT = 0.9;
+const NEAR_HOLD = 30000;   // ms
+let NEAR = {};             // container -> when its readings went at or above NEAR_LIMIT
+let NEAR_AT = 0;           // when the last reading arrived
+function trackNear() {
+  const next = {};
+  NEAR_AT = Date.now();
+  for (const [name, r] of Object.entries((RES && RES.containers) || {})) {
+    if (r.limit && r.mem / r.limit >= NEAR_LIMIT) next[name] = NEAR[name] || NEAR_AT;
+  }
+  NEAR = next;
+}
+function nearLimit() {
+  return Object.keys(NEAR).filter((name) => NEAR_AT - NEAR[name] >= NEAR_HOLD && RES.containers[name]).sort()
+    .map((name) => ({ name, ...RES.containers[name] }));
+}
+const nearText = (n) => `${Math.round(100 * n.mem / n.limit)} % of its ${fmtMem(n.limit)} limit: raise its mem_limit in the env file before the kernel kills it`;
 function healthChips() {
+  const near = nearLimit().map((n) => `<a href="#/health" class="tag t-warn" title="${esc(nearText(n))}">Memory near limit: ${esc(n.name)}</a>`);
   const h = HEALTH;
-  if (!h || h.error) return '';
-  const parts = [];
+  if (!h || h.error) return near.join(' ');
+  const parts = [...near];
   if (h.temperature) {
     const cls = LEVEL_TAG[h.temperature.level];
     parts.push(`<a href="#/health" class="${cls ? `tag ${cls}` : 'small muted'}" title="CPU temperature">${Math.round(h.temperature.celsius)} °C</a>`);
@@ -790,6 +811,7 @@ async function loadResources() {
     api('/api/health').catch((e) => ({ error: e.message })),
   ]);
   RES_BUSY = false;
+  trackNear();
   refreshResourceCells();
 }
 function scheduleResources() {
@@ -2229,6 +2251,9 @@ function renderHealth() {
     rows.push(['Memory', `${usageBar(host.memUsed, host.memTotal, BAR_CLASS[memClass(host.memUsed, host.memTotal)])} ${fmtMem(host.memUsed)} / ${fmtMem(host.memTotal)}`]);
     rows.push(['CPU', `${usageBar(host.cpu || 0, 100, 'b-idle')} ${fmtCpu(host.cpu)} of ${host.cpus} cores`]);
   }
+  const near = nearLimit();
+  rows.push(['Memory near limit', near.length ? near.map((n) => `<div><span class="tag t-warn">${Math.round(100 * n.mem / n.limit)} %</span> <b>${esc(n.name)}</b> <span class="muted small">${esc(nearText(n))}</span></div>`).join('')
+    : '<span class="muted small">none: every container is below 90 % of its memory limit</span>']);
   rows.push(['Uptime', h.uptime === null ? na : esc(fmtUptime(h.uptime))]);
   const disks = h.disks.length ? `<div class="table usage"><div class="tr th"><span>Disk</span><span>Used</span><span>Free</span><span>Size</span></div>${
     h.disks.map((d) => `<div class="tr"><span><b>${esc(d.path)}</b></span>
