@@ -65,6 +65,14 @@ python -m unittest tests.test_backup          # one module
 - `tests/support.py`: `Base` gives each test its own stacks folder, data folder (`STACK_UI_DATA` and the settings
   file point into it, so no test can write the real `/data`), mock libpod and fake podman-compose.
   `fresh_server()` reloads every server part in order; use it instead of `importlib.reload`.
+- `tests/fixtures/podman-5.7/`: what the Pi's real Podman answered, cut down and renamed by `tools/podman-sample.py`;
+  `tests/test_podman_sample.py` runs the page's checks on it, and keeps the mock's container fields the same as the
+  real ones. To take a new sample (a new Podman), the owner runs on the Pi, read-only:
+  `S=/run/podman/podman.sock; B=http://d/v4.0.0/libpod; sudo curl -s --unix-socket $S "$B/containers/json?all=true"`
+  (and `/version`, `/containers/stats?stream=false`, `/containers/<name>/json` for each) into `stacks/_podman-sample/`
+  (ignored: it holds env values and mounts); never commit the raw files.
+- `tests/page_logic.js`: the page's script run in Node (a DOM that swallows everything) with checks on its own
+  functions; `tests/test_page_logic.py` runs it (skipped without Node).
 - Write the failing test first and watch it fail. In tests write files with `write_bytes` when line endings
   matter (`write_text` gives CRLF on Windows).
 - The page: `tests/test_page.py` checks strings in it; check its script with `node --check`; look at a change in

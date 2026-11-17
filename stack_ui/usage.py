@@ -28,14 +28,8 @@ def pause() -> None:
 
 
 def read_meminfo() -> tuple[int, int]:
-    """(MemTotal, MemTotal - MemAvailable) in bytes."""
-    values = {}
-    for line in PROC_MEMINFO.read_text(encoding='utf-8').splitlines():
-        key, _, rest = line.partition(':')
-        number = rest.split()[:1]
-        if number and number[0].isdigit():
-            values[key] = int(number[0]) * 1024
-    return values['MemTotal'], values['MemTotal'] - values['MemAvailable']
+    """(MemTotal, MemTotal - MemAvailable) in bytes (health.read_meminfo of this module's PROC_MEMINFO)."""
+    return hl.read_meminfo(PROC_MEMINFO)
 
 
 def read_cpu_times() -> tuple[int, int, int]:
@@ -139,7 +133,8 @@ def resources() -> dict:
             continue
         limit = int(s.get('MemLimit') or 0)
         containers[name] = {'cpu': shares.get(name), 'mem': int(s.get('MemUsage') or 0),
-                            'limit': limit if 0 < limit and not (host and limit >= host['memTotal']) else None,
+                            # no limit: Podman gives the host's memory (known even when the CPU could not be read)
+                            'limit': limit if 0 < limit and not (mem_total and limit >= mem_total) else None,
                             'pids': int(s.get('PIDs') or 0)}
     return {'host': host, 'containers': containers, 'error': '; '.join(dict.fromkeys(errors))}
 

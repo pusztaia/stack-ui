@@ -1,0 +1,122 @@
+{
+ "Error": null,
+ "Stats": [
+  {
+   "ContainerID": "47e9f7b1242a70b063a9dec1b0ea89dd211c3df79de2f5127635116cb7cc1259",
+   "Name": "c10",
+   "MemUsage": 100716544,
+   "MemLimit": 805306368,
+   "CPUNano": 944253079000,
+   "SystemNano": 1794949608321100432,
+   "PIDs": 3
+  },
+  {
+   "ContainerID": "b6fc4b234802d19284cca6b1afacc92ed18ca33835df4cdea4f6f3394e36cfa4",
+   "Name": "c2",
+   "MemUsage": 55595008,
+   "MemLimit": 536870912,
+   "CPUNano": 7115176754000,
+   "SystemNano": 1794949608323424195,
+   "PIDs": 13
+  },
+  {
+   "ContainerID": "670e26747009df524a73613892b9f76724267cad3bb99bf285cd9ac60159cc8e",
+   "Name": "c6",
+   "MemUsage": 31895552,
+   "MemLimit": 67108864,
+   "CPUNano": 1570134508000,
+   "SystemNano": 1794949608325829622,
+   "PIDs": 2
+  },
+  {
+   "ContainerID": "92be578d4c0393924bd50639a282ce80cb27859a0b6f9d25d0d5705d07b32476",
+   "Name": "c3",
+   "MemUsage": 31563776,
+   "MemLimit": 134217728,
+   "CPUNano": 103496989000,
+   "SystemNano": 1794949608328140403,
+   "PIDs": 1
+  },
+  {
+   "ContainerID": "fc800f6fed2c17810466925a4f98f453c2b53b412ebc49698c1c5ce1ea75b046",
+   "Name": "c4",
+   "MemUsage": 99586048,
+   "MemLimit": 268435456,
+   "CPUNano": 264937445000,
+   "SystemNano": 1794949608333274754,
+   "PIDs": 22
+  },
+  {
+   "ContainerID": "46f39b8072f0faa471f0e2ecd7f28982db70b843611a854d17f59888c9515587",
+   "Name": "c5",
+   "MemUsage": 329809920,
+   "MemLimit": 3962392576,
+   "CPUNano": 5160915066000,
+   "SystemNano": 1794949608339297425,
+   "PIDs": 20
+  },
+  {
+   "ContainerID": "cc2a97783b9da23d0043873fe3ac8c8b5d804f379b8b0ca561bb411a3544495a",
+   "Name": "c11",
+   "MemUsage": 38412288,
+   "MemLimit": 838860800,
+   "CPUNano": 14963860494000,
+   "SystemNano": 1794949608342136772,
+   "PIDs": 28
+  },
+  {
+   "ContainerID": "9cfbd75ff0ac43ec38558c371f93e289672a0b6e4070ca1117f768bb3627793e",
+   "Name": "c7",
+   "MemUsage": 99565568,
+   "MemLimit": 314572800,
+   "CPUNano": 231002005000,
+   "SystemNano": 1794949608345050007,
+   "PIDs": 27
+  },
+  {
+   "ContainerID": "8fd16f4dbc5a7a799af665df43fa5dac006e5ba80b91ce06a2835a8f8c0ad8d4",
+   "Name": "c9",
+   "MemUsage": 6230016,
+   "MemLimit": 134217728,
+   "CPUNano": 14248930000,
+   "SystemNano": 1794949608350175061,
+   "PIDs": 6
+  },
+  {
+   "ContainerID": "39f1a8d0920bd92875705cb0164c1eec4b0938504d10dfe39e682cb1982c77c9",
+   "Name": "c8",
+   "MemUsage": 435113984,
+   "MemLimit": 2684354560,
+   "CPUNano": 105869370000,
+   "SystemNano": 1794949608352922873,
+   "PIDs": 18
+  },
+  {
+   "ContainerID": "fe773e054f3b1ce4e13553898b1c5a5bf401ecd4a40711cb5d8a5e15479aaa4c",
+   "Name": "c13",
+   "MemUsage": 35594240,
+   "MemLimit": 402653184,
+   "CPUNano": 15057776000,
+   "SystemNano": 1794949608355223413,
+   "PIDs": 6
+  },
+  {
+   "ContainerID": "4b2de9c5ccf65404e5a1796c9746e56fd0c799d935df66b9bfe0697dd7933112",
+   "Name": "c1",
+   "MemUsage": 67842048,
+   "MemLimit": 536870912,
+   "CPUNano": 24369290000,
+   "SystemNano": 1794949608357107422,
+   "PIDs": 9
+  },
+  {
+   "ContainerID": "27a760b21c9eecb651b7c2be78169d1e024c3d7f737664cf3051b422c8d65b89",
+   "Name": "c12",
+   "MemUsage": 23871488,
+   "MemLimit": 201326592,
+   "CPUNano": 1915364000,
+   "SystemNano": 1794949608358974414,
+   "PIDs": 4
+  }
+ ]
+}

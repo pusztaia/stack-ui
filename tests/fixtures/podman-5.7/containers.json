@@ -1,0 +1,392 @@
+[
+ {
+  "Id": "47e9f7b1242a70b063a9dec1b0ea89dd211c3df79de2f5127635116cb7cc1259",
+  "Names": [
+   "c10"
+  ],
+  "Image": "docker.io/library/example1:latest",
+  "State": "running",
+  "Status": "",
+  "Restarts": 0,
+  "StartedAt": 1794597656,
+  "ExitCode": 0,
+  "ExitedAt": 1794597549,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s1",
+   "com.docker.compose.project": "s1",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": [
+   {
+    "host_ip": "192.0.2.10",
+    "host_port": 20000,
+    "container_port": 20010,
+    "protocol": "tcp",
+    "range": 1
+   }
+  ]
+ },
+ {
+  "Id": "b6fc4b234802d19284cca6b1afacc92ed18ca33835df4cdea4f6f3394e36cfa4",
+  "Names": [
+   "c2"
+  ],
+  "Image": "docker.io/library/example2:latest",
+  "State": "running",
+  "Status": "healthy",
+  "Restarts": 0,
+  "StartedAt": 1794597680,
+  "ExitCode": 0,
+  "ExitedAt": 1794597550,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s2",
+   "com.docker.compose.project": "s2",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": [
+   {
+    "host_ip": "192.0.2.10",
+    "host_port": 20020,
+    "container_port": 20030,
+    "protocol": "udp",
+    "range": 1
+   }
+  ]
+ },
+ {
+  "Id": "670e26747009df524a73613892b9f76724267cad3bb99bf285cd9ac60159cc8e",
+  "Names": [
+   "c6"
+  ],
+  "Image": "docker.io/library/example3:latest",
+  "State": "running",
+  "Status": "",
+  "Restarts": 0,
+  "StartedAt": 1794597681,
+  "ExitCode": 0,
+  "ExitedAt": 1794597549,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s2",
+   "com.docker.compose.project": "s2",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": []
+ },
+ {
+  "Id": "92be578d4c0393924bd50639a282ce80cb27859a0b6f9d25d0d5705d07b32476",
+  "Names": [
+   "c3"
+  ],
+  "Image": "docker.io/library/example4:latest",
+  "State": "running",
+  "Status": "",
+  "Restarts": 0,
+  "StartedAt": 1794597685,
+  "ExitCode": 0,
+  "ExitedAt": 1794597549,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s2",
+   "com.docker.compose.project": "s2",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": [
+   {
+    "host_ip": "192.0.2.10",
+    "host_port": 20040,
+    "container_port": 20050,
+    "protocol": "tcp",
+    "range": 1
+   }
+  ]
+ },
+ {
+  "Id": "fc800f6fed2c17810466925a4f98f453c2b53b412ebc49698c1c5ce1ea75b046",
+  "Names": [
+   "c4"
+  ],
+  "Image": "docker.io/library/example5:latest",
+  "State": "running",
+  "Status": "",
+  "Restarts": 0,
+  "StartedAt": 1794729853,
+  "ExitCode": 0,
+  "ExitedAt": 1794729852,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s3",
+   "com.docker.compose.project": "s3",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": [
+   {
+    "host_ip": "",
+    "host_port": 20060,
+    "container_port": 20070,
+    "protocol": "tcp",
+    "range": 1
+   },
+   {
+    "host_ip": "",
+    "host_port": 20080,
+    "container_port": 20090,
+    "protocol": "tcp",
+    "range": 1
+   }
+  ]
+ },
+ {
+  "Id": "46f39b8072f0faa471f0e2ecd7f28982db70b843611a854d17f59888c9515587",
+  "Names": [
+   "c5"
+  ],
+  "Image": "docker.io/library/example6:latest",
+  "State": "running",
+  "Status": "healthy",
+  "Restarts": 0,
+  "StartedAt": 1794639478,
+  "ExitCode": 0,
+  "ExitedAt": -62135596800,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s4",
+   "com.docker.compose.project": "s4",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": [
+   {
+    "host_ip": "",
+    "host_port": 20100,
+    "container_port": 20110,
+    "protocol": "tcp",
+    "range": 1
+   },
+   {
+    "host_ip": "",
+    "host_port": 20120,
+    "container_port": 20130,
+    "protocol": "udp",
+    "range": 1
+   }
+  ]
+ },
+ {
+  "Id": "cc2a97783b9da23d0043873fe3ac8c8b5d804f379b8b0ca561bb411a3544495a",
+  "Names": [
+   "c11"
+  ],
+  "Image": "docker.io/library/example7:latest",
+  "State": "running",
+  "Status": "",
+  "Restarts": 0,
+  "StartedAt": 1794682643,
+  "ExitCode": 0,
+  "ExitedAt": -62135596800,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s5",
+   "com.docker.compose.project": "s5",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": [
+   {
+    "host_ip": "",
+    "host_port": 20140,
+    "container_port": 20010,
+    "protocol": "tcp",
+    "range": 1
+   },
+   {
+    "host_ip": "",
+    "host_port": 20150,
+    "container_port": 20160,
+    "protocol": "tcp",
+    "range": 1
+   },
+   {
+    "host_ip": "",
+    "host_port": 20150,
+    "container_port": 20160,
+    "protocol": "udp",
+    "range": 1
+   }
+  ]
+ },
+ {
+  "Id": "9cfbd75ff0ac43ec38558c371f93e289672a0b6e4070ca1117f768bb3627793e",
+  "Names": [
+   "c7"
+  ],
+  "Image": "docker.io/library/example8:latest",
+  "State": "running",
+  "Status": "",
+  "Restarts": 0,
+  "StartedAt": 1794729267,
+  "ExitCode": 0,
+  "ExitedAt": 1794729266,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s6",
+   "com.docker.compose.project": "s6",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": [
+   {
+    "host_ip": "",
+    "host_port": 20170,
+    "container_port": 20070,
+    "protocol": "tcp",
+    "range": 2
+   },
+   {
+    "host_ip": "",
+    "host_port": 20180,
+    "container_port": 20090,
+    "protocol": "tcp",
+    "range": 1
+   }
+  ]
+ },
+ {
+  "Id": "8fd16f4dbc5a7a799af665df43fa5dac006e5ba80b91ce06a2835a8f8c0ad8d4",
+  "Names": [
+   "c9"
+  ],
+  "Image": "docker.io/library/example9:latest",
+  "State": "running",
+  "Status": "healthy",
+  "Restarts": 0,
+  "StartedAt": 1794947767,
+  "ExitCode": 0,
+  "ExitedAt": -62135596800,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s7",
+   "com.docker.compose.project": "s7",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": []
+ },
+ {
+  "Id": "39f1a8d0920bd92875705cb0164c1eec4b0938504d10dfe39e682cb1982c77c9",
+  "Names": [
+   "c8"
+  ],
+  "Image": "docker.io/library/example10:latest",
+  "State": "running",
+  "Status": "healthy",
+  "Restarts": 0,
+  "StartedAt": 1794947779,
+  "ExitCode": 0,
+  "ExitedAt": -62135596800,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s7",
+   "com.docker.compose.project": "s7",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": [
+   {
+    "host_ip": "192.0.2.10",
+    "host_port": 20190,
+    "container_port": 20200,
+    "protocol": "tcp",
+    "range": 2
+   },
+   {
+    "host_ip": "192.0.2.10",
+    "host_port": 20210,
+    "container_port": 20220,
+    "protocol": "tcp",
+    "range": 1
+   }
+  ]
+ },
+ {
+  "Id": "fe773e054f3b1ce4e13553898b1c5a5bf401ecd4a40711cb5d8a5e15479aaa4c",
+  "Names": [
+   "c13"
+  ],
+  "Image": "docker.io/library/example11:latest",
+  "State": "running",
+  "Status": "",
+  "Restarts": 0,
+  "StartedAt": 1794948318,
+  "ExitCode": 0,
+  "ExitedAt": -62135596800,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s8",
+   "com.docker.compose.project": "s8",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": [
+   {
+    "host_ip": "",
+    "host_port": 20230,
+    "container_port": 20240,
+    "protocol": "tcp",
+    "range": 2
+   }
+  ]
+ },
+ {
+  "Id": "4b2de9c5ccf65404e5a1796c9746e56fd0c799d935df66b9bfe0697dd7933112",
+  "Names": [
+   "c1"
+  ],
+  "Image": "docker.io/library/example12:latest",
+  "State": "running",
+  "Status": "",
+  "Restarts": 0,
+  "StartedAt": 1794948343,
+  "ExitCode": 0,
+  "ExitedAt": -62135596800,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s9",
+   "com.docker.compose.project": "s9",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": [
+   {
+    "host_ip": "",
+    "host_port": 20250,
+    "container_port": 20010,
+    "protocol": "tcp",
+    "range": 1
+   }
+  ]
+ },
+ {
+  "Id": "27a760b21c9eecb651b7c2be78169d1e024c3d7f737664cf3051b422c8d65b89",
+  "Names": [
+   "c12"
+  ],
+  "Image": "docker.io/library/example13:latest",
+  "State": "running",
+  "Status": "",
+  "Restarts": 0,
+  "StartedAt": 1794949583,
+  "ExitCode": 0,
+  "ExitedAt": -62135596800,
+  "Exited": false,
+  "Labels": {
+   "io.podman.compose.project": "s10",
+   "com.docker.compose.project": "s10",
+   "io.podman.compose.service": "app"
+  },
+  "Ports": [
+   {
+    "host_ip": "192.0.2.10",
+    "host_port": 20260,
+    "container_port": 20270,
+    "protocol": "tcp",
+    "range": 1
+   }
+  ]
+ }
+]

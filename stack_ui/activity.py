@@ -211,9 +211,10 @@ def watch_once() -> None:
 
     if stats is not None:
         over = {}
+        host = hl.host_memory()      # a container without a limit has the host's memory as its "limit": not one
         for s in stats:
             limit, used = int(s.get('MemLimit') or 0), int(s.get('MemUsage') or 0)
-            if limit > 0 and used / limit >= NEAR_LIMIT:
+            if limit > 0 and not (host and limit >= host) and used / limit >= NEAR_LIMIT:
                 over[str(s.get('Name') or '')] = (used, limit)
         for name in sorted(set(over) & set(state['over']) - set(state['near'])):     # two looks in a row
             used, limit = over[name]

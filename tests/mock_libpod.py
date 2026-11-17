@@ -57,7 +57,9 @@ class MockPodman:
             labels['com.docker.compose.project'] = project
         c = {'Id': f'id-{name}', 'Names': [name], 'Image': image, 'ImageID': image_id, 'State': state,
              'Status': state, 'Labels': labels, 'Networks': list(networks), 'MockVolumes': list(volumes),
-             'Ports': list(ports), 'Created': created, 'MockEnv': list(env)}
+             'Ports': list(ports), 'Created': created, 'MockEnv': list(env),
+             # as Podman 5 lists them (tests/fixtures/podman-5.7): numbers, 0 when it never restarted or exited
+             'Restarts': 0, 'StartedAt': 0, 'ExitCode': 0, 'ExitedAt': 0, 'Exited': False}
         self.containers.append(c)
         return c
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.43
+
+- *Checked on a real Podman.* What the Pi's Podman 5.7.0 answered (13 containers), cut down to the fields the page
+  reads and renamed, is a test fixture now (`tests/fixtures/podman-5.7`, made by `tools/podman-sample.py`). The
+  restart-loop, out-of-memory, memory and port checks read it the way they read the Pi: the fields are the numbers
+  they expect. The mock now lists the same container fields as the real Podman.
+- *A container without a memory limit.* Podman gives it the host's memory as its limit. The Activity watcher took
+  that for a limit, so such a container using most of the host's memory would have been "near its limit" with the
+  advice to raise a `mem_limit` it does not have; it is left out now, like the page does. The page itself kept
+  such a limit when the host's CPU could not be read; it now only needs the host's memory to tell.
+
 ## 1.0.42
 
 - *Sign-in.* A sign-in whose body was valid JSON but no object (`[1]`) ended the request with a traceback and no

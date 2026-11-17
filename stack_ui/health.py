@@ -16,6 +16,7 @@ LOADAVG = Path('/proc/loadavg')
 UPTIME = Path('/proc/uptime')
 THROTTLED = Path('/sys/devices/platform/soc/soc:firmware/get_throttled')   # the Raspberry Pi firmware's flags (hex)
 THROTTLED_ROOT = Path('/sys/devices/platform')                            # where another firmware device is looked for
+PROC_MEMINFO = Path('/proc/meminfo')
 
 # a restart loop: at least LOOP_RESTARTS restarts by the restart policy and the last start less than LOOP_WINDOW
 # seconds ago (a crashing container looks "running" between two crashes)
@@ -27,6 +28,26 @@ DISK_WARN, DISK_BAD = 80.0, 90.0    # percent of the filesystem in use
 RANK = {'ok': 0, 'warn': 1, 'bad': 2}
 # (name, bit while it is so, bit when it has been so since boot) of the firmware's get_throttled value
 POWER_FLAGS = (('undervoltage', 0, 16), ('freq_capped', 1, 17), ('throttled', 2, 18), ('soft_temp_limit', 3, 19))
+
+
+def read_meminfo(path: Path | None = None) -> tuple[int, int]:
+    """(MemTotal, MemTotal - MemAvailable) in bytes."""
+    values = {}
+    for line in (path or PROC_MEMINFO).read_text(encoding='utf-8').splitlines():
+        key, _, rest = line.partition(':')
+        number = rest.split()[:1]
+        if number and number[0].isdigit():
+            values[key] = int(number[0]) * 1024
+    return values['MemTotal'], values['MemTotal'] - values['MemAvailable']
+
+
+def host_memory() -> int | None:
+    """The host's memory in bytes (None when it cannot be read). Podman gives it as the memory limit of a container
+    that has none."""
+    try:
+        return read_meminfo()[0]
+    except (OSError, KeyError, ValueError):
+        return None
 
 
 def read_temperature() -> float | None:
