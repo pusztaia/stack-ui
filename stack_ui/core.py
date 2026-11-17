@@ -9,6 +9,7 @@ import threading
 import time
 from pathlib import Path
 
+from . import activity
 from . import podman_api as pa
 from . import stacks as st
 
@@ -57,6 +58,12 @@ class Operation:
         self.started = time.time()
         self.cancelled = False
         self.proc = None                    # the podman-compose process, set by stacks.run_compose
+        self.result, self.message = '', ''  # what the change noted (note()) for the Activity log; '' when it ran through
+
+    def note(self, result: str, message: str = '') -> None:
+        """The result of a change that does not raise when it fails (a deploy answers {ok: False}) or ends in another
+        way (skipped, updated, rolled-back): what the Activity log writes instead of "ok"."""
+        self.result, self.message = result, message
 
     def text(self) -> str:
         what = self.TEXT.get(self.kind, '{t}').format(t=self.target)
@@ -87,12 +94,19 @@ def operation(kind: str, target: str = '', cancellable: bool = False):
     op = Operation(kind, target, cancellable)
     CURRENT = op
     st.RUNNING.op = op
+    raised = None
     try:
         yield op
+    except BaseException as exc:
+        raised = exc
+        raise
     finally:
-        CURRENT = None
-        st.RUNNING.op = None
-        DEPLOY_LOCK.release()
+        try:
+            activity.change(op, raised)          # written while the lock is held: the entries keep their order
+        finally:
+            CURRENT = None
+            st.RUNNING.op = None
+            DEPLOY_LOCK.release()
 
 
 def current_operation() -> dict | None:

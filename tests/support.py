@@ -84,6 +84,11 @@ class Base(unittest.TestCase):
         from stack_ui import schedule
         self.patch(schedule, 'DATA', self.tmp / 'data')
         self.patch(schedule, 'AUTOSTART', False)
+        from stack_ui import activity
+        self.patch(activity, 'DATA', self.tmp / 'data')
+        self.patch(activity, 'AUTOSTART', False)
+        activity.forget_watch_memory()
+        self.addCleanup(activity.forget_watch_memory)
         schedule.reset()
         self.addCleanup(schedule.reset)
         self.patch(st, 'COMPOSE_CMD', ' '.join(shlex.quote(Path(x).as_posix()) for x in (sys.executable, FAKE_COMPOSE)))

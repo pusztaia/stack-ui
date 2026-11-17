@@ -88,8 +88,11 @@ def auto_update(name: str) -> dict:
     recreate, rollback point), but nothing that needs a decision is done, the result is verified, and an update
     that did not come up is rolled back. One change from start to end: nothing else runs in between."""
     log: list[str] = []
+    running: list = []              # the change, once it holds the lock: its result goes into the Activity log
 
     def out(result: str, reason: str = '', alert: bool = False) -> dict:
+        if running:
+            running[0].note(result, reason)
         return {'result': result, 'reason': reason, 'log': log, 'alert': alert}
 
     try:
@@ -98,6 +101,7 @@ def auto_update(name: str) -> dict:
         return out('skipped', 'no folder of that name any more')
     try:
         with operation('auto-update', name, cancellable=True) as op:
+            running.append(op)
             snap = require_podman_state()
             if stack_protected(name):
                 return out('skipped', 'protected (this page itself, or STACK_UI_PROTECTED)')

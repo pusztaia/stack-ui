@@ -59,6 +59,13 @@ One container, Python standard library + PyYAML, no database.
   running container, or a Podman secret is missing; it only warns about an image name without a registry
   (`jc21/nginx-proxy-manager` instead of `docker.io/jc21/nginx-proxy-manager`) and a `${VARIABLE}` that has no value
   and no default. The env file's values and the `${VAR:-default}` forms are applied first.
+- **Activity**: what happened, newest first. Every change, written when it ends: deploy, update, start / stop /
+  delete, roll back, container, image, network, volume and secret changes, the automatic update, the backup; with
+  its result (and error), how long it took and where it came from (*page*, *script*: the API token, *schedule*: the
+  daily check). And what a watcher saw while no page may have been open (a look every minute): a restart loop
+  starting and ending, an out-of-memory kill, memory near the limit (two looks in a row) starting and ending.
+  Filters: changes, warnings, failed, one stack; a stack's Summary shows its last five. The newest 2000 entries
+  are kept (`activity.jsonl`); the scripts' API token may read it (`GET /api/activity?show=&stack=&limit=`).
 - **Logs**: a container's log, followed as it is written (*Follow*; *Pause*, *Jump to latest*, a filter that marks
   its matches, errors red and warnings yellow, *Download* of what the page holds: its last 5000 lines),
   **Networks**, **Volumes** and **Secrets** (Podman secrets: a value goes in and is never shown again).
@@ -192,6 +199,7 @@ The page keeps its own state in its data folder (`STACK_UI_DATA`, `/data` in the
 |---|---|
 | `settings.json` | the API token's hash |
 | `schedule.json` | the daily check: its time, the stacks switched to *Automatic update*, the hashes of each stack's files as last deployed from the page, the image versions that failed, the last runs |
+| `activity.jsonl`, `activity-watch.json` | the Activity log (the newest 2000 entries), and what its watcher saw last |
 | `deployed/<stack>/` | the files of each stack's last deploy (*Differs*, the *Diff* tab) |
 | `rollback/<stack>/` | each stack's rollback point |
 

@@ -97,15 +97,17 @@ def run_deploy(name: str, pull: bool, remove: list[str], only_update: bool = Fal
         log.append('Not removed, because the page did not confirm: ' + ', '.join(sorted(wanted - set(remove))))
         return False
 
-    with operation('deploy', name, cancellable=True):
+    with operation('deploy', name, cancellable=True) as op:
         try:
             refuse_protected(name)
             snap = require_podman_state()
             if only_update and not deployed(name, snap):
+                op.note('skipped', 'not deployed yet')
                 return {'ok': False, 'log': ['not deployed yet: skipped']}
             lifecycle.deploy(folder, compose_file, env_file, pull=pull, recreate=recreate, approve=approve, log=log.append)
             return {'ok': True, 'log': log}
         except (st.StackError, pa.PodmanError, ValueError) as exc:
+            op.note('failed', str(exc))
             return {'ok': False, 'log': log + [f'ERROR: {exc}'], 'rollback': rollback.exists(folder)}
 
 
@@ -146,7 +148,7 @@ def run_rollback(name: str) -> dict:
     log: list[str] = []
 
     put = rollback_writer(folder, compose_file, env_file)
-    with operation('rollback', name, cancellable=True):
+    with operation('rollback', name, cancellable=True) as op:
         try:
             refuse_protected(name)
             require_podman_state()
@@ -155,6 +157,7 @@ def run_rollback(name: str) -> dict:
             log.append(f'Stack "{name}" rolled back.')
             return {'ok': True, 'log': log}
         except (st.StackError, pa.PodmanError, ValueError) as exc:
+            op.note('failed', str(exc))
             return {'ok': False, 'log': log + [f'ERROR: {exc}']}
 
 

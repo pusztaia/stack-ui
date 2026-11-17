@@ -26,7 +26,7 @@ has its own `stacks/CLAUDE.md` and is gitignored: never commit, push or publish 
 | `podman_api.py` | the libpod REST API over the socket |
 | `preflight.py`, `health.py` | compose checks before a deploy; host health numbers |
 | `stacks.py` | which folders are stacks, podman-compose (`run_compose`), the record of the last deploy (`STACK_UI_DATA/deployed/`), drift |
-| `rollback.py`, `schedule.py` | the rollback point (`STACK_UI_DATA/rollback/`); the daily check's state, the approved hashes (`schedule.json`) |
+| `rollback.py`, `schedule.py`, `activity.py` | the rollback point (`STACK_UI_DATA/rollback/`); the daily check's state, the approved hashes (`schedule.json`); the Activity log and its watcher (`activity.jsonl`; `core.operation` writes every change) |
 | `lifecycle.py` | deploy, start / stop / delete, roll back: everything around them |
 | `core.py` | the shared settings, the one change lock (`operation()`, `Conflict`, `CURRENT`), protected stacks |
 | `backups.py` | the backup of the data folder (download, or `STACK_UI_BACKUP_DIR`) |

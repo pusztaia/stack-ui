@@ -22,7 +22,7 @@ from . import stacks as st
 
 BACKUP_DIR = os.environ.get('STACK_UI_BACKUP_DIR') or ''        # in the container; '' = only the download
 KEEP = max(1, int(os.environ.get('STACK_UI_BACKUP_KEEP') or 10))
-PARTS = ('settings.json', 'schedule.json', 'deployed', 'rollback')
+PARTS = ('settings.json', 'schedule.json', 'activity.jsonl', 'deployed', 'rollback')
 MAX_TOTAL = 256 * 1024 * 1024       # bytes read into one archive at most
 NAME = re.compile(r'^stack-ui-backup-\d{8}-\d{6}(?:-\d+)?\.tar\.gz$')
 MANIFEST = 'stack-ui-backup.json'
@@ -40,7 +40,7 @@ def files_of(data: Path) -> list[tuple[str, Path]]:
         top = data / part
         if top.is_symlink():
             continue
-        if part.endswith('.json'):
+        if part.endswith(('.json', '.jsonl')):
             if st.plain_file(top):
                 found.append((part, top))
             continue

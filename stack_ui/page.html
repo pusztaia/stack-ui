@@ -212,6 +212,8 @@
   .alertbar.bad { background: var(--bad-soft); color: var(--bad); box-shadow: inset 3px 0 0 var(--bad); }
   .alertbar ul { margin: 0; padding-left: 18px; flex: 1 1 320px; }
   .runs .tr { grid-template-columns: 170px 90px 1fr; }
+  .acts .tr { grid-template-columns: 160px minmax(130px, 1fr) minmax(140px, 1.2fr) 120px 80px minmax(160px, 2fr); }
+  .acts .tr > span { min-width: 0; overflow-wrap: anywhere; }
   .settings-panel { max-width: 820px; }
   .ok-note { padding: 8px 12px; border-radius: var(--r); background: var(--ok-soft); color: var(--ok); margin-bottom: 10px; box-shadow: inset 3px 0 0 var(--ok); }
   .bad-note { padding: 8px 12px; border-radius: var(--r); background: var(--bad-soft); color: var(--bad); margin-bottom: 10px; box-shadow: inset 3px 0 0 var(--bad); }
@@ -289,6 +291,8 @@
     .res .tr { grid-template-columns: minmax(0, 1fr) auto; }
     .usage .tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     .ctab .tr { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+    .acts .tr { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
+    .acts .tr > .a-msg { grid-column: 1 / -1; }
     dl.kv { grid-template-columns: 1fr; gap: 2px; } dl.kv dd { margin-bottom: 8px; }
   }
 </style>
@@ -301,6 +305,7 @@
     <a class="nav-a" href="#/containers" data-nav="containers"></a>
     <a class="nav-a" href="#/resources" data-nav="resources"></a>
     <a class="nav-a" href="#/health" data-nav="health"></a>
+    <a class="nav-a" href="#/activity" data-nav="activity"></a>
     <a class="nav-a" href="#/images" data-nav="images"></a>
     <a class="nav-a" href="#/logs" data-nav="logs"></a>
     <a class="nav-a" href="#/networks" data-nav="networks"></a>
@@ -355,6 +360,7 @@ const ICON = {
   containers: '<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M7 7V5h10v2M7 11v4M11 11v4M15 11v4"/>',
   resources: '<path d="M4 20V11M10 20V4M16 20v-6M22 20H2"/>',
   health: '<path d="M3 12h4l2.5-6 4 12 2.5-6H21"/>',
+  activity: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   networks: '<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5m0 0-6 5m6-5 6 5"/>',
   volumes: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/>',
   secrets: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
@@ -503,6 +509,7 @@ function parseHash() {
   if (p[0] === 'containers') return { view: 'containers' };
   if (p[0] === 'resources') return { view: 'resources' };
   if (p[0] === 'logs') return { view: 'logs', container: p[1] || '' };
+  if (p[0] === 'activity') return { view: 'activity', stack: p[1] || '' };
   if (['networks', 'volumes', 'secrets', 'health'].includes(p[0])) return { view: p[0] };
   if (p[0] === 'stacks' && p[1]) return { view: 'detail', name: p[1], tab: TABS[p[2]] ? p[2] : 'summary' };
   return { view: 'stacks' };
@@ -531,7 +538,7 @@ function render() {
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   renderBanner();
-  ({ stacks: viewStacks, detail: viewDetail, images: viewImages, settings: viewSettings, containers: viewContainers, resources: viewResources, health: viewHealth, logs: viewLogs,
+  ({ stacks: viewStacks, detail: viewDetail, images: viewImages, settings: viewSettings, containers: viewContainers, resources: viewResources, health: viewHealth, activity: viewActivity, logs: viewLogs,
      networks: viewNetworks, volumes: viewVolumes, secrets: viewSecrets })[ROUTE.view]();
   if (previous !== ROUTE.view) window.scrollTo(0, 0);
   if (usesResources()) loadResources();
@@ -1086,7 +1093,10 @@ function tabSummary(name) {
              <div class="muted small" style="margin-top:6px">${s.autoNote ? esc(s.autoNote.charAt(0).toUpperCase() + s.autoNote.slice(1)) + '.'
                : 'After the daily check a newer image is pulled and the containers are recreated; an update that does not come up is rolled back. Held back while the files differ from the last deploy.'}</div>`}</dd>
       </dl>
-    </section>`;
+    </section>
+    <section class="panel"><h2>Recent activity</h2><div id="sum-act"><p class="muted small">Loading…</p></div>
+      <p class="small" style="margin-top:8px"><a href="#/activity/${enc(name)}">All activity of ${esc(name)}</a></p></section>`;
+  loadStackActivity(name);
   $('auto-sel')?.addEventListener('change', async (e) => {
     const on = e.target.value === 'on';
     try {
@@ -2272,6 +2282,80 @@ function renderHealth() {
     <h2 class="sec-title">Podman</h2><section class="panel">${podman}</section>`;
 }
 
+// ---------- activity: what changed and what happened to the containers (activity.py) ----------
+let ACT = null;
+const ACT_KIND = { deploy: 'Deploy', rollback: 'Roll back', 'rollback-discard': 'Rollback point discarded',
+  'auto-update': 'Automatic update', 'stack-start': 'Start', 'stack-stop': 'Stop', 'stack-delete': 'Delete',
+  restart: 'Restart', container: 'Container', 'image-pull': 'Image pull', 'image-tag': 'Image tag',
+  'image-remove': 'Image removed', 'images-remove': 'Images removed', 'images-prune': 'Images removed',
+  network: 'Network', volume: 'Volume', secret: 'Secret', backup: 'Backup',
+  'restart-loop': 'Restart loop', oom: 'Out of memory', 'memory-near': 'Memory near limit' };
+const ACT_RESULT = { ok: 't-ok', updated: 't-ok', ended: 't-ok', skipped: 't-idle', cancelled: 't-warn',
+  'rolled-back': 't-warn', failed: 't-bad', 'rollback-failed': 't-bad', killed: 't-bad', started: 't-bad' };
+const ACT_FROM = { page: 'signed in on the page', script: 'the API token (a deploy script)', schedule: 'the daily check' };
+function activityResult(e) {
+  const cls = e.kind === 'memory-near' && e.result === 'started' ? 't-warn' : (ACT_RESULT[e.result] || 't-idle');
+  return `<span class="tag ${cls}">${esc(e.result || '—')}</span>`;
+}
+function activityRows(list) {
+  return list.map((e) => {
+    const warning = e.type === 'warning';
+    const target = e.target && e.target !== e.stack ? `${e.stack ? ' · ' : ''}<span class="muted">${esc(e.target)}</span>` : '';
+    return `<div class="tr">
+      <span class="small">${esc(e.at ? new Date(e.at).toLocaleString() : '')}</span>
+      <span><b>${esc(ACT_KIND[e.kind] || e.kind)}</b></span>
+      <span class="small">${e.stack ? `<a href="#/stacks/${enc(e.stack)}/summary">${esc(e.stack)}</a>` : ''}${target}</span>
+      <span>${activityResult(e)}</span>
+      <span class="small muted" title="${esc(warning ? 'seen by the watcher' : ACT_FROM[e.source] || '')}">${esc(warning ? 'watch' : e.source || '')}${!warning && e.seconds != null ? ` · ${e.seconds} s` : ''}</span>
+      <span class="small a-msg">${esc(e.message || '')}</span>
+    </div>`;
+  }).join('');
+}
+function viewActivity() {
+  $('view').innerHTML = `
+    <div class="page-head">
+      <div><h1>Activity</h1><p class="sub">What changed (from the page, a script or the daily check) and what happened to the containers, also while no page was open. The newest 2000 entries are kept.</p></div>
+      <div class="head-actions"><button class="icon-btn" id="act-reload" title="Reload" aria-label="Reload">${icon('refresh')}</button></div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <select id="act-show" aria-label="Show" style="width:auto">
+        <option value="all">All</option><option value="changes">Changes</option><option value="warnings">Warnings</option><option value="failed">Failed</option>
+      </select>
+      <input id="act-stack" type="search" placeholder="Stack name" aria-label="Stack" value="${esc(ROUTE.stack || '')}" style="max-width:220px">
+    </div>
+    <div id="act-body"><p class="muted pad">Loading…</p></div>`;
+  $('act-reload').addEventListener('click', loadActivity);
+  $('act-show').addEventListener('change', loadActivity);
+  $('act-stack').addEventListener('change', () => {
+    ROUTE.stack = $('act-stack').value.trim();
+    suppressHash = true;
+    location.hash = ROUTE.stack ? `#/activity/${enc(ROUTE.stack)}` : '#/activity';
+    loadActivity();
+  });
+  loadActivity();
+}
+async function loadActivity() {
+  const q = new URLSearchParams({ show: $('act-show')?.value || 'all', limit: '500' });
+  if (ROUTE.stack) q.set('stack', ROUTE.stack);
+  try { ACT = await api(`/api/activity?${q}`); } catch (e) { ACT = { error: e.message }; }
+  renderActivity();
+}
+function renderActivity() {
+  if (ROUTE.view !== 'activity' || !$('act-body') || !ACT) return;
+  if (ACT.error) { $('act-body').innerHTML = errBox(ACT.error); return; }
+  $('act-body').innerHTML = ACT.entries.length
+    ? `<div class="table acts"><div class="tr th"><span>When</span><span>What</span><span>Stack / target</span><span>Result</span><span>From</span><span>Details</span></div>${activityRows(ACT.entries)}</div>
+       ${ACT.total > ACT.entries.length ? `<p class="muted small">The newest ${ACT.entries.length} of ${ACT.total}.</p>` : ''}`
+    : '<div class="empty">Nothing here yet.</div>';
+}
+async function loadStackActivity(name) {
+  let r;
+  try { r = await api(`/api/activity?stack=${enc(name)}&limit=5`); }
+  catch (e) { if ($('sum-act')) $('sum-act').innerHTML = errBox(e.message); return; }
+  if (!$('sum-act') || !onTab(name, 'summary')) return;
+  $('sum-act').innerHTML = r.entries.length ? `<div class="table acts">${activityRows(r.entries)}</div>` : '<p class="muted small">Nothing yet.</p>';
+}
+
 function viewResources() {
   $('view').innerHTML = `
     <div class="page-head">
@@ -2456,7 +2540,7 @@ async function loadSchedule() {
 document.querySelector('[data-nav="stacks"]').innerHTML = `${icon('stacks')}<span>Stacks</span>`;
 document.querySelector('[data-nav="images"]').innerHTML = `${icon('images')}<span>Images</span>`;
 document.querySelector('[data-nav="settings"]').innerHTML = `${icon('settings')}<span>Settings</span>`;
-for (const [k, label] of [['containers', 'Containers'], ['resources', 'Resources'], ['health', 'Health'], ['logs', 'Logs'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['secrets', 'Secrets']]) {
+for (const [k, label] of [['containers', 'Containers'], ['resources', 'Resources'], ['health', 'Health'], ['activity', 'Activity'], ['logs', 'Logs'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['secrets', 'Secrets']]) {
   document.querySelector(`[data-nav="${k}"]`).innerHTML = `${icon(k)}<span>${label}</span>`;
 }
 $('theme').innerHTML = `${icon('theme')}<span>Theme</span>`;

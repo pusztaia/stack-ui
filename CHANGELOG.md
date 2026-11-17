@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.40
+
+- *Activity.* A new page with what happened, newest first. Every change that holds the change lock is written
+  when it ends: what, on what, its stack, the result (ok, failed with its error, cancelled, or skipped, updated,
+  rolled-back for the automatic update), how long it took and where it came from: *page* (signed in), *script*
+  (the API token) or *schedule* (the daily check). A watcher looks at the containers every minute, also while no
+  page is open, and writes when a restart loop starts and ends, an out-of-memory kill, and memory near the limit
+  (two looks in a row) starting and ending; what it saw is kept across a restart of the page. Filters (changes,
+  warnings, failed, one stack); a stack's Summary shows its last five. The newest 2000 entries are kept in
+  `STACK_UI_DATA/activity.jsonl`, which the backup now holds too. `GET /api/activity` is open to the API token.
+
 ## 1.0.39
 
 - *Memory near the limit.* A container whose readings show it at or above 90 % of its memory limit for 30 seconds (a

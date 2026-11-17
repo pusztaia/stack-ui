@@ -46,6 +46,7 @@ from . import __version__
 from . import core, auth, stackfiles, registry, usage, image_ops, podman_objects, stackops, autoupdate
 from . import backups
 from . import podman_api as pa
+from . import activity
 from . import schedule
 from . import stacks as st
 from .auth import *  # noqa: F401,F403 - the names the handler and the tests use
@@ -176,6 +177,7 @@ ROUTES = [
     route('GET', 'drift', lambda a, d, q: drift()),
     route('GET', 'resources', lambda a, d, q: resources()),
     route('GET', 'health', lambda a, d, q: health_info()),
+    route('GET', 'activity', lambda a, d, q: activity.listing(q)),
     # the page's own state: a backup (it holds the API token's hash: the page only)
     route('GET', 'backup', lambda a, d, q: backups.view(), page_only=True),
     route('GET', 'backup/download', lambda h, a, q: h.send_backup(), stream=True, page_only=True),
@@ -426,7 +428,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(403, {'error': 'the API token cannot read or change the settings'})
             if not bearer_ok(bearer):
                 return self.json(401, {'error': 'wrong or revoked API token (Settings of the page)'})
-            return self.api(method, path, query, raw)
+            return self.api(method, path, query, raw, 'script')
         token = self.session()
         if method == 'POST' and path == '/logout':
             m = COOKIE_RE.search(self.headers.get('Cookie') or '')
@@ -452,8 +454,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(403, {'error': 'missing or wrong page token: reload the page'})
         return self.api(method, path, query, raw)
 
-    def api(self, method: str, path: str, query: dict, raw: bytes) -> None:
-        """One /api/ request, after its sign-in (page session and token, or the API token) was checked."""
+    def api(self, method: str, path: str, query: dict, raw: bytes, source: str = 'page') -> None:
+        """One /api/ request, after its sign-in (page session and token, or the API token) was checked; source
+        (page, script) is what the Activity log writes for a change it makes."""
+        activity.ACTOR.source = source
+        try:
+            return self._api(method, path, query, raw)
+        finally:
+            activity.ACTOR.source = ''
+
+    def _api(self, method: str, path: str, query: dict, raw: bytes) -> None:
         try:
             data = json.loads(raw) if raw else {}
             if not isinstance(data, dict):
@@ -568,6 +578,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError:                        # not the main thread
         pass
     schedule.start_thread(scheduled_check, auto_update)   # (after the handler: a stop must not find none)
+    activity.start_thread()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
