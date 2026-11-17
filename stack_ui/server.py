@@ -397,9 +397,11 @@ class Handler(BaseHTTPRequestHandler):
         if recent is None:
             return self.json(429, {'error': 'too many attempts: wait a few minutes'})
         try:
-            password = str(json.loads(raw or b'{}').get('password') or '')
+            body = json.loads(raw or b'{}')
         except ValueError:
-            password = ''
+            body = {}
+        password = body.get('password') if isinstance(body, dict) else ''   # a body that is no object: no password
+        password = password if isinstance(password, str) else ''
         if not check_password(password, Config.password_hash):
             time.sleep(1)
             return self.json(401, {'error': 'wrong password'})

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.42
+
+- *Sign-in.* A sign-in whose body was valid JSON but no object (`[1]`) ended the request with a traceback and no
+  answer; it is now a wrong password (401) like any other.
+- *Tests.* The page's own logic now runs in Node (`tests/page_logic.js`): when memory near the limit warns, what
+  the restart and out-of-memory tags say, the Activity colours, that an error message is escaped, the routes. The
+  CI installs Node before the tests. The server's answers to requests it cannot do (a host name not allowed, a body
+  that is no JSON object, an unknown route, a stack that exists or is not deployed, an unknown saved version,
+  sign-out) are tested, and the connection-limit test waits for what it needs instead of fixed sleeps.
+
 ## 1.0.41
 
 - *1.0.40 on Python 3.9.* 1.0.40 was not published: cutting the Activity log back to its newest entries used

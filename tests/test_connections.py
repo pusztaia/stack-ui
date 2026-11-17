@@ -15,11 +15,19 @@ class ConnectionLimitsTest(Base):
         self.patch(self.ui.Handler, 'timeout', 1)
 
     def start(self):
-        server = self.ui.Server(('127.0.0.1', 0), self.ui.Handler)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        self.addCleanup(server.server_close)
-        self.addCleanup(server.shutdown)
-        return server.server_address[1]
+        self.server = self.ui.Server(('127.0.0.1', 0), self.ui.Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        return self.server.server_address[1]
+
+    def wait_for(self, condition, what: str, seconds: float = 5) -> None:
+        """Until condition() holds (a slow host is given time; a fixed sleep would guess)."""
+        deadline = time.time() + seconds
+        while not condition():
+            if time.time() > deadline:
+                self.fail(f'{what} did not happen in {seconds} s')
+            time.sleep(0.02)
 
     def request(self, port, head: bytes) -> bytes:
         with socket.create_connection(('127.0.0.1', port), timeout=5) as s:
@@ -48,7 +56,7 @@ class ConnectionLimitsTest(Base):
         port = self.start()
         held = [socket.create_connection(('127.0.0.1', port), timeout=5) for _ in range(2)]
         self.addCleanup(lambda: [s.close() for s in held])
-        time.sleep(0.3)
+        self.wait_for(lambda: self.server.slots._value == 0, 'taking both connections')
         with socket.create_connection(('127.0.0.1', port), timeout=5) as s:
             s.sendall(b'GET /session HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n')
             try:
@@ -56,5 +64,5 @@ class ConnectionLimitsTest(Base):
             except ConnectionError:                    # (Windows reports it as an abort)
                 pass
         held.pop().close()
-        time.sleep(0.3)
+        self.wait_for(lambda: self.server.slots._value > 0, 'freeing the closed connection')
         self.assertTrue(self.request(port, b'GET /session HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n').startswith(b'HTTP/1.0 200'))
