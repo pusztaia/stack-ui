@@ -13,7 +13,6 @@ from . import activity
 from . import podman_api as pa
 from . import stacks as st
 
-DATA = Path(os.environ.get('STACK_UI_DATA') or '/data')
 SELF = os.environ.get('STACK_UI_SELF') or os.environ.get('HOSTNAME', '')
 PROTECTED = {x.strip() for x in os.environ.get('STACK_UI_PROTECTED', '').split(',') if x.strip()}
 

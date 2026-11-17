@@ -12,6 +12,6 @@ class Python39Test(unittest.TestCase):
         offenders = []
         for path in [*ROOT.glob('stack_ui/*.py'), *ROOT.glob('client/*.py'), *ROOT.glob('tools/*.py'), *ROOT.glob('tests/*.py')]:
             for n, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
-                if re.search(r'write_text\([^)]*newline=', line):
+                if re.search(r'write_text\(.*newline=', line):     # any argument before it, parentheses too
                     offenders.append(f'{path.name}:{n}')
         self.assertEqual(offenders, [])

@@ -517,9 +517,9 @@ class PointPlaceTest(RollbackBase):
         self.assertEqual(rollback.kept_images(), {'old1': ['web']})
 
     def test_a_deploy_goes_on_when_the_point_cannot_be_written(self):
-        blocker = self.tmp / 'blocker'
-        blocker.write_text('x', encoding='utf-8')
-        self.patch(rollback, 'DATA', blocker)                               # a file where the data folder should be
+        from stack_ui import stacks as st
+        st.DATA.mkdir(parents=True, exist_ok=True)
+        (st.DATA / 'rollback').write_text('x', encoding='utf-8')               # a file where the points' folder should be
         (self.folder / 'compose.yaml').write_bytes(V2.encode('utf-8'))
         said = []
         lifecycle.deploy(self.folder, 'compose.yaml', '.env', approve=lambda c: True, pull=False, log=said.append)

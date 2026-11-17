@@ -34,7 +34,7 @@ has its own `stacks/CLAUDE.md` and is gitignored: never commit, push or publish 
 | `server.py` | HTTP: sign-in, sessions, the route table `ROUTES`, start-up |
 
 `page.html` is the whole front end. `client/stack-ui-client.py` deploys from a script (API token). `tools/`:
-`install-pi.py` (SSH installer), `release-notes.py` (a version's CHANGELOG section). `docs/superpowers/`: specs
+`install-pi.py` (SSH installer), `release-notes.py` (a version's CHANGELOG section), `bump.py` (the version bump). `docs/superpowers/`: specs
 and plans of the larger changes.
 
 Rules the code relies on:
@@ -42,6 +42,8 @@ Rules the code relies on:
 - **A value that changes while the page runs, or that a test sets, is read through its module** (`core.CURRENT`,
   `core.SOURCE`, `core.PROTECTED`, `auth.SETTINGS_FILE`, `registry.updates`, ...), never copied with
   `from .x import name`. `server.py` star-imports the parts only so the handler and the tests find the names.
+- **The data folder is named once:** `stacks.DATA` (`STACK_UI_DATA`); every module reads `st.DATA`, so a test
+  points it away from `/data` with one patch (`tests/support.py`). `tests/test_isolation.py` keeps it so.
 - **Threat model:** a container that mounts its stack's folder can write everything in it, and the page acts as
   root. Nothing in a stack's folder is trusted as the page's own state: the deploy record, rollback points, hashes
   and settings live in `STACK_UI_DATA`. Files are read once, without following a link (`stacks.read_plain`).
@@ -71,8 +73,9 @@ python -m unittest tests.test_backup          # one module
 
 ## Release
 
-1. `CHANGELOG.md`: the changes under `## Unreleased`, then that heading becomes `## X.Y.Z`.
-2. `stack_ui/__init__.py`: `__version__ = 'X.Y.Z'`; run the whole suite again.
+1. `CHANGELOG.md`: the changes under `## Unreleased`.
+2. `python tools/bump.py X.Y.Z`: that heading becomes `## X.Y.Z` and `stack_ui/__init__.py` says `__version__ = 'X.Y.Z'`
+   (refused when there is nothing to release or the version does not go up); run the whole suite again.
 3. Commit, push `main`, then tag `vX.Y.Z` and push the tag (each on the owner's word).
 4. The tag runs `.github/workflows/release.yml`: tests, the image for amd64 and arm64 on `ghcr.io/pusztaia/stack-ui`
    (tags `X.Y.Z`, `X.Y`, `X`, `latest`), then the GitHub release with the version's CHANGELOG section, marked latest.

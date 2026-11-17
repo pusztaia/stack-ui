@@ -19,7 +19,6 @@ from pathlib import Path
 from . import podman_api as pa
 from . import stacks as st
 
-DATA = Path(os.environ.get('STACK_UI_DATA') or '/data')     # the page's own folder (server.DATA)
 POINT_FILE = 'rollback.json'
 MAX_RECORD = 256 * 1024         # bytes of a rollback.json that is still read
 LEGACY = '.previous'            # where 1.0.22 kept the point, in the stack's folder: never read, removed on sight
@@ -32,7 +31,7 @@ def short_id(image_id) -> str:
 
 def point_dir(folder: Path) -> Path:
     """Where the stack's point is kept (a stack's name has no dot or slash: st.STACK_NAME)."""
-    return DATA / 'rollback' / folder.name
+    return st.DATA / 'rollback' / folder.name
 
 
 def small_text(path: Path, limit: int) -> str | None:
@@ -293,7 +292,7 @@ def kept_images() -> dict[str, list[str]]:
     """{image id: the stacks whose rollback point needs it}."""
     kept: dict[str, list[str]] = {}
     try:        # every point there is, also of a folder that is no stack at the moment: its images are still needed
-        names = sorted(p.name for p in (DATA / 'rollback').iterdir() if st.STACK_NAME.match(p.name))
+        names = sorted(p.name for p in (st.DATA / 'rollback').iterdir() if st.STACK_NAME.match(p.name))
     except OSError:
         names = []
     for name in names:

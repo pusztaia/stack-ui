@@ -11,10 +11,10 @@ import threading
 from pathlib import Path
 
 from . import __version__
-from .core import DATA
+from . import stacks as st
 
 HASH_ITERATIONS = 600_000   # new hashes; an older hash keeps the count it was made with
-SETTINGS_FILE = Path(os.environ.get('STACK_UI_SETTINGS_FILE') or DATA / 'settings.json')
+SETTINGS_FILE = Path(os.environ.get('STACK_UI_SETTINGS_FILE') or st.DATA / 'settings.json')
 SETTINGS_LOCK = threading.Lock()
 
 

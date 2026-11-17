@@ -24,7 +24,6 @@ from . import health as hl
 from . import podman_api as pa
 from . import stacks as st
 
-DATA = Path(os.environ.get('STACK_UI_DATA') or '/data')     # the page's own folder (server.DATA)
 FILE, WATCH_FILE = 'activity.jsonl', 'activity-watch.json'
 KEEP = 2000                # entries kept
 TRIM_BYTES = 1_000_000     # the file is cut back to KEEP entries when it grows past this (an entry is ~250 bytes)
@@ -44,7 +43,7 @@ _WATCH: dict | None = None  # what the watcher saw last (loaded from WATCH_FILE 
 
 
 def path() -> Path:
-    return DATA / FILE
+    return st.DATA / FILE
 
 
 def _now() -> str:
@@ -71,7 +70,7 @@ def record(entry: dict) -> None:
     line = json.dumps(row, ensure_ascii=False) + '\n'
     try:
         with LOCK:
-            DATA.mkdir(parents=True, exist_ok=True)
+            st.DATA.mkdir(parents=True, exist_ok=True)
             with open(path(), 'a', encoding='utf-8', newline='\n') as f:
                 f.write(line)
             if path().stat().st_size > TRIM_BYTES:
@@ -83,7 +82,7 @@ def record(entry: dict) -> None:
 def _trim() -> None:
     lines = path().read_text(encoding='utf-8').splitlines(keepends=True)[-KEEP:]
     tmp = path().with_name(FILE + '.new')
-    tmp.write_text(''.join(lines), encoding='utf-8', newline='\n')
+    st.write_lf(tmp, ''.join(lines))
     os.replace(tmp, path())
 
 
@@ -145,7 +144,7 @@ def _watch_state() -> dict:
     global _WATCH
     if _WATCH is None:
         try:
-            data = json.loads((st.read_plain(DATA / WATCH_FILE) or b'{}').decode('utf-8'))
+            data = json.loads((st.read_plain(st.DATA / WATCH_FILE) or b'{}').decode('utf-8'))
         except ValueError:
             data = {}
         data = data if isinstance(data, dict) else {}
@@ -161,10 +160,10 @@ def forget_watch_memory() -> None:
 
 def _save_watch(state: dict) -> None:
     try:
-        DATA.mkdir(parents=True, exist_ok=True)
-        tmp = DATA / (WATCH_FILE + '.new')
+        st.DATA.mkdir(parents=True, exist_ok=True)
+        tmp = st.DATA / (WATCH_FILE + '.new')
         tmp.write_text(json.dumps(state), encoding='utf-8')
-        os.replace(tmp, DATA / WATCH_FILE)
+        os.replace(tmp, st.DATA / WATCH_FILE)
     except OSError as exc:
         print(f'activity: the watcher state was not written ({exc})', file=sys.stderr, flush=True)
 

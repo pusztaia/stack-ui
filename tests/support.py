@@ -78,14 +78,10 @@ class Base(unittest.TestCase):
             os.environ[var] = str(value)
         from stack_ui import auth, core
         self.patch(auth, 'SETTINGS_FILE', self.tmp / 'data' / 'settings.json')
-        self.patch(core, 'DATA', self.tmp / 'data')
         from stack_ui import rollback
-        self.patch(rollback, 'DATA', self.tmp / 'data')
         from stack_ui import schedule
-        self.patch(schedule, 'DATA', self.tmp / 'data')
         self.patch(schedule, 'AUTOSTART', False)
         from stack_ui import activity
-        self.patch(activity, 'DATA', self.tmp / 'data')
         self.patch(activity, 'AUTOSTART', False)
         activity.forget_watch_memory()
         self.addCleanup(activity.forget_watch_memory)

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.41
+
+- *1.0.40 on Python 3.9.* 1.0.40 was not published: cutting the Activity log back to its newest entries used
+  `Path.write_text(newline=)`, which Python 3.9 does not have, and the release's tests stopped it. The test meant
+  to catch exactly that missed it (its pattern stopped at the first closing parenthesis); both are fixed. This
+  release brings 1.0.40's Activity page.
+- *Internal.* The data folder is named in one place (`stacks.DATA`): every module that keeps something there reads
+  it, so a test points all of it away from `/data` with one patch (a test checks that no module keeps its own).
+  `tools/bump.py X.Y.Z` does a release's version bump in one step (the changelog heading and `__version__`), and
+  refuses when there is nothing to release or the version does not go up. No change in behaviour.
+
 ## 1.0.40
 
 - *Activity.* A new page with what happened, newest first. Every change that holds the change lock is written

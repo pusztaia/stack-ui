@@ -216,9 +216,8 @@ class ReviewFixTest(AutoUpdateBase):
         self.assertEqual(self.commands(), [])
 
     def test_a_failed_up_without_a_point_is_reported(self):
-        blocker = self.tmp / 'blocker'
-        blocker.write_text('x', encoding='utf-8')
-        self.patch(rollback, 'DATA', blocker)                                # no point can be written
+        rollback.st.DATA.mkdir(parents=True, exist_ok=True)
+        (rollback.st.DATA / 'rollback').write_text('x', encoding='utf-8')       # no point can be written
         os.environ['FAKE_COMPOSE_FAIL_ON'] = 'up'
         r = self.ui.auto_update('web')
         self.assertEqual((r['result'], r['alert']), ('failed', True), r)

@@ -59,7 +59,7 @@ def files_of(data: Path) -> list[tuple[str, Path]]:
 
 def build(when: datetime) -> tuple[str, bytes]:
     """The archive (its file name, its bytes) of the data folder as it is now."""
-    data = core.DATA
+    data = st.DATA
     buf = io.BytesIO()
     names, total = [], 0
     stamp = int(when.timestamp())

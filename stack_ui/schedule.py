@@ -16,7 +16,6 @@ from pathlib import Path
 
 from . import stacks as st
 
-DATA = Path(os.environ.get('STACK_UI_DATA') or '/data')     # the page's own folder (server.DATA)
 FILE = 'schedule.json'
 AUTOSTART = True                # the tests switch the thread off
 MAX_STATE = 256 * 1024          # bytes of a state file that is still read
@@ -106,7 +105,7 @@ def state() -> dict:
     if _state is None:
         raw = None
         try:
-            path = DATA / FILE
+            path = st.DATA / FILE
             if st.plain_file(path) and path.stat().st_size <= MAX_STATE:
                 raw = json.loads(path.read_text(encoding='utf-8'))
         except (OSError, ValueError):
@@ -120,7 +119,7 @@ def store() -> None:
     the daily run must not repeat every half minute because its day could not be kept."""
     global SAVE_ERROR
     try:
-        path = DATA / FILE
+        path = st.DATA / FILE
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f'.{FILE}.tmp')
         if tmp.is_symlink():

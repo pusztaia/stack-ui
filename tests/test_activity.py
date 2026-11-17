@@ -86,7 +86,7 @@ class RecordTest(ActivityBase):
             f.write(b'{not json\n[1,2]\n')
         self.act.record({'type': 'change', 'kind': 'image-pull', 'target': 'b', 'result': 'ok'})
         self.assertEqual([e['target'] for e in self.entries()], ['b', 'a'])
-        self.patch(self.act, 'DATA', self.tmp / 'a-file')
+        self.patch(self.act.st, 'DATA', self.tmp / 'a-file')
         (self.tmp / 'a-file').write_bytes(b'x')
         with self.ui.core.operation('image-pull', 'c'):         # the change itself is not disturbed
             pass

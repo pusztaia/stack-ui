@@ -17,7 +17,7 @@ class BackupBase(Base):
         self.ui = fresh_server()
         self.bk = self.ui.backups
         self.data = self.tmp / 'data'
-        self.patch(self.ui.core, 'DATA', self.data)
+        self.patch(self.ui.st, 'DATA', self.data)
         (self.data / 'deployed' / 'web').mkdir(parents=True)
         (self.data / 'rollback' / 'web' / 'files').mkdir(parents=True)
         (self.data / 'settings.json').write_text('{"api_token_sha256": "ab"}', encoding='utf-8')
@@ -72,7 +72,7 @@ class BuildTest(BackupBase):
         self.assertNotIn(b'secret', b''.join(v for v in files.values() if v))
 
     def test_an_empty_data_folder_still_gives_an_archive(self):
-        self.patch(self.ui.core, 'DATA', self.tmp / 'empty')
+        self.patch(self.ui.st, 'DATA', self.tmp / 'empty')
         self.assertEqual(list(self.members(self.bk.build(datetime(2026, 11, 15))[1])), ['stack-ui-backup.json'])
 
     def test_it_waits_for_no_change_it_runs_as_one(self):

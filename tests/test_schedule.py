@@ -63,7 +63,7 @@ class StateTest(Base):
     def test_a_folder_that_cannot_be_written_keeps_the_state_in_memory(self):
         blocker = self.tmp / 'blocker'
         blocker.write_text('x', encoding='utf-8')
-        self.patch(schedule, 'DATA', blocker)
+        self.patch(schedule.st, 'DATA', blocker)
         schedule.reset()
         schedule.configure(True, '06:00', at('2026-11-13 03:00'))
         v = schedule.view(at('2026-11-13 03:00'))
