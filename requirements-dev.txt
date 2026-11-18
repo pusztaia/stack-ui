@@ -1,0 +1,3 @@
+# Tools for working on Stack UI, not installed in the image (requirements.txt is the image's list).
+# CI installs this file for the lint step: ruff.toml has the rules.
+ruff==0.17.5

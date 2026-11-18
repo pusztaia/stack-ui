@@ -76,9 +76,8 @@ class Base(unittest.TestCase):
             else:
                 self.addCleanup(os.environ.pop, var, None)
             os.environ[var] = str(value)
-        from stack_ui import auth, core
+        from stack_ui import auth
         self.patch(auth, 'SETTINGS_FILE', self.tmp / 'data' / 'settings.json')
-        from stack_ui import rollback
         from stack_ui import schedule
         self.patch(schedule, 'AUTOSTART', False)
         from stack_ui import activity

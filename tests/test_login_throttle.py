@@ -1,11 +1,9 @@
-import importlib
 import json
 import threading
 import urllib.error
 import urllib.request
 
 from tests.support import Base, fresh_server
-from stack_ui import server as srv
 
 
 class LoginThrottleTest(Base):

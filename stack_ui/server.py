@@ -237,7 +237,7 @@ def find_route(method: str, parts: list[str]) -> tuple[Route | None, list[str]]:
         if r.method != method or len(parts) != len(r.path) + 1 or parts[0] != 'api':
             continue
         args = []
-        for want, got in zip(r.path, parts[1:]):
+        for want, got in zip(r.path, parts[1:], strict=False):
             if want.startswith('{'):
                 if not got:
                     break

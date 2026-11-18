@@ -1,10 +1,8 @@
-import importlib
 import socket
 import threading
 import time
 
 from tests.support import Base, fresh_server
-from stack_ui import server as srv
 
 
 class ConnectionLimitsTest(Base):

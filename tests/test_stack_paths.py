@@ -1,11 +1,9 @@
-import importlib
 import json
 import os
 import shutil
 import unittest
 
 from tests.support import Base, compose_yaml, make_stack, fresh_server
-from stack_ui import server as srv
 from stack_ui import stacks as st
 
 

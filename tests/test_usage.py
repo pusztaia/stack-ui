@@ -1,4 +1,3 @@
-import importlib
 import json
 import threading
 import urllib.error
@@ -6,7 +5,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 
 from tests.support import Base, fresh_server
-from stack_ui import podman_api as pa, server as srv
+from stack_ui import podman_api as pa
 
 MEMINFO = 'MemTotal:        4000000 kB\nMemFree:          500000 kB\nMemAvailable:    1000000 kB\n'
 HOST_MEM = 4_096_000_000       # MemTotal in bytes

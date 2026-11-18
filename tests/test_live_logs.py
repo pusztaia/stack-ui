@@ -1,12 +1,10 @@
 import http.client
-import importlib
 import json
 import threading
 import time
 from http.server import ThreadingHTTPServer
 
 from tests.support import Base, fresh_server
-from stack_ui import server as srv
 
 
 def frame(stream, text):

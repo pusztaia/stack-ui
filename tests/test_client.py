@@ -5,7 +5,6 @@ import threading
 from http.server import ThreadingHTTPServer
 
 from tests.support import ROOT, Base, compose_yaml, make_stack, fresh_server
-from stack_ui import server as srv
 
 spec = importlib.util.spec_from_file_location('stack_ui_client', ROOT / 'client' / 'stack-ui-client.py')
 sc = importlib.util.module_from_spec(spec)

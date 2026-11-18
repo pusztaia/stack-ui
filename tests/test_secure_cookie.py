@@ -1,4 +1,3 @@
-import importlib
 import json
 import threading
 import urllib.request
@@ -6,7 +5,6 @@ from http.server import ThreadingHTTPServer
 
 from tests.support import Base, fresh_server
 from tests.test_client import sc
-from stack_ui import server as srv
 
 
 class SecureCookieTest(Base):

@@ -204,7 +204,7 @@ def updates(check: bool) -> dict:
             platforms[r['image']] = platforms.get(r['image']) or r['platform']
         refs = sorted(local)
         with ThreadPoolExecutor(max_workers=4) as pool:
-            results = dict(zip(refs, pool.map(lambda ref: check_ref(ref, local[ref], platforms[ref]), refs)))
+            results = dict(zip(refs, pool.map(lambda ref: check_ref(ref, local[ref], platforms[ref]), refs), strict=True))
         with UPDATES_LOCK:
             REMOTE.update(results)
             CHECKED_AT = datetime.now(timezone.utc).isoformat(timespec='seconds')

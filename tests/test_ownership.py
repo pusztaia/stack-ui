@@ -1,8 +1,7 @@
-import importlib
 from pathlib import Path
 
 from tests.support import Base, compose_yaml, make_stack, fresh_server
-from stack_ui import podman_api as pa, server as srv, stacks as st
+from stack_ui import stacks as st
 
 
 class OwnerTest(Base):

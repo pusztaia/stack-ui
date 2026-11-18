@@ -1,4 +1,3 @@
-import importlib
 import json
 import threading
 import urllib.error
@@ -8,7 +7,6 @@ from http.server import ThreadingHTTPServer
 from tests.support import Base, fresh_server
 from stack_ui import health as hl
 from stack_ui import podman_api as pa
-from stack_ui import server as srv
 
 
 def fake_disk_usage(blocks, free, avail=None):

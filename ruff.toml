@@ -1,0 +1,13 @@
+# Linter for this repository's code (the CI step "lint" in .github/workflows/test.yml; `pip install -r requirements-dev.txt`,
+# then `ruff check .`). stacks/ is a separate, gitignored area with its own rules (stacks/CLAUDE.md).
+target-version = "py314"
+extend-exclude = ["stacks"]
+
+[lint]
+# F: pyflakes (unused names and imports, undefined names), E4/E7/E9: import, statement and syntax errors,
+# B: likely bugs (flake8-bugbear), BLE: a blind `except Exception` needs a reason (the `# noqa: BLE001 - why` comments)
+select = ["F", "E4", "E7", "E9", "B", "BLE"]
+
+[lint.per-file-ignores]
+# server.py star-imports the parts "only so the handler and the tests find the names" (CLAUDE.md, Layout)
+"stack_ui/server.py" = ["F401", "F403", "F405"]

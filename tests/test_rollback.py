@@ -1,4 +1,3 @@
-import importlib
 import json
 from datetime import datetime
 import os
@@ -7,7 +6,7 @@ import threading
 import unittest
 
 from tests.support import Base, compose_yaml, make_stack, fresh_server
-from stack_ui import podman_api as pa, rollback, schedule, server as srv, stacks as st
+from stack_ui import podman_api as pa, rollback, schedule, stacks as st
 from stack_ui import lifecycle
 
 V1 = compose_yaml('web')

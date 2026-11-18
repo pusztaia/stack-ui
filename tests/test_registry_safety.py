@@ -1,9 +1,7 @@
-import importlib
 import urllib.error
 import urllib.request
 
 from tests.support import Base, fresh_server
-from stack_ui import server as srv
 
 PUBLIC = '104.16.0.1'
 

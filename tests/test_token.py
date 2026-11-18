@@ -1,12 +1,10 @@
-import importlib
 import json
 import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 
-from tests.support import Base, compose_yaml, make_stack, fresh_server
-from stack_ui import podman_api as pa, server as srv, stacks as st
+from tests.support import Base, fresh_server
 
 
 class TokenTest(Base):
