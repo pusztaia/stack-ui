@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.44
+
+- *Internal: the warning thresholds in one place.* The restart loop (3 restarts, the last within 10 minutes) and
+  memory near the limit (90 %, held for 30 seconds on the page) are set only in `health.py`; `/api/health` sends them
+  (`limits`) and the page builds its checks and its words from them, the Activity watcher uses the same ones. Until
+  the page has them it judges nothing. No change in behaviour.
+
 ## 1.0.43
 
 - *Checked on a real Podman.* What the Pi's Podman 5.7.0 answered (13 containers), cut down to the fields the page

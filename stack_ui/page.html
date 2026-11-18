@@ -742,23 +742,28 @@ function powerLines(pw) {
   return [...pw.now.map((k) => POWER_NOW[k]), ...pw.since_boot.map((k) => POWER_SINCE[k])];
 }
 // the temperature always, a disk only when it is filling up: coloured only when something is wrong
-// containers at or above NEAR_LIMIT of their memory limit: warned about once every reading for NEAR_HOLD has shown it
-// (a spike is not enough; the page reads twice right after it opens), before the kernel's out-of-memory kill. The
-// usage leaves out the page cache the kernel can drop.
-const NEAR_LIMIT = 0.9;
-const NEAR_HOLD = 30000;   // ms
-let NEAR = {};             // container -> when its readings went at or above NEAR_LIMIT
+// the warning thresholds the server sent (/api/health: health.py has the only copy); none yet: nothing is judged
+function limits() { return (HEALTH && HEALTH.limits) || null; }
+const minutes = (seconds) => plural(Math.round(seconds / 60), 'minute');
+const loopWindowText = () => (limits() ? `the last within ${minutes(limits().loopWindowSeconds)}` : 'the last a short while ago');
+// containers at or above nearLimit of their memory limit: warned about once every reading for nearHoldSeconds has
+// shown it (a spike is not enough; the page reads twice right after it opens), before the kernel's out-of-memory
+// kill. The usage leaves out the page cache the kernel can drop.
+let NEAR = {};             // container -> when its readings went at or above the limit
 let NEAR_AT = 0;           // when the last reading arrived
 function trackNear() {
+  const L = limits();
   const next = {};
   NEAR_AT = Date.now();
-  for (const [name, r] of Object.entries((RES && RES.containers) || {})) {
-    if (r.limit && r.mem / r.limit >= NEAR_LIMIT) next[name] = NEAR[name] || NEAR_AT;
+  for (const [name, r] of Object.entries((L && RES && RES.containers) || {})) {
+    if (r.limit && r.mem / r.limit >= L.nearLimit) next[name] = NEAR[name] || NEAR_AT;
   }
   NEAR = next;
 }
 function nearLimit() {
-  return Object.keys(NEAR).filter((name) => NEAR_AT - NEAR[name] >= NEAR_HOLD && RES.containers[name]).sort()
+  const L = limits();
+  if (!L) return [];
+  return Object.keys(NEAR).filter((name) => NEAR_AT - NEAR[name] >= L.nearHoldSeconds * 1000 && RES.containers[name]).sort()
     .map((name) => ({ name, ...RES.containers[name] }));
 }
 const nearText = (n) => `${Math.round(100 * n.mem / n.limit)} % of its ${fmtMem(n.limit)} limit: raise its mem_limit in the env file before the kernel kills it`;
@@ -775,7 +780,7 @@ function healthChips() {
     parts.push(`<a href="#/health" class="tag ${LEVEL_TAG[h.power.level]}" title="${esc(powerLines(h.power).join('. '))}">${h.power.level === 'bad' ? 'Power problem' : 'Power dipped'}</a>`);
   }
   for (const l of (h.podman && h.podman.looping) || []) {
-    parts.push(`<a href="#/health" class="tag t-bad" title="${esc(plural(l.restarts, 'restart'))}, the last within 10 minutes${l.oom ? '; out of memory: raise its mem_limit' : ''}">Restart loop: ${esc(l.name)}</a>`);
+    parts.push(`<a href="#/health" class="tag t-bad" title="${esc(plural(l.restarts, 'restart'))}, ${loopWindowText()}${l.oom ? '; out of memory: raise its mem_limit' : ''}">Restart loop: ${esc(l.name)}</a>`);
   }
   for (const d of h.disks.filter((x) => x.level !== 'ok')) {
     parts.push(`<a href="#/health" class="tag ${LEVEL_TAG[d.level]}" title="${esc(d.path)}">Disk ${Math.round(d.percent)} % full</a>`);
@@ -915,7 +920,7 @@ function restartTag(c) {
   if (!c.restarts) return oom;
   const n = plural(c.restarts, 'restart');
   return c.looping
-    ? `<span class="tag hl t-bad" title="${n} by its restart policy, the last within 10 minutes: it keeps crashing (see its Logs)">Restart loop</span>${oom}`
+    ? `<span class="tag hl t-bad" title="${n} by its restart policy, ${loopWindowText()}: it keeps crashing (see its Logs)">Restart loop</span>${oom}`
     : `<span class="tag hl t-idle" title="${n} by its restart policy since it was created">${c.restarts}× restarted</span>${oom}`;
 }
 function stackRow(s) {
@@ -2263,7 +2268,7 @@ function renderHealth() {
   }
   const near = nearLimit();
   rows.push(['Memory near limit', near.length ? near.map((n) => `<div><span class="tag t-warn">${Math.round(100 * n.mem / n.limit)} %</span> <b>${esc(n.name)}</b> <span class="muted small">${esc(nearText(n))}</span></div>`).join('')
-    : '<span class="muted small">none: every container is below 90 % of its memory limit</span>']);
+    : `<span class="muted small">none: every container is below ${limits() ? Math.round(100 * limits().nearLimit) : '—'} % of its memory limit</span>`]);
   rows.push(['Uptime', h.uptime === null ? na : esc(fmtUptime(h.uptime))]);
   const disks = h.disks.length ? `<div class="table usage"><div class="tr th"><span>Disk</span><span>Used</span><span>Free</span><span>Size</span></div>${
     h.disks.map((d) => `<div class="tr"><span><b>${esc(d.path)}</b></span>
@@ -2274,7 +2279,7 @@ function renderHealth() {
   const podman = p.error ? errBox(`Podman could not be read: ${p.error}`) : `<dl class="kv">
       <dt>Version</dt><dd>${esc(p.version || '—')}</dd>
       <dt>Containers</dt><dd>${p.containers.running} running of ${p.containers.total}</dd>
-      <dt>Restart loops</dt><dd>${(p.looping || []).length ? p.looping.map((l) => `<div><span class="tag t-bad">Restart loop</span> <b>${esc(l.name)}</b>${l.oom ? ' <span class="tag t-bad">Out of memory</span>' : ''} <span class="muted small">${plural(l.restarts, 'restart')}, the last within 10 minutes: ${l.oom ? 'it reached its memory limit, raise its mem_limit in the env file' : 'see its Logs'}</span></div>`).join('')
+      <dt>Restart loops</dt><dd>${(p.looping || []).length ? p.looping.map((l) => `<div><span class="tag t-bad">Restart loop</span> <b>${esc(l.name)}</b>${l.oom ? ' <span class="tag t-bad">Out of memory</span>' : ''} <span class="muted small">${plural(l.restarts, 'restart')}, ${loopWindowText()}: ${l.oom ? 'it reached its memory limit, raise its mem_limit in the env file' : 'see its Logs'}</span></div>`).join('')
         : '<span class="muted small">none: no container keeps restarting</span>'}</dd>
       <dt>Images</dt><dd>${p.images.count} · ${fmtMem(p.images.size)}</dd></dl>`;
   $('hl-body').innerHTML = `<section class="panel"><dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></section>

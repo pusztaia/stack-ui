@@ -21,6 +21,10 @@ PROC_MEMINFO = Path('/proc/meminfo')
 # a restart loop: at least LOOP_RESTARTS restarts by the restart policy and the last start less than LOOP_WINDOW
 # seconds ago (a crashing container looks "running" between two crashes)
 LOOP_RESTARTS, LOOP_WINDOW = 3, 600
+# memory near the limit: at or above NEAR_LIMIT of a container's limit; the page warns once its readings showed it for
+# NEAR_HOLD seconds, the Activity watcher once two looks in a row did. These are the only copies: /api/health sends
+# them (limits()), and the page builds its checks and its words from what it got.
+NEAR_LIMIT, NEAR_HOLD = 0.9, 30
 OOM_EXIT = 137                      # a SIGKILL: what the kernel's out-of-memory killer sends
 _OOM: dict[tuple[str, str], bool] = {}   # (container id, its last exit) -> killed for memory: one question per exit
 TEMP_WARN, TEMP_BAD = 70.0, 80.0    # a Raspberry Pi 4 starts to slow itself down at 80 °C
@@ -197,6 +201,11 @@ def podman_info() -> dict:
         return {'error': str(exc)}
 
 
+def limits() -> dict:
+    return {'nearLimit': NEAR_LIMIT, 'nearHoldSeconds': NEAR_HOLD, 'loopRestarts': LOOP_RESTARTS,
+            'loopWindowSeconds': LOOP_WINDOW}
+
+
 def health(paths: list[str], cpus: int) -> dict:
     """{temperature, load, power, uptime, disks, podman, level}: level is the worst of the others (None: nothing to judge)."""
     celsius, load, uptime = read_temperature(), read_load(), read_uptime()
@@ -210,4 +219,4 @@ def health(paths: list[str], cpus: int) -> dict:
     levels = [x['level'] for x in (temperature, loaded, supply) if x] + [d['level'] for d in rows] + (['bad'] if 'error' in podman else [])
     levels += ['warn'] if podman.get('looping') else []
     return {'temperature': temperature, 'load': loaded, 'power': supply, 'uptime': uptime, 'disks': rows,
-            'podman': podman, 'level': worst(levels)}
+            'podman': podman, 'level': worst(levels), 'limits': limits()}

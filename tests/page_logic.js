@@ -78,8 +78,28 @@ check('checkFailures names each stack whose registry could not be asked, with th
   eq(page('checkFailures(undefined)'), []);
 });
 
+check('without the server\'s limits nothing is judged (the page has no number of its own)', () => {
+  page(`HEALTH = null; NEAR = {}; NEAR_AT = 0;
+    RES = { host: null, containers: { app: { mem: 999, limit: 1000 } } }; trackNear(); NEAR_AT += 3600000;`);
+  eq(page('nearLimit()'), []);
+  const loop = page(`restartTag({ restarts: 9, looping: true })`);
+  if (!loop.includes('Restart loop') || /\d+ minutes/.test(loop)) throw new Error(loop);
+});
+
+check('the limits come from the server: other numbers, other checks and words', () => {
+  page(`HEALTH = { limits: { nearLimit: 0.5, nearHoldSeconds: 5, loopRestarts: 3, loopWindowSeconds: 1200 } };
+    NEAR = {}; NEAR_AT = 0; globalThis.__clock = 5000000; Date.now = () => globalThis.__clock;
+    RES = { host: null, containers: { app: { mem: 600, limit: 1000 } } }; trackNear();
+    __clock += 6000; trackNear();`);
+  eq(page('nearLimit().map((n) => n.name)'), ['app'], 'over 50 % for 6 s:');
+  const loop = page(`restartTag({ restarts: 9, looping: true })`);
+  if (!loop.includes('within 20 minutes')) throw new Error(loop);
+  if (!page('nearText(nearLimit()[0])').includes('60 %')) throw new Error(page('nearText(nearLimit()[0])'));
+});
+
 check('memory near the limit: only after 30 s of readings, and gone when it drops', () => {
-  page(`NEAR = {}; NEAR_AT = 0;
+  page(`HEALTH = { limits: { nearLimit: 0.9, nearHoldSeconds: 30, loopRestarts: 3, loopWindowSeconds: 600 } };
+    NEAR = {}; NEAR_AT = 0;
     globalThis.__clock = 1000000; Date.now = () => globalThis.__clock;
     globalThis.__read = (mem) => { RES = { host: null, containers: { app: { mem, limit: 1000 }, small: { mem: 10, limit: 1000 } } }; trackNear(); };`);
   page('__read(950)');

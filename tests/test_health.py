@@ -214,7 +214,7 @@ class ApiTest(Base):
         token = ui.api_token({})['token']
         with urllib.request.urlopen(urllib.request.Request(url, headers={'Authorization': f'Bearer {token}'}), timeout=10) as r:
             body = json.loads(r.read().decode('utf-8'))
-        self.assertEqual(sorted(body), ['disks', 'level', 'load', 'podman', 'power', 'temperature', 'uptime'])
+        self.assertEqual(sorted(body), ['disks', 'level', 'limits', 'load', 'podman', 'power', 'temperature', 'uptime'])
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             urllib.request.urlopen(url, timeout=10)
         ctx.exception.close()

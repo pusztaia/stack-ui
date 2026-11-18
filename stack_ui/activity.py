@@ -31,7 +31,6 @@ READ_MAX = 4 * 1024 * 1024
 MESSAGE_MAX = 500
 AUTOSTART = True           # the tests switch the watcher thread off
 WATCH_EVERY = 60.0         # seconds between two looks
-NEAR_LIMIT = 0.9           # memory use over the limit that warns, when two looks in a row show it
 SHOW = ('all', 'changes', 'warnings', 'failed')
 NOT_OK = {'failed', 'cancelled', 'rolled-back', 'rollback-failed'}
 STACK_KINDS = {'deploy', 'rollback', 'rollback-discard', 'auto-update', 'stack-start', 'stack-stop', 'stack-delete'}
@@ -196,7 +195,8 @@ def watch_once() -> None:
 
     looping = {st.cname(c): hl.restarts(c) for c in containers if hl.looping(c)}
     for name in sorted(set(looping) - set(state['looping'])):
-        warn('restart-loop', name, 'started', f'{looping[name]} restarts by its restart policy, the last within 10 minutes')
+        warn('restart-loop', name, 'started', f'{looping[name]} restarts by its restart policy, the last within '
+                                              f'{hl.LOOP_WINDOW // 60} minutes')
     for name in sorted(set(state['looping']) - set(looping)):
         warn('restart-loop', name, 'ended')
     state['looping'] = sorted(looping)
@@ -214,7 +214,7 @@ def watch_once() -> None:
         host = hl.host_memory()      # a container without a limit has the host's memory as its "limit": not one
         for s in stats:
             limit, used = int(s.get('MemLimit') or 0), int(s.get('MemUsage') or 0)
-            if limit > 0 and not (host and limit >= host) and used / limit >= NEAR_LIMIT:
+            if limit > 0 and not (host and limit >= host) and used / limit >= hl.NEAR_LIMIT:
                 over[str(s.get('Name') or '')] = (used, limit)
         for name in sorted(set(over) & set(state['over']) - set(state['near'])):     # two looks in a row
             used, limit = over[name]

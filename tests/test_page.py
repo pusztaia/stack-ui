@@ -131,8 +131,8 @@ class PageTest(Base):
         the kernel kills it."""
         with urllib.request.urlopen(self.base + '/', timeout=10) as r:
             page = r.read().decode('utf-8')
-        for name in ('const NEAR_LIMIT = 0.9', 'function trackNear', 'function nearLimit', 'trackNear();',
-                     'const NEAR_HOLD = 30000', 'NEAR_AT - NEAR[name] >= NEAR_HOLD', 'Memory near limit', "rows.push(['Memory near limit'"):
+        for name in ('function limits', 'function trackNear', 'function nearLimit', 'trackNear();',
+                     'L.nearHoldSeconds * 1000', 'r.mem / r.limit >= L.nearLimit', 'Memory near limit', "rows.push(['Memory near limit'"):
             self.assertIn(name, page, name)
         # counted once per reading, right where a new reading arrives
         start = page.index('async function loadResources')
