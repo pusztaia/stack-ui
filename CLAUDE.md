@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Guidance for Claude Code in this repository: **Stack UI**, a web page that manages the podman-compose stacks of a
-Podman host (the owner runs it on a Raspberry Pi 4 with rootful Podman). Python 3.9+, standard library and PyYAML
+Podman host (the owner runs it on a Raspberry Pi 4 with rootful Podman). Python 3.14 (the image's), standard library and PyYAML
 only; the page is one HTML file with inline CSS and JavaScript, no build step. `stacks/` (the Pi's stack modules)
 has its own `stacks/CLAUDE.md` and is gitignored: never commit, push or publish anything from it.
 
@@ -87,6 +87,6 @@ python -m unittest tests.test_backup          # one module
 3. Commit, push `main`, then tag `vX.Y.Z` and push the tag (each on the owner's word).
 4. The tag runs `.github/workflows/release.yml`: tests, the image for amd64 and arm64 on `ghcr.io/pusztaia/stack-ui`
    (tags `X.Y.Z`, `X.Y`, `X`, `latest`), then the GitHub release with the version's CHANGELOG section, marked latest.
-   `test.yml` runs the tests on Python 3.9 and 3.14 and builds and starts the image on every push and pull request.
+   `test.yml` runs the tests on Python 3.14 and builds and starts the image on every push and pull request.
 
 `main` has a ruleset: no force push, no deletion. Only `main` exists; branches of merged or closed work are deleted.

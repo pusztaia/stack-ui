@@ -227,7 +227,7 @@ def missing_secrets(compose_text: str) -> list[str]:
 # ---------- files written as root keep the folder's owner ----------
 
 def write_lf(path: Path, text: str) -> None:
-    """Write text with LF line ends on every OS (Path.write_text's newline= needs Python 3.10)."""
+    """Write text with LF line ends on every OS (Path.write_text writes CRLF on Windows without newline=)."""
     with open(path, 'w', encoding='utf-8', newline='\n') as fh:
         fh.write(text)
 

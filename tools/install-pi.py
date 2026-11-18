@@ -13,7 +13,7 @@ It uses the ssh of your computer (Windows 11 has it); ssh asks for the host's pa
 The page's password is hashed here (PBKDF2, the same format Stack UI checks) and only the hash is sent: the host
 keeps it as the Podman secret stack-ui-password. Leave the password empty to keep the secret that is there.
 It changes nothing when a container named stack-ui already runs (use --update for an install made by this script,
-or update your own compose file the usual way). Python 3.9+, standard library only.
+or update your own compose file the usual way). Python 3.14+, standard library only.
 """
 from __future__ import annotations
 

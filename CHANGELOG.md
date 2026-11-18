@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.45
+
+- *Python 3.14.* The supported Python is 3.14, the image's (it was 3.9 and newer): the tests run on it only,
+  and the client and the tools say so. Running the page in its image changes nothing; the client and the tools
+  need Python 3.14 on the computer that runs them.
+
 ## 1.0.44
 
 - *Internal: the warning thresholds in one place.* The restart loop (3 restarts, the last within 10 minutes) and

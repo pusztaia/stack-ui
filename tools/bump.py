@@ -5,7 +5,7 @@
 CHANGELOG.md's "## Unreleased" becomes "## 1.0.41" and stack_ui/__init__.py says __version__ = '1.0.41'. Refused,
 with nothing written, when the version is not X.Y.Z or not higher than the current one, or when the changelog has
 no "## Unreleased" section (or more than one, or an empty one): a release needs its notes. It does not commit, tag
-or run the tests. Python 3.9+, standard library only."""
+or run the tests. Python 3.14+, standard library only."""
 from __future__ import annotations
 
 import re

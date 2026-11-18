@@ -5,16 +5,13 @@ on:
   workflow_call: {}
 jobs:
   test:
-    # not ubuntu-latest: on Ubuntu 26.04 setup-python has no Python 3.9 (this project supports it)
+    # Python 3.14 only: the image's version is the one supported (CLAUDE.md)
     runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        python: ["3.9", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.14"
       - run: pip install pyyaml==6.0.3
       # before the tests: tests/test_page_logic.py runs the page's logic in Node (skipped without it)
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

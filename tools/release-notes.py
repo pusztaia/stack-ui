@@ -3,7 +3,7 @@
     python tools/release-notes.py v1.0.27 CHANGELOG.md notes.md
 
 Fails (exit 1) when the changelog has no section, or an empty one, for the tag's version: a release without its
-notes is a mistake to be seen, not published. Python 3.9+, standard library only."""
+notes is a mistake to be seen, not published. Python 3.14+, standard library only."""
 from __future__ import annotations
 
 import re

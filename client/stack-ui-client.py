@@ -11,7 +11,7 @@ previous version goes to .history/ there); a folder Stack UI does not have yet i
 removed only after a yes here. The stack's name is the folder's name.
 
 STACK_UI_URL (required, e.g. http://my-host:8770) and the API token from the page's Settings: STACK_UI_API_TOKEN,
-or --token-file (one line). Python 3.9+, standard library only.
+or --token-file (one line). Python 3.14+, standard library only.
 """
 from __future__ import annotations
 
