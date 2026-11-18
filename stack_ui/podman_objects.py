@@ -55,7 +55,7 @@ def container_table() -> dict:
     """Every container: its stack (a module it belongs to, else its compose project), whether it is part of a
     stack module, whether it is protected, and its published ports."""
     require_podman()
-    mods = [(m.name, st.container_names((m / c).read_text(encoding='utf-8'))) for m, c, _ in st.discover()]
+    mods = [(m.name, st.container_names_of(m, c)) for m, c, _ in st.discover()]
     names = {n for n, _ in mods}
     own_projects = self_projects()
     rows = []

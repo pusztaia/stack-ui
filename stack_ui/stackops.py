@@ -24,7 +24,7 @@ def overview() -> dict:
     rows = []
     for folder, compose_file, env_file in st.discover():
         name = folder.name
-        names = st.container_names((folder / compose_file).read_text(encoding='utf-8'))
+        names = st.container_names_of(folder, compose_file)
         mine = [c for c in containers if st.belongs(c, name, names)]
         stack = None
         if deployed(name, snap):
@@ -255,7 +255,7 @@ def restart(name: str, data: dict) -> dict:
     """Restart one container of the stack, looked up here by name (an id from the browser is not trusted)."""
     folder, compose_file, _ = find_module(name)
     wanted = str(data.get('container') or '')
-    names = st.container_names((folder / compose_file).read_text(encoding='utf-8'))
+    names = st.container_names_of(folder, compose_file)
     with operation('restart', f'{wanted} of {name}'):
         found = next((c for c in pa.containers() if st.cname(c) == wanted and st.belongs(c, name, names)), None)
         if found is None:

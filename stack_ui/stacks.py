@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shlex
 import shutil
 import signal
@@ -182,6 +183,14 @@ def container_names(compose: str) -> list[str]:
     return re.findall(r'^\s+container_name:\s*["\']?([\w.-]+)', compose, flags=re.MULTILINE)
 
 
+def container_names_of(folder: Path, compose_file: str) -> list[str]:
+    """The container names a stack's compose file gives. Bytes that are no UTF-8 are replaced and a file that cannot be
+    read gives none: a compose file saved by an old editor (Windows-1250 comments) must not stop every list on the page,
+    the other stacks included."""
+    data = read_plain(folder / compose_file)
+    return [] if data is None else container_names(data.decode('utf-8', 'replace'))
+
+
 def cname(c: dict) -> str:
     return (c.get('Names') or ['?'])[0].lstrip('/')
 
@@ -244,6 +253,26 @@ def match_owner(*paths: Path) -> None:
     for path in paths:
         info = path.parent.stat()
         chown(path, info.st_uid, info.st_gid)
+
+
+def write_atomic(path: Path, text: str) -> None:
+    """Replace path with text (LF line ends, the folder's owner): the text goes into a new file of a random name, which
+    is renamed over path. A container that mounts the folder can plant a link at a name it can guess; O_EXCL makes
+    that fail instead of writing through it, and a link at path itself is replaced, never written through."""
+    tmp = path.with_name(f'.{path.name}.{secrets.token_hex(4)}.tmp')
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_BINARY', 0)
+    fd = os.open(tmp, flags, 0o666)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as fh:
+            fh.write(text)
+        match_owner(tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 # ---------- podman-compose ----------

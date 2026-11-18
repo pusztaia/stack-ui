@@ -18,7 +18,8 @@ class OwnerTest(Base):
         make_stack(self.stacks, 'web', compose_yaml('web'))
         self.ui.save_files('web', {'composeText': compose_yaml('web'), 'envText': 'TZ=UTC\n'})
         self.assertIn('.history', self.chowned)
-        self.assertIn('..env.tmp', self.chowned)
+        # the file is written under a random temp name (stacks.write_atomic) and gets the owner before it is renamed
+        self.assertTrue(any(n.startswith('..env.') and n.endswith('.tmp') for n in self.chowned), self.chowned)
         self.assertTrue(any(n.startswith('.env.') for n in self.chowned))
 
     def test_upload_keeps_owner(self):

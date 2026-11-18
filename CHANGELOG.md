@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- *A save cannot write through a planted link.* A save, a restore, a roll back and the first extra file of a stack wrote
+  into `<file>.tmp` and renamed it over the real file. A container that mounts the stack's folder could plant a link at
+  that name, and the page, which writes as root, then overwrote the file the link pointed at (the stack's own file became
+  a link too). The temporary file has a random name now and is created exclusively; a link at the file's own name is
+  replaced, never written through.
+- *A file that is not UTF-8 no longer hides every stack.* One compose file with Windows-1250 text (an old editor, or a
+  container) made the Stacks, Containers and Images lists and the update check answer 400 for all stacks, and its own
+  Files tab could not be opened. The lists read the container names from it with the bad bytes replaced; the Files tab
+  opens it (they show as the replacement character) and saving writes UTF-8. A save compares the bytes of the file,
+  so saving exactly what the page showed rewrites it.
+
 ## 1.0.45
 
 - *Python 3.14.* The supported Python is 3.14, the image's (it was 3.9 and newer): the tests run on it only,

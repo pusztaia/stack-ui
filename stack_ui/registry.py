@@ -170,7 +170,7 @@ def stack_images() -> dict[str, list[dict]]:
     inspected: dict[str, dict] = {}
     found = {}
     for folder, compose_file, _ in st.discover():
-        names = st.container_names((folder / compose_file).read_text(encoding='utf-8'))
+        names = st.container_names_of(folder, compose_file)
         rows = []
         for c in containers:
             if not st.belongs(c, folder.name, names):

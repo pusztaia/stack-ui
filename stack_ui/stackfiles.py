@@ -168,10 +168,7 @@ def write_file(path: Path, text: str) -> None:
         raise ValueError(f'"{path.name}" is a link: remove the link on the host first')
     if path.is_file():
         backup(path)
-    tmp = path.with_name(f'.{path.name}.tmp')
-    st.write_lf(tmp, text)
-    st.match_owner(tmp)
-    os.replace(tmp, path)
+    st.write_atomic(path, text)
     if path.name.endswith('.sh'):
         os.chmod(path, 0o755)
 
@@ -183,8 +180,9 @@ def files(name: str) -> dict:
     d = st.deployed_diff(module, compose_file, env_file, core.SOURCE)
     listing = [{'name': n, 'size': (module / n).stat().st_size, 'changed': None if d is None else bool(d['files'].get(n))}
                for n in st.stack_file_names(module, compose_file, env_file)]
-    return {'compose': compose_file, 'composeText': (module / compose_file).read_text(encoding='utf-8'),
-            'env': env_file, 'envText': (module / env_file).read_text(encoding='utf-8') if env_file else None,
+    # errors='replace': a file in another encoding opens (with the replacement character), and saving it writes UTF-8
+    return {'compose': compose_file, 'composeText': (module / compose_file).read_text(encoding='utf-8', errors='replace'),
+            'env': env_file, 'envText': (module / env_file).read_text(encoding='utf-8', errors='replace') if env_file else None,
             'stackFiles': listing}
 
 
@@ -194,8 +192,7 @@ def pin_manifest(folder: Path, compose_file: str, env_file: str | None) -> None:
     manifest = folder / st.MANIFEST
     if manifest.is_file():
         return
-    st.write_lf(manifest, json.dumps({'compose': compose_file, 'env': env_file}, indent=2) + '\n')
-    st.match_owner(manifest)
+    st.write_atomic(manifest, json.dumps({'compose': compose_file, 'env': env_file}, indent=2) + '\n')
 
 
 def file_text(name: str, fname: str) -> dict:
@@ -237,7 +234,7 @@ def save_files(name: str, data: dict) -> dict:
         changed = []
         for fname, text in pairs:
             path = module / fname
-            if not path.is_file() or path.read_text(encoding='utf-8') != text:
+            if st.read_plain(path) != text.encode('utf-8'):     # the bytes: a file that is no UTF-8 is never "the same"
                 write_file(path, text)
                 changed.append(fname)
     only = sorted(set(st.stack_file_names(module, compose_file, env_file)) - set(extra)) if 'files' in data else []
@@ -308,7 +305,7 @@ def preview_files(name: str, data: dict) -> dict:
     def udiff(fname: str | None, new: str | None) -> str:
         if not fname:
             return ''
-        old = (module / fname).read_text(encoding='utf-8') if (module / fname).is_file() else ''
+        old = (module / fname).read_text(encoding='utf-8', errors='replace') if (module / fname).is_file() else ''
         return '\n'.join(difflib.unified_diff(old.splitlines(), new.splitlines(), f'now: {fname}', f'new: {fname}',
                                               lineterm=''))
 
@@ -371,6 +368,6 @@ def restore(name: str, data: dict) -> dict:
     with FILES_LOCK:
         if entry['file'] not in (compose_file, env_file):
             pin_manifest(module, compose_file, env_file)
-        if not path.is_file() or path.read_text(encoding='utf-8') != text:
+        if st.read_plain(path) != text.encode('utf-8'):
             write_file(path, text)
     return {'restored': entry['file']}

@@ -32,7 +32,7 @@ def short_id(image_id: str) -> str:
 def image_table(containers: list[dict], imgs: list[dict], endpoint: int | None) -> list[dict]:
     """The images with their tags, size and the stacks (or containers) using them. removable: untagged (the old
     image a pull replaced) and used by no container."""
-    mods = [(m.name, st.container_names((m / c).read_text(encoding='utf-8'))) for m, c, _ in st.discover()]
+    mods = [(m.name, st.container_names_of(m, c)) for m, c, _ in st.discover()]
     used: dict[str, set[str]] = {}
     for c in containers:
         owner = next((n for n, names in mods if st.belongs(c, n, names)), None)
