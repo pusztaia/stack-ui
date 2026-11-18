@@ -54,7 +54,7 @@ Rules the code relies on:
 ## Tests
 
 ```bash
-python -m unittest discover -s tests          # the whole suite, about 6 minutes; read the Ran / OK lines
+python -m unittest discover -s tests          # the whole suite, about 2.5 minutes on Windows and 1 minute on Linux; read the Ran / OK lines
 python -m unittest tests.test_backup          # one module
 ```
 
@@ -73,6 +73,10 @@ python -m unittest tests.test_backup          # one module
   (ignored: it holds env values and mounts); never commit the raw files.
 - `tests/page_logic.js`: the page's script run in Node (a DOM that swallows everything) with checks on its own
   functions; `tests/test_page_logic.py` runs it (skipped without Node).
+- `tests/page_escape.js`: the page's script run in Node against a real test server that holds hostile text (names, labels,
+  ports, compose content, Podman's error messages); it records every HTML string a view builds. `tests/test_page_escape.py`
+  fails when the raw text reaches the HTML (skipped without Node) and when a view that should show it shows nothing. A view that
+  gets a new place for server data: add its route to `DATA_ROUTES` there and put the data into `setUp`.
 - Write the failing test first and watch it fail. In tests write files with `write_bytes` when line endings
   matter (`write_text` gives CRLF on Windows).
 - The page: `tests/test_page.py` checks strings in it; check its script with `node --check`; look at a change in
