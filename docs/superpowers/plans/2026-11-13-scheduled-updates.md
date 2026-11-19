@@ -1452,7 +1452,7 @@ Expected: `Ran N tests` (N >= 386 + the new ones) and `OK (skipped=16)`.
 
 - [ ] **Step 5: The whole suite, Linux (WSL)**
 
-Run (PowerShell): `wsl bash /mnt/c/Users/puszt/AppData/Local/Temp/claude/0b11014dacc2ea65/d041bd3b-cd9d-4cd3-8a27-afae25c9a484/scratchpad/linux_suite.sh`
+Run (PowerShell): `wsl bash <scratchpad>/linux_suite.sh`
 Expected: the same count, `OK`, nothing skipped.
 
 No commit: the user says when.

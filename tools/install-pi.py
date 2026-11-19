@@ -2,10 +2,10 @@
 """Install (or update) Stack UI on a Podman host over SSH, from Windows PowerShell, macOS or Linux.
 
     python tools\\install-pi.py                                   # interactive: asks everything, then logs in over ssh
-    python tools\\install-pi.py ubuntu@192.168.50.3 --dry-run     # only show the plan and the script it would run
-    python tools\\install-pi.py ubuntu@192.168.50.3               # install; asks the page's password here
-    python tools\\install-pi.py ubuntu@192.168.50.3 --build       # build the image on the host from the repository
-    python tools\\install-pi.py ubuntu@192.168.50.3 --update      # pull and recreate an install made by this script
+    python tools\\install-pi.py ubuntu@192.0.2.10 --dry-run     # only show the plan and the script it would run
+    python tools\\install-pi.py ubuntu@192.0.2.10               # install; asks the page's password here
+    python tools\\install-pi.py ubuntu@192.0.2.10 --build       # build the image on the host from the repository
+    python tools\\install-pi.py ubuntu@192.0.2.10 --update      # pull and recreate an install made by this script
 
 Without arguments it is interactive: it asks for the host, what to do, Podman rootful or rootless, the address and
 port of the page and (if you want) the advanced settings, shows the equivalent command, and then goes on as below.
@@ -212,7 +212,7 @@ def build_remote_script(args, pwhash: str, compose: str) -> str:
 
 def parse(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description='Install Stack UI on a Podman host over SSH.')
-    p.add_argument('target', nargs='?', help='user@host, e.g. ubuntu@192.168.50.3 (omit it to be asked everything)')
+    p.add_argument('target', nargs='?', help='user@host, e.g. ubuntu@192.0.2.10 (omit it to be asked everything)')
     mode = p.add_mutually_exclusive_group()
     mode.add_argument('--rootful', dest='mode', action='store_const', const='rootful', help='the host runs rootful Podman')
     mode.add_argument('--rootless', dest='mode', action='store_const', const='rootless', help='the host runs rootless Podman')

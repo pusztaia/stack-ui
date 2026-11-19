@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- *Docs.* The README says Python 3.14 is needed for the client and the installer, and how to run the linter and
+  the tests (Node.js for the page's); `compose.example.yaml` shows the registry login for private images
+  (`REGISTRY_AUTH_FILE`). The examples, the installer's help and the tests use a documentation address
+  (192.0.2.10) instead of a real one.
+
 ## 1.0.48
 
 - *Progress.* An update, a create, a roll back, the automatic update and a pull on the Images page show how far they

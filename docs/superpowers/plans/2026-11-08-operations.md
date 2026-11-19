@@ -968,7 +968,7 @@ import tempfile
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-ROOT = Path(r'C:\Users\puszt\Downloads\Python\stack-ui')
+ROOT = Path(r'<checkout>')
 sys.path.insert(0, str(ROOT))
 tmp = Path(tempfile.mkdtemp())
 (tmp / 'stacks' / 'web').mkdir(parents=True)
@@ -1097,7 +1097,7 @@ Then run the suite in a fresh temporary copy under WSL without any `rm` (write t
 
 ```bash
 D=$(mktemp -d /tmp/sui-ops.XXXXXX)
-cd /mnt/c/Users/puszt/Downloads/Python/stack-ui
+cd <checkout>
 tar -c --exclude=.git --exclude=__pycache__ --exclude=stacks --exclude=.superpowers . | tar -x -C "$D"
 cd "$D"
 python3 -m unittest discover -s tests 2>&1 | grep -E '^(Ran|OK|FAILED|FAIL:)|^ERROR: test' || true

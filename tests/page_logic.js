@@ -72,9 +72,9 @@ check('memClass: none without a limit, ok, warn from 80 %, bad from 95 %', () =>
 check('checkFailures names each stack whose registry could not be asked, with the first reason', () => {
   eq(page(`checkFailures({
     web: { status: 'current', images: [] },
-    calorielog: { status: 'unknown', images: [{ status: 'current', message: '' }, { status: 'unknown', message: 'registry: HTTP 401' }] },
+    'private-app': { status: 'unknown', images: [{ status: 'current', message: '' }, { status: 'unknown', message: 'registry: HTTP 401' }] },
     odd: { status: 'unknown', images: [] },
-  })`), [['calorielog', 'registry: HTTP 401'], ['odd', 'no reason given']]);
+  })`), [['private-app', 'registry: HTTP 401'], ['odd', 'no reason given']]);
   eq(page('checkFailures(undefined)'), []);
 });
 

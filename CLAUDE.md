@@ -25,7 +25,7 @@ has its own `stacks/CLAUDE.md` and is gitignored: never commit, push or publish 
 |---|---|
 | `podman_api.py` | the libpod REST API over the socket |
 | `preflight.py`, `health.py` | compose checks before a deploy; host health numbers |
-| `stacks.py` | which folders are stacks, podman-compose (`run_compose`), the record of the last deploy (`STACK_UI_DATA/deployed/`), drift |
+| `stacks.py` | which folders are stacks, podman-compose (`run_compose`, its output read line by line), the progress of the running change (`set_progress`, `PullProgress`), the record of the last deploy (`STACK_UI_DATA/deployed/`), drift |
 | `rollback.py`, `schedule.py`, `activity.py` | the rollback point (`STACK_UI_DATA/rollback/`); the daily check's state, the approved hashes (`schedule.json`); the Activity log and its watcher (`activity.jsonl`; `core.operation` writes every change) |
 | `lifecycle.py` | deploy, start / stop / delete, roll back: everything around them |
 | `core.py` | the shared settings, the one change lock (`operation()`, `Conflict`, `CURRENT`), protected stacks |
@@ -34,7 +34,8 @@ has its own `stacks/CLAUDE.md` and is gitignored: never commit, push or publish 
 | `server.py` | HTTP: sign-in, sessions, the route table `ROUTES`, start-up |
 
 `page.html` is the whole front end. `client/stack-ui-client.py` deploys from a script (API token). `tools/`:
-`install-pi.py` (SSH installer), `release-notes.py` (a version's CHANGELOG section), `bump.py` (the version bump). `docs/superpowers/`: specs
+`install-pi.py` (SSH installer), `release-notes.py` (a version's CHANGELOG section), `bump.py` (the version bump),
+`podman-sample.py` (a real Podman's answers as a test fixture). `docs/superpowers/`: specs
 and plans of the larger changes.
 
 Rules the code relies on:

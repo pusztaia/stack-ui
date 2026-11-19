@@ -35,7 +35,7 @@ FAKES = {
 
 class InstallPiTest(Base):
     def args(self, *extra):
-        return ip.parse(['ubuntu@192.168.50.3', *extra])
+        return ip.parse(['ubuntu@192.0.2.10', *extra])
 
     def test_hash_is_what_stack_ui_checks(self):
         h = ip.hash_password('a-long-password')
@@ -50,13 +50,13 @@ class InstallPiTest(Base):
         self.assertIn('ENTRYPOINT ["tini", "--", "python3", "-m", "stack_ui", "--no-browser"]', text)
 
     def test_compose_is_valid_yaml_and_matches_the_example(self):
-        text = ip.render_compose('ghcr.io/pusztaia/stack-ui:1', '192.168.50.3', 8770, '127.0.0.1,localhost', '', True)
+        text = ip.render_compose('ghcr.io/pusztaia/stack-ui:1', '192.0.2.10', 8770, '127.0.0.1,localhost', '', True)
         mine = yaml.safe_load(text.replace('@SOCK@', '/s').replace('@STACKS_DIR@', '/x'))['services']['stack-ui']
         example = yaml.safe_load((ROOT / 'compose.example.yaml').read_text(encoding='utf-8'))['services']['stack-ui']
         for key in ('cap_drop', 'cap_add', 'read_only', 'tmpfs', 'security_opt', 'mem_limit', 'cpus', 'pids_limit',
                     'secrets', 'restart', 'container_name'):
             self.assertEqual(mine[key], example[key], key)
-        self.assertEqual(mine['ports'], ['192.168.50.3:8770:8770/tcp'])
+        self.assertEqual(mine['ports'], ['192.0.2.10:8770:8770/tcp'])
         plain = ip.render_compose('i:1', '127.0.0.1', 8770, 'localhost', '', False)
         self.assertNotIn('cap_drop', yaml.safe_load(plain.replace('@SOCK@', '/s').replace('@STACKS_DIR@', '/x'))['services']['stack-ui'])
         # an unquoted heredoc runs backticks and expands $: the text may hold only the two values the host fills in
@@ -65,8 +65,8 @@ class InstallPiTest(Base):
 
     def test_arguments(self):
         a = self.args()
-        self.assertEqual((a.bind, a.image, a.mode, a.hosts), ('192.168.50.3', 'ghcr.io/pusztaia/stack-ui:1', 'auto',
-                                                              '127.0.0.1,localhost,192.168.50.3'))
+        self.assertEqual((a.bind, a.image, a.mode, a.hosts), ('192.0.2.10', 'ghcr.io/pusztaia/stack-ui:1', 'auto',
+                                                              '127.0.0.1,localhost,192.0.2.10'))
         self.assertEqual(self.args('--loopback').hosts, '127.0.0.1,localhost')
         self.assertEqual(self.args('--build').image, 'localhost/stack-ui:dev')
         self.assertEqual(self.args('--rootful').mode, 'rootful')
@@ -87,9 +87,9 @@ class InstallPiTest(Base):
 
     def test_interactive_defaults_make_a_plain_install(self):
         # user, host, install, auto mode, LAN address, port, no build, no advanced settings, no dry run
-        argv, out = self.answers('', '192.168.50.3', '', '', '', '', '', '', '', '')
-        self.assertEqual(argv, ['ubuntu@192.168.50.3'])
-        self.assertEqual(ip.parse(argv).bind, '192.168.50.3')
+        argv, out = self.answers('', '192.0.2.10', '', '', '', '', '', '', '', '')
+        self.assertEqual(argv, ['ubuntu@192.0.2.10'])
+        self.assertEqual(ip.parse(argv).bind, '192.0.2.10')
         self.assertIn('Same as: python tools', out)
 
     def test_interactive_asks_every_option(self):
@@ -128,7 +128,7 @@ class InstallPiTest(Base):
         self.patch(ip.subprocess, 'run', lambda *a, **k: self.fail('ssh must not run'))
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            self.assertEqual(ip.main(['ubuntu@192.168.50.3', '--dry-run']), 0)
+            self.assertEqual(ip.main(['ubuntu@192.0.2.10', '--dry-run']), 0)
         self.assertIn('podman-compose', out.getvalue())
         self.assertNotIn('pbkdf2', out.getvalue())
 
@@ -142,7 +142,7 @@ class InstallPiTest(Base):
         self.patch(ip.shutil, 'which', lambda _: 'ssh')
         self.patch(ip, 'ask_password', lambda: 'a-long-password')
         with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(ip.main(['ubuntu@192.168.50.3', '--yes']), 0)
+            self.assertEqual(ip.main(['ubuntu@192.0.2.10', '--yes']), 0)
         (upload, data), (run, none) = calls
         self.assertIsNone(none)
         self.assertIn(b'pbkdf2_sha256$600000$', data)
@@ -173,7 +173,7 @@ class RemoteScriptTest(Base):
         self.log.write_text('')
 
     def run_script(self, *argv, pwhash='pbkdf2_sha256$1$c2FsdA==$ZGlnZXN0', **env):
-        args = ip.parse(['ubuntu@192.168.50.3', *argv])
+        args = ip.parse(['ubuntu@192.0.2.10', *argv])
         compose = ip.render_compose(args.image, args.bind, args.port, args.hosts, args.trusted_proxies, True)
         text = ip.build_remote_script(args, pwhash, compose)
         guard = '[ -S "$SOCK" ] ||'

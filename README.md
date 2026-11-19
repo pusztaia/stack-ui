@@ -2,7 +2,7 @@
 
 A small web page for the compose stacks of a [Podman](https://podman.io) host. Every folder with a compose file is a
 stack; Stack UI runs it with [podman-compose](https://github.com/containers/podman-compose) through the Podman socket.
-One container, Python standard library + PyYAML, no database.
+One container, Python 3.14 (standard library) + PyYAML, no database.
 
 - **Stacks**: list with state, containers and their healthchecks; edit the compose and env file, or load a new version of them from
   your files (every save keeps the previous version in `.history/`, a save shows its diff first; a running stack is
@@ -127,13 +127,14 @@ Updates: `podman-compose -f compose.example.yaml pull && podman-compose -f compo
 
 ### From another computer (Windows PowerShell, macOS, Linux)
 
-`tools/install-pi.py` does the steps above over SSH, with the `ssh` of your computer (Windows 11 has it):
+`tools/install-pi.py` does the steps above over SSH, with the `ssh` of your computer (Windows 11 has it) and
+Python 3.14 or newer there (standard library only):
 
 ```powershell
 python tools\install-pi.py                                 # interactive: asks the host, rootful / rootless, port ... then goes on
-python tools\install-pi.py ubuntu@192.168.50.3 --dry-run   # the plan and the script, nothing is sent
-python tools\install-pi.py ubuntu@192.168.50.3             # install: asks the page's password, then the host's
-python tools\install-pi.py ubuntu@192.168.50.3 --update    # pull and recreate an install made by it
+python tools\install-pi.py ubuntu@192.0.2.10 --dry-run   # the plan and the script, nothing is sent
+python tools\install-pi.py ubuntu@192.0.2.10             # install: asks the page's password, then the host's
+python tools\install-pi.py ubuntu@192.0.2.10 --update    # pull and recreate an install made by it
 ```
 
 It finds out whether the host runs Podman rootful or rootless (`--rootful` / `--rootless` to say it), enables the
@@ -257,7 +258,7 @@ Podman while this was written.)
 
 ## Deploy from a script
 
-Generate an API token in *Settings*, then from any machine:
+Generate an API token in *Settings*, then from any machine with Python 3.14 or newer (standard library only):
 
 ```bash
 export STACK_UI_URL=http://my-host:8770 STACK_UI_API_TOKEN=...
@@ -272,12 +273,16 @@ The token opens the API except the settings, never the page.
 
 ## Development
 
+Python 3.14, and Node.js for the tests that run the page's script (they are skipped without it):
+
 ```bash
-pip install pyyaml
-python -m unittest discover -s tests -v
+pip install pyyaml -r requirements-dev.txt
+ruff check .                              # the linter (rules in ruff.toml), as the CI runs it
+python -m unittest discover -s tests -v   # the whole suite
 ```
 
-The tests use a mock libpod API and a fake podman-compose, never a real Podman.
+The tests use a mock libpod API and a fake podman-compose, never a real Podman. What a real Podman answers is
+checked against a cut-down sample of one (`tests/fixtures/podman-5.7`, made by `tools/podman-sample.py`).
 
 ## License
 

@@ -68,7 +68,7 @@ class PortTest(Base):
 
     def test_a_range_the_stack_publishes_is_checked_port_by_port(self):
         held = [holder(name='other', host_port=8765)]
-        for spec in ('"8764-8765:8764-8765"', '"192.168.50.3:8764-8766:80-82/tcp"', '"${A:-8764}-${B:-8765}:80-81"'):
+        for spec in ('"8764-8765:8764-8765"', '"192.0.2.10:8764-8766:80-82/tcp"', '"${A:-8764}-${B:-8765}:80-81"'):
             r = pf.check(web(spec), None, held, [])
             self.assertEqual(r['errors'], ['port 8765/tcp is already used by the container "other"'], spec)
         self.assertEqual(pf.check(web('"8766-8767:80-81"'), None, held, [])['errors'], [])
@@ -103,10 +103,10 @@ class PortTest(Base):
         self.assertEqual(pf.check(web('"8080:80"'), None, [holder(state='exited')], [])['errors'], [])
 
     def test_addresses(self):
-        mine = web('"192.168.50.3:8080:80"')
+        mine = web('"192.0.2.10:8080:80"')
         self.assertEqual(pf.check(mine, None, [holder(host_ip='127.0.0.1')], [])['errors'], [])
         self.assertEqual(len(pf.check(mine, None, [holder(host_ip='')], [])['errors']), 1)
-        self.assertEqual(len(pf.check(mine, None, [holder(host_ip='192.168.50.3')], [])['errors']), 1)
+        self.assertEqual(len(pf.check(mine, None, [holder(host_ip='192.0.2.10')], [])['errors']), 1)
         self.assertEqual(len(pf.check(web('"8080:80"'), None, [holder(host_ip='127.0.0.1')], [])['errors']), 1)
 
     def test_long_syntax_and_a_port_without_a_host_port(self):

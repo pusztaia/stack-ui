@@ -9,7 +9,7 @@ import urllib.request
 from tests.support import Base, fresh_server
 
 LOGIN = 'dXNlcjp0b2tlbg=='          # base64 of user:token
-GHCR = 'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:pusztaia/calorielog:pull"'
+GHCR = 'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:example/app:pull"'
 
 
 class FakeOpener:
@@ -45,20 +45,20 @@ class RegistryLoginTest(Base):
 
     def test_the_token_is_asked_with_the_login_of_the_registry(self):
         self.write_auths({'ghcr.io': {'auth': LOGIN}})
-        self.assertEqual(self.ui.registry_token(GHCR, 'ghcr.io', 'pusztaia/calorielog'), 'pull-token')
+        self.assertEqual(self.ui.registry_token(GHCR, 'ghcr.io', 'example/app'), 'pull-token')
         self.assertEqual(self.sent_login(), f'Basic {LOGIN}')
 
     def test_a_key_written_as_an_address_matches_too(self):
         self.write_auths({'https://ghcr.io/v1/': {'auth': LOGIN}})
-        self.ui.registry_token(GHCR, 'ghcr.io', 'pusztaia/calorielog')
+        self.ui.registry_token(GHCR, 'ghcr.io', 'example/app')
         self.assertEqual(self.sent_login(), f'Basic {LOGIN}')
 
     def test_no_file_or_no_entry_asks_without_a_login(self):
         os.environ.pop('REGISTRY_AUTH_FILE')
-        self.ui.registry_token(GHCR, 'ghcr.io', 'pusztaia/calorielog')
+        self.ui.registry_token(GHCR, 'ghcr.io', 'example/app')
         self.write_auths({'quay.io': {'auth': LOGIN}})
         os.environ['REGISTRY_AUTH_FILE'] = str(self.auth_file)
-        self.ui.registry_token(GHCR, 'ghcr.io', 'pusztaia/calorielog')
+        self.ui.registry_token(GHCR, 'ghcr.io', 'example/app')
         self.assertEqual([r.get_header('Authorization') for r in self.opener.requests], [None, None])
 
     def test_a_token_address_on_another_host_never_gets_the_login(self):
@@ -91,5 +91,5 @@ class RegistryLoginTest(Base):
                 raise urllib.error.HTTPError(url, 401, 'no', {'WWW-Authenticate': GHCR}, None)
             return 'sha256:new', 'application/vnd.oci.image.manifest.v1+json', b''
         self.patch(self.ui.registry, 'registry_fetch', fetch)
-        self.assertEqual(self.ui.check_ref('ghcr.io/pusztaia/calorielog:latest', {'sha256:old'}, None),
+        self.assertEqual(self.ui.check_ref('ghcr.io/example/app:latest', {'sha256:old'}, None),
                          (('sha256:new',), ''))
