@@ -137,10 +137,12 @@ Python 3.14 or newer there (standard library only):
 
 ```powershell
 python tools\install-pi.py                                 # interactive: asks the host, rootful / rootless, port ... then goes on
-python tools\install-pi.py ubuntu@192.0.2.10 --dry-run   # the plan and the script, nothing is sent
-python tools\install-pi.py ubuntu@192.0.2.10             # install: asks the page's password, then the host's
-python tools\install-pi.py ubuntu@192.0.2.10 --update    # pull and recreate an install made by it
+python tools\install-pi.py USER@HOST --dry-run            # the plan and the script, nothing is sent
+python tools\install-pi.py USER@HOST                      # install: asks the page's password, then the host's
+python tools\install-pi.py USER@HOST --update             # pull and recreate an install made by it
 ```
+
+Replace `USER@HOST` with the SSH user and the address of your own host (for example `ubuntu@192.168.1.10`).
 
 It finds out whether the host runs Podman rootful or rootless (`--rootful` / `--rootless` to say it), enables the
 socket, creates the `stack-ui-password` secret from a hash made on your computer (the password itself is never
