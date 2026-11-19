@@ -43,6 +43,17 @@ class TempNameLinkTest(Base):
         self.assertFalse(manifest.is_symlink())
         self.assertEqual(json.loads(manifest.read_text(encoding='utf-8'))['compose'], 'compose.yaml')
 
+    def test_the_history_copy_does_not_follow_a_link(self):
+        """A container can swap a file for a link between the page's check and its copy: backup() reads without following it
+        (what the link points at would land in .history/, which the container can read)."""
+        secret = self.outside / 'settings.json'
+        secret.write_text('{"api_token_sha256": "SECRET"}\n', encoding='utf-8')
+        link(secret, self.folder / 'app.json')
+        with self.assertRaises(ValueError):
+            self.ui.stackfiles.backup(self.folder / 'app.json')
+        history = self.folder / '.history'
+        self.assertEqual(list(history.iterdir()) if history.is_dir() else [], [], 'something was copied')
+
     def test_no_temp_file_is_left_behind(self):
         self.ui.save_files('web', {'composeText': compose_yaml('web') + '# a\n', 'envText': 'TZ=UTC\n'})
         self.assertEqual([p.name for p in self.folder.iterdir() if p.name.endswith('.tmp')], [])

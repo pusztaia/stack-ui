@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.47
+
+- *A version kept in `.history/` cannot be a file elsewhere.* A save or a delete first copies the file's current version into
+  `.history/`. A container that mounts the stack's folder could swap the file for a link between the page's check and
+  its copy, and what the link pointed at landed in `.history/`, where that container can read it. The copy is read
+  through one open that follows no link; a file that is no regular file stops the save with a message.
+
 ## 1.0.46
 
 - *CI.* The image is built and published with `docker/build-push-action` 7, `setup-buildx-action` 4 and

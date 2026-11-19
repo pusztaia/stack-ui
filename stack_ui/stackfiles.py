@@ -20,6 +20,7 @@ from .core import FILES_LOCK, find_module
 
 FILE_NAME = st.FILE_NAME
 UPLOAD_SUFFIXES = st.ALLOWED_SUFFIXES
+BACKUP_MAX = 8 * 1024 * 1024     # the largest file a save keeps a version of (a stack file is at most st.MAX_FILE)
 SECRET_VAR = re.compile(r'(TOKEN|PASSWORD|PASSWD|SECRET|API_KEY|APIKEY)$', re.IGNORECASE)
 
 
@@ -147,7 +148,12 @@ def clean_text(text) -> str:
 
 
 def backup(path: Path) -> None:
-    """Keep the file's current version in .history/ (two saves in one second keep both)."""
+    """Keep the file's current version in .history/ (two saves in one second keep both). The file is read through one
+    open that follows no link: a container can swap it for a link after the caller looked, and what the link points
+    at would land in .history/, which that container can read."""
+    data = st.read_plain(path, BACKUP_MAX)
+    if data is None:
+        raise ValueError(f'"{path.name}" is no regular file (a link, or larger than {BACKUP_MAX // (1024 * 1024)} MiB): nothing was changed')
     history = path.parent / '.history'
     if not history.is_dir():
         history.mkdir()
@@ -157,7 +163,7 @@ def backup(path: Path) -> None:
     while target.exists():
         n += 1
         target = history / f'{path.name}.{stamp}-{n}'
-    target.write_bytes(path.read_bytes())
+    target.write_bytes(data)
     st.match_owner(target)
 
 
