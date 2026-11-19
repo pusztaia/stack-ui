@@ -1,6 +1,7 @@
 """A small in-memory libpod REST API on 127.0.0.1 for the tests: never the real Podman."""
 from __future__ import annotations
 
+import hashlib
 import json
 import queue
 import threading
@@ -109,11 +110,13 @@ def route(mock: MockPodman, h, method: str, seg: list[str], q: dict, body: bytes
                                  'Args': c.get('MockCmd', [])})
     if seg == ['images', 'pull'] and method == 'POST':
         ref = q.get('reference', '')
-        start = json.dumps({'stream': f'Trying to pull {ref}...\n'}) + '\n'
+        start = ''.join(json.dumps({'stream': s}) + '\n' for s in (   # as podman 5 streams it
+            f'Trying to pull {ref}...\n', 'Getting image source signatures\n',
+            'Copying blob sha256:' + 'a' * 64 + '\n', 'Copying blob sha256:' + 'b' * 64 + '\n'))
         if ref in mock.pull_errors:
             return h.reply(200, raw=(start + json.dumps({'error': mock.pull_errors[ref]}) + '\n').encode())
         mock.pulled.append(ref)
-        iid = f'pulled{len(mock.pulled)}'
+        iid = hashlib.sha256(f'pulled {len(mock.pulled)}'.encode()).hexdigest()   # 64 hex digits, as podman's
         mock.images.append({'Id': iid, 'RepoTags': [ref], 'RepoDigests': [], 'Size': 1, 'Created': 1})
         return h.reply(200, raw=(start + json.dumps({'images': [iid], 'id': iid}) + '\n').encode())
     if seg == ['images', 'json']:

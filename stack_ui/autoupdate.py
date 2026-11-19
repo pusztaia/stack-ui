@@ -56,6 +56,7 @@ def verify(name: str, was_running: set[str]) -> str:
         while time.monotonic() < end and not cancelled():
             time.sleep(min(0.5, max(0.0, end - time.monotonic())))
 
+    st.set_progress('Waiting for health checks', 'the containers settle')
     nap(VERIFY_SETTLE)
     deadline = time.monotonic() + VERIFY_WAIT
     while True:
@@ -65,6 +66,7 @@ def verify(name: str, was_running: set[str]) -> str:
         health = {st.cname(c): str(c.get('Status') or '').lower() for c in rows}
         if not any('starting' in h for h in health.values()) or time.monotonic() >= deadline:
             break
+        st.set_progress('Waiting for health checks', ', '.join(sorted(n for n, h in health.items() if 'starting' in h)) + ' starting')
         nap(VERIFY_STEP)
     first = rows
     nap(VERIFY_CONFIRM)

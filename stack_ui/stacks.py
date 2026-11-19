@@ -26,6 +26,7 @@ import signal
 import stat
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 import yaml
@@ -379,6 +380,56 @@ def images_ready(folder: Path, compose_file: str) -> bool:
     return True
 
 
+def set_progress(step: str, detail: str = '', done: int | None = None, total: int | None = None, op=None) -> None:
+    """What the change this thread runs (or op) is doing now, for the page's progress bar (core.Operation.progress)."""
+    op = op if op is not None else getattr(RUNNING, 'op', None)
+    if op is not None:
+        op.progress = {'step': step, 'detail': detail, 'done': done, 'total': total}
+
+
+class PullProgress:
+    """Reads podman pull's lines (podman-compose pull runs one per image, possibly at once, so they interleave): an
+    image is done at the line with its id, a layer at its "Copying blob" line. Podman prints no byte counts when it
+    does not write to a terminal, so this counts images and layers."""
+    IMAGE_ID = re.compile(r'^[0-9a-f]{64}$')
+
+    def __init__(self, total: int | None, step: str = 'Pulling images'):
+        self.total, self.step = total, step
+        self.done = self.layers = 0
+        self.current = ''
+        self.op = getattr(RUNNING, 'op', None)   # taken here: the lines come in run_compose's reader thread
+
+    def __call__(self, line: str) -> None:
+        line = line.strip()
+        if line.startswith('Trying to pull '):
+            self.current = line[len('Trying to pull '):].rstrip('.')
+        elif line.startswith('Copying blob '):
+            self.layers += 1
+        elif self.IMAGE_ID.match(line):
+            self.done += 1
+            self.total = max(self.total or 0, self.done)
+        else:
+            return
+        detail = ', '.join(x for x in (self.current, f'{self.layers} layers so far' if self.layers else '') if x)
+        set_progress(self.step, detail, self.done, self.total, op=self.op)
+
+
+def pull_count(folder: Path, compose_file: str, services: list[str] | None = None) -> int | None:
+    """How many images a pull fetches: the distinct images of the (named) services that are neither built here nor
+    kept (pull_policy: never); None when the compose file cannot be read."""
+    try:
+        data = yaml.safe_load((folder / compose_file).read_text(encoding='utf-8', errors='replace')) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    found = data.get('services') if isinstance(data, dict) else None
+    if not isinstance(found, dict):
+        return None
+    images = {s['image'] for name, s in found.items()
+              if isinstance(s, dict) and isinstance(s.get('image'), str) and not s.get('build')
+              and s.get('pull_policy') != 'never' and (services is None or name in services)}
+    return len(images)
+
+
 def emit_tail(text, log) -> None:
     """What a stopped command had printed: its last lines go to the log."""
     if isinstance(text, bytes):     # (what a TimeoutExpired carries may be undecoded)
@@ -388,7 +439,9 @@ def emit_tail(text, log) -> None:
 
 
 def run_compose(folder: Path, compose_file: str, env_file: str | None, args: list[str], log,
-                timeout: int | None = None) -> None:
+                timeout: int | None = None, on_line=None) -> None:
+    """Run podman-compose; its output goes to log when it has ended, and to on_line (the progress) line by line while
+    it runs."""
     cmd = [*shlex.split(COMPOSE_CMD), '--podman-path', PODMAN_PATH, *in_pod_args(folder, compose_file),
            '-p', folder.name, '-f', compose_file, *(['--env-file', env_file] if env_file else []), *args]
     if timeout is None:
@@ -405,16 +458,28 @@ def run_compose(folder: Path, compose_file: str, env_file: str | None, args: lis
         op.proc = proc                  # cancel ends it from another thread
         if op.cancelled:                # cancelled before it had started
             kill_tree(proc)
+    lines: list[str] = []
+
+    def read() -> None:        # a thread: the lines arrive while the command runs (the progress bar)
+        for line in proc.stdout:
+            lines.append(line.rstrip('\r\n'))
+            if on_line is not None:
+                try:
+                    on_line(lines[-1])
+                except Exception:  # noqa: BLE001 - the progress never fails the command
+                    pass
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    deadline = time.monotonic() + timeout
     try:
-        out, _ = proc.communicate(timeout=timeout)
+        proc.wait(timeout=timeout)
+        reader.join(max(0.0, deadline - time.monotonic()))
+        if reader.is_alive():            # the leader exited, a child of it still holds the output pipe
+            raise subprocess.TimeoutExpired(cmd, timeout)
     except subprocess.TimeoutExpired:
         kill_tree(proc)
-        try:
-            out, _ = proc.communicate(timeout=KILL_GRACE + 2)   # bounded: a process outside the group may still hold the pipe
-        except subprocess.TimeoutExpired as late:
-            proc.stdout.close()
-            out = late.output
-        emit_tail(out, log)
+        reader.join(KILL_GRACE + 2)      # bounded: a process outside the group may still hold the pipe
+        emit_tail('\n'.join(lines), log)
         if op is not None and op.cancelled:
             raise StackError(CANCELLED) from None
         waiting = not_ready(folder.name)
@@ -427,9 +492,9 @@ def run_compose(folder: Path, compose_file: str, env_file: str | None, args: lis
         if op is not None:
             op.proc = None
     if op is not None and op.cancelled:
-        emit_tail(out, log)
+        emit_tail('\n'.join(lines), log)
         raise StackError(CANCELLED)
-    for line in out.splitlines():
+    for line in lines:
         log(line)
     if proc.returncode:
         raise StackError(f'podman-compose {args[0]} failed (exit code {proc.returncode})')

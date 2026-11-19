@@ -70,8 +70,9 @@ def _message(raw: bytes) -> str:
 
 
 def request(method: str, path: str, *, query: dict | None = None, body=None, data: bytes | None = None,
-            timeout: float = 30) -> bytes:
-    """One libpod call; the raw answer. body is sent as JSON, data as raw bytes (a secret's value)."""
+            timeout: float = 30, on_line=None) -> bytes:
+    """One libpod call; the raw answer. body is sent as JSON, data as raw bytes (a secret's value). on_line gets each
+    line of the answer as it arrives (a pull's stream)."""
     url = PREFIX + path + ('?' + urlencode(query) if query else '')
     payload = data if data is not None else json.dumps(body).encode('utf-8') if body is not None else None
     headers = {'Content-Type': 'application/octet-stream' if data is not None else 'application/json'}
@@ -80,7 +81,14 @@ def request(method: str, path: str, *, query: dict | None = None, body=None, dat
         try:
             conn.request(method, url, body=payload, headers=headers)
             resp = conn.getresponse()
-            raw = resp.read()
+            if on_line is None or resp.status >= 400:
+                raw = resp.read()
+            else:
+                got = []
+                for line in iter(resp.readline, b''):
+                    got.append(line)
+                    on_line(line)
+                raw = b''.join(got)
         finally:
             conn.close()
     except (OSError, http.client.HTTPException) as exc:
@@ -317,10 +325,22 @@ def remove_image(iid: str, force: bool = False) -> None:
     request('DELETE', f'/images/{quote(iid, safe="")}', query={'force': 'true'} if force else None, timeout=90)
 
 
-def pull_image(reference: str) -> None:
+def pull_image(reference: str, on_line=None) -> None:
     """Pull an image (anonymous). The answer is a stream of JSON lines; one with "error" means it failed, even
-    though the HTTP status is 200."""
-    raw = request('POST', '/images/pull', query={'reference': reference, 'quiet': 'false'}, timeout=900)
+    though the HTTP status is 200. on_line gets what podman says while it pulls ("Copying blob ...", and the image
+    id at the end), line by line."""
+    def said(raw_line: bytes) -> None:
+        try:
+            item = json.loads(raw_line)
+        except ValueError:
+            return
+        if isinstance(item, dict) and on_line is not None:
+            for text in str(item.get('stream') or '').splitlines():
+                on_line(text)
+            if item.get('id'):
+                on_line(str(item['id']))
+    raw = request('POST', '/images/pull', query={'reference': reference, 'quiet': 'false'}, timeout=900,
+                  on_line=said)
     for line in raw.decode('utf-8', 'replace').splitlines():
         try:
             item = json.loads(line)

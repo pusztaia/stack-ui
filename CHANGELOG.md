@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.48
+
+- *Progress.* An update, a create, a roll back, the automatic update and a pull on the Images page show how far they
+  are, in the bar on top of every page and in their dialog: pulling images (a bar of the images done, with the image
+  being pulled and the layers so far), restoring the previous images and files, recreating the containers, waiting for
+  health checks. Podman gives no byte counts when it does not write to a terminal, so the bar counts images; a step
+  without a count shows a busy bar. podman-compose's output is read line by line while it runs (its time limit, Cancel
+  and the log are unchanged), and a dialog that waits asks for the progress every second.
+
 ## 1.0.47
 
 - *A version kept in `.history/` cannot be a file elsewhere.* A save or a delete first copies the file's current version into

@@ -207,6 +207,12 @@
   .opbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 9px 14px; border-radius: var(--r);
            margin-bottom: 14px; background: var(--warn-soft); color: var(--warn); box-shadow: inset 3px 0 0 var(--warn); font: 13px var(--mono); }
   .opbar button { margin-left: auto; }
+  .opbar .op-progress { flex: 1 1 220px; min-width: 0; }
+  .progress { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 6px 0 4px; }
+  .progress > div { height: 100%; background: var(--accent); transition: width .4s; }
+  .progress.busy > div { opacity: .45; animation: progress-busy 1.4s ease-in-out infinite; }
+  @keyframes progress-busy { 50% { opacity: .15; } }
+  @media (prefers-reduced-motion: reduce) { .progress > div { transition: none; animation: none; } }
   .alertbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 9px 14px; border-radius: var(--r);
               margin-bottom: 14px; background: var(--warn-soft); color: var(--warn); box-shadow: inset 3px 0 0 var(--warn); }
   .alertbar.bad { background: var(--bad-soft); color: var(--bad); box-shadow: inset 3px 0 0 var(--bad); }
@@ -546,18 +552,37 @@ function render() {
 
 // ---- the running change: shown on every page, with Cancel when it is a podman-compose command ----
 let OPERATION = null;
+// what the running change says it is doing (core.Operation.progress): a bar of images done when it knows how many,
+// a busy bar when not (Podman gives no byte counts); '' without progress
+function progressHtml(op) {
+  const p = op && op.progress;
+  if (!p) return '';
+  const known = p.total > 0 && p.done != null;
+  const pct = known ? Math.min(100, Math.round(100 * p.done / p.total)) : 100;
+  return `<div class="progress${known ? '' : ' busy'}" role="progressbar" aria-label="${esc(p.step)}"${
+    known ? ` aria-valuemin="0" aria-valuemax="${p.total}" aria-valuenow="${p.done}"` : ''}><div style="width:${pct}%"></div></div>
+    <div class="small muted">${esc(p.step)}${known ? ` ${p.done}/${p.total}` : ''}${p.detail ? ` – ${esc(p.detail)}` : ''}</div>`;
+}
 function renderOperation() {
   const bar = $('opbar');
+  document.querySelectorAll('[data-progress]').forEach((el) => { el.innerHTML = progressHtml(OPERATION); });
   if (!OPERATION) { bar.innerHTML = ''; return; }
   const text = OPERATION.text.charAt(0).toUpperCase() + OPERATION.text.slice(1);
   const box = bar.firstElementChild;
   if (box && Boolean(box.querySelector('#op-cancel')) === OPERATION.cancellable) {   // only the time changed: keep the button
     box.firstElementChild.textContent = text;                                         // (a rebuilt button loses a click)
+    box.querySelector('.op-progress').innerHTML = progressHtml(OPERATION);
     return;
   }
-  bar.innerHTML = `<div class="opbar" role="status"><span>${esc(text)}</span>${
+  bar.innerHTML = `<div class="opbar" role="status"><span>${esc(text)}</span><div class="op-progress">${progressHtml(OPERATION)}</div>${
     OPERATION.cancellable ? '<button class="small" id="op-cancel">Cancel…</button>' : ''}</div>`;
   $('op-cancel')?.addEventListener('click', showCancelOperation);
+}
+// while a dialog waits for a change: its progress (a [data-progress] box in the dialog), asked for every second
+async function watchProgress(promise) {
+  if (!document.querySelector('#dlg-body [data-progress]')) $('dlg-body').insertAdjacentHTML('beforeend', '<div data-progress></div>');
+  const timer = setInterval(pollOperation, 1000);
+  try { return await promise; } finally { clearInterval(timer); }
 }
 // ---- what the schedule did while nobody looked: shown on every page until dismissed ----
 let ALERTS = [];
@@ -1460,7 +1485,7 @@ async function startDeploy(name) {
     goBtn.textContent = create ? 'Creating…' : 'Updating…';
     const payload = { pull: $('pull') ? $('pull').checked : true, remove: remove && remove.checked ? p.blocking.map((c) => c.name) : [] };
     try {
-      const r = await api(`/api/stacks/${enc(name)}/deploy`, { method: 'POST', body: JSON.stringify(payload) });
+      const r = await watchProgress(api(`/api/stacks/${enc(name)}/deploy`, { method: 'POST', body: JSON.stringify(payload) }));
       if (r.ok) { closeDialog(); toast(`${create ? 'Created' : 'Updated'} ${name}`); }
       else {
         openDialog(`${title} failed`, `${errBox('It did not finish.')}<pre>${esc(r.log.join('\n') || '(no output)')}</pre>`,
@@ -1513,7 +1538,7 @@ async function showRollback(name) {
     ev.currentTarget.disabled = true;
     ev.currentTarget.textContent = 'Rolling back…';
     try {
-      const out = await api(`/api/stacks/${enc(name)}/rollback`, { method: 'POST', body: '{}' });
+      const out = await watchProgress(api(`/api/stacks/${enc(name)}/rollback`, { method: 'POST', body: '{}' }));
       if (out.ok) { closeDialog(); toast(`Rolled back ${name}`); }
       else openDialog(`${title} failed`, `${errBox('It did not finish.')}<pre>${esc(out.log.join('\n') || '(no output)')}</pre>`);
     } catch (e) {
@@ -1541,8 +1566,8 @@ function updateSelected(names) {
     for (const name of list) {
       add(`${name}: updating…`);
       try {
-        const r = await api(`/api/stacks/${enc(name)}/deploy`, {
-          method: 'POST', body: JSON.stringify({ pull: true, onlyUpdate: true, remove: [] }) });
+        const r = await watchProgress(api(`/api/stacks/${enc(name)}/deploy`, {
+          method: 'POST', body: JSON.stringify({ pull: true, onlyUpdate: true, remove: [] }) }));
         add(`${name}: ${r.ok ? 'updated' : 'failed'}`);
         r.log.forEach((l) => add(`  ${l}`));
         if (r.ok) ok++;
@@ -2158,7 +2183,7 @@ function showPull() {
   $('pl-go').addEventListener('click', async () => {
     $('pl-go').disabled = true; $('pl-go').textContent = 'Pulling…';
     try {
-      const r = await api('/api/images/pull', { method: 'POST', body: JSON.stringify({ reference: $('pl-ref').value.trim() }) });
+      const r = await watchProgress(api('/api/images/pull', { method: 'POST', body: JSON.stringify({ reference: $('pl-ref').value.trim() }) }));
       closeDialog(); toast(`Pulled ${r.pulled}`); loadImages();
     } catch (e) { $('dlg-err').innerHTML = errBox(e.message); $('pl-go').disabled = false; $('pl-go').textContent = 'Pull'; }
   });

@@ -45,6 +45,16 @@ if orphan_command and orphan_command in sys.argv[1:]:
     print('fake podman-compose', ' '.join(sys.argv[1:]), flush=True)
     os._exit(0)
 
+output = os.environ.get('FAKE_COMPOSE_OUTPUT')
+if output and 'pull' in sys.argv[1:]:
+    # FAKE_COMPOSE_OUTPUT names a file whose lines a pull prints (what podman printed), FAKE_COMPOSE_LINE_DELAY
+    # seconds apart, each flushed: the caller sees them while it runs
+    delay = float(os.environ.get('FAKE_COMPOSE_LINE_DELAY') or 0)
+    with open(output, encoding='utf-8') as fh:
+        for line in fh:
+            print(line.rstrip('\n'), flush=True)
+            time.sleep(delay)
+
 print('fake podman-compose', ' '.join(sys.argv[1:]))
 fail_on = os.environ.get('FAKE_COMPOSE_FAIL_ON', '')
 sys.exit(3 if fail_on and fail_on in sys.argv[1:] else 0)

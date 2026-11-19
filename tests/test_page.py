@@ -137,6 +137,16 @@ class PageTest(Base):
         start = page.index('async function loadResources')
         self.assertLess(page.index('trackNear();', start), page.index('refreshResourceCells();', start))
 
+    def test_the_waits_show_the_progress(self):
+        """Update / Create, the bulk update, Roll back and Pull show the running change's progress while they wait (and
+        ask for it every second then); the bar on top of every page shows it too."""
+        with urllib.request.urlopen(self.base + '/', timeout=10) as r:
+            page = r.read().decode('utf-8')
+        for name in ('function progressHtml', 'async function watchProgress', 'setInterval(pollOperation, 1000)',
+                     "querySelectorAll('[data-progress]')", 'class="op-progress"', '.progress.busy'):
+            self.assertIn(name, page, name)
+        self.assertEqual(page.count('await watchProgress(api('), 4)
+
     def test_the_backup_panel(self):
         with urllib.request.urlopen(self.base + '/', timeout=10) as r:
             page = r.read().decode('utf-8')

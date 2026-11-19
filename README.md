@@ -14,7 +14,10 @@ One container, Python standard library + PyYAML, no database.
   compare a stack with what was deployed last (the files of the last deploy are kept in the page's data folder,
   not in the stack's folder, which a container may mount and write); upload a new stack (its compose file, env file and other files chosen separately); update several stacks at once. One change runs at a time: a bar on every page shows it
   and, for a `podman-compose` command, offers *Cancel* (the command and what it started are stopped; the containers
-  it already created stay); another change meanwhile is refused with a message that names the running one. A
+  it already created stay); another change meanwhile is refused with a message that names the running one. The bar,
+  and the dialog of an *Update*, *Create*, *Roll back* or *Pull*, shows how far it is: pulling images (how many of how
+  many are done, and the layers so far: Podman gives no byte counts), recreating the containers, waiting for health
+  checks (the automatic update). A
   command that does not finish in 5 minutes (`up`, `start`, `stop`, `down`; a pull gets 15) is ended, and the error
   names the containers that are not healthy yet.
 - **A stack's other files**: the scripts, JSON/YAML configs and dashboards its compose file mounts with

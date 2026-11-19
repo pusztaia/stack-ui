@@ -144,6 +144,24 @@ check('activityRows escapes what a container or an error message says', () => {
   if (!html.includes('page · 1.5 s')) throw new Error('the source and the time are missing');
 });
 
+check('progressHtml: nothing without progress, a bar of images done, a busy bar when the total is unknown', () => {
+  eq(page('progressHtml(null)'), '');
+  eq(page("progressHtml({ text: 'x' })"), '');
+  const known = page(`progressHtml({ progress: { step: 'Pulling images', detail: 'jellyfin, 5 layers', done: 1, total: 4 } })`);
+  for (const want of ['width:25%', 'aria-valuenow="1"', 'aria-valuemax="4"', 'Pulling images 1/4', 'jellyfin, 5 layers']) {
+    if (!known.includes(want)) throw new Error(`missing ${want}: ${known}`);
+  }
+  const busy = page(`progressHtml({ progress: { step: 'Recreating containers', detail: '', done: null, total: null } })`);
+  if (!busy.includes('progress busy') || busy.includes('aria-valuenow') || busy.includes('null')) throw new Error(busy);
+  const over = page(`progressHtml({ progress: { step: 'x', detail: '', done: 5, total: 4 } })`);
+  if (!over.includes('width:100%')) throw new Error(over);
+});
+
+check('progressHtml escapes what podman said', () => {
+  const html = page(`progressHtml({ progress: { step: '<b>s</b>', detail: '<img src=x onerror=alert(1)>', done: 0, total: 1 } })`);
+  if (html.includes('<img') || html.includes('<b>')) throw new Error(html);
+});
+
 check('the routes', () => {
   const route = (hash) => page(`location.hash = ${JSON.stringify(hash)}; parseHash()`);
   eq(route('#/activity'), { view: 'activity', stack: '' });

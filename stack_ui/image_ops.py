@@ -97,7 +97,9 @@ def image_pull(data: dict) -> dict:
     if not IMAGE_REF.match(ref):
         raise ValueError('the image: e.g. docker.io/library/nginx:1.27 (lowercase, no spaces)')
     with operation('image-pull', ref):
-        pa.pull_image(ref)
+        track = st.PullProgress(1, 'Pulling image')
+        st.set_progress(track.step, ref, 0, 1)
+        pa.pull_image(ref, on_line=track)
     return {'pulled': ref}
 
 

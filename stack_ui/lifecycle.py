@@ -44,7 +44,9 @@ def deploy(folder: Path, compose_file: str, env_file: str | None, *, approve, dr
     unfinished = bool(point and (rollback.load(folder) or {}).get('pending'))
     before = rollback.capture(folder, compose_file, env_file) if point and not unfinished and p['action'] == 'update' else None
     if pull:  # before anything is removed: a failed pull leaves the old containers running
-        st.run_compose(folder, compose_file, env_file, ['pull', *(services or [])], log)
+        track = st.PullProgress(st.pull_count(folder, compose_file, services))
+        st.set_progress(track.step, '', 0, track.total)
+        st.run_compose(folder, compose_file, env_file, ['pull', *(services or [])], log, on_line=track)
     if point and not unfinished:   # after the pull (a failed pull changed nothing, its old point stays)
         rollback.keep(folder, before and {**before, 'pending': True}, log if p['action'] == 'update' else None,
                       cleanup=schedule.cleanup_on())
@@ -59,6 +61,7 @@ def deploy(folder: Path, compose_file: str, env_file: str | None, *, approve, dr
     # `up` downloads (and builds) what is not on the host yet, which may take long: it keeps the long limit then;
     # with everything present a command that does not finish soon is hung (an unhealthy dependency)
     up_limit = None if pull or st.images_ready(folder, compose_file) else st.LONG_TIMEOUT
+    st.set_progress('Recreating containers')
     st.run_compose(folder, compose_file, env_file,
                 ['up', '-d', *(['--force-recreate'] if pull or recreate else []), *(services or [])], log,
                 timeout=up_limit)
@@ -96,6 +99,7 @@ def roll_back(folder: Path, compose_file: str, env_file: str | None, write_file,
     blocked = rollback.problems(folder, compose_file, env_file, point)
     if blocked:
         raise st.StackError('cannot roll back: ' + '; '.join(blocked))
+    st.set_progress('Restoring the previous images and files')
     changed = {fname: text for fname, text in point['files'].items()
                if st.read_plain(folder / fname) != text.encode('utf-8')}
     for fname in changed:                        # before a name is moved: every target can be written

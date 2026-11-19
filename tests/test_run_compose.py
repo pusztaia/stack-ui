@@ -285,7 +285,7 @@ class UpLimitTest(Base):
 
     def test_up_gets_the_long_limit_when_it_has_images_to_download(self):
         seen = []
-        self.patch(st, 'run_compose', lambda folder, compose_file, env_file, args, log, timeout=None:
+        self.patch(st, 'run_compose', lambda folder, compose_file, env_file, args, log, timeout=None, on_line=None:
                    seen.append((args[0], timeout)))
 
         def deploy(pull):

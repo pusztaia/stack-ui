@@ -58,6 +58,7 @@ class Operation:
         self.cancelled = False
         self.proc = None                    # the podman-compose process, set by stacks.run_compose
         self.result, self.message = '', ''  # what the change noted (note()) for the Activity log; '' when it ran through
+        self.progress: dict | None = None   # what it is doing now (stacks.set_progress): the page's progress bar
 
     def note(self, result: str, message: str = '') -> None:
         """The result of a change that does not raise when it fails (a deploy answers {ok: False}) or ends in another
@@ -70,7 +71,8 @@ class Operation:
 
     def view(self) -> dict:
         return {'kind': self.kind, 'target': self.target, 'since': int(self.started),
-                'seconds': int(time.time() - self.started), 'cancellable': self.cancellable, 'text': self.text()}
+                'seconds': int(time.time() - self.started), 'cancellable': self.cancellable, 'text': self.text(),
+                'progress': self.progress}
 
 
 CURRENT: Operation | None = None     # what holds DEPLOY_LOCK now
