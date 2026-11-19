@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.0.46
 
+- *CI.* The image is built and published with `docker/build-push-action` 7, `setup-buildx-action` 4 and
+  `login-action` 4 (Dependabot); the login runs for the first time with this release.
 - *A save cannot write through a planted link.* A save, a restore, a roll back and the first extra file of a stack wrote
   into `<file>.tmp` and renamed it over the real file. A container that mounts the stack's folder could plant a link at
   that name, and the page, which writes as root, then overwrote the file the link pointed at (the stack's own file became
