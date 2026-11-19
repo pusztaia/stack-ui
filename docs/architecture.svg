@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 470" width="920" height="470" role="img" aria-labelledby="t d">
+  <title id="t">How Stack UI fits together</title>
+  <desc id="d">A browser and a deploy script reach the Stack UI container over HTTP. On the Podman host, Stack UI runs
+  podman-compose and talks to Podman over its socket; Podman runs the stacks' containers. Stack UI keeps its own state
+  in STACK_UI_DATA and edits the stacks' files in STACKS_DIR, which a container may mount. It asks image registries
+  whether a newer image exists.</desc>
+  <style>
+    .frame { fill: #f6f8fa; stroke: #d0d7de; }
+    .card { fill: #ffffff; stroke: #8c959f; }
+    .main { fill: #ddf4ff; stroke: #0969da; stroke-width: 1.6; }
+    .store { fill: #fff8c5; stroke: #bf8700; }
+    .title { font: 600 14px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #1f2328; }
+    .text { font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #59636e; }
+    .label { font: 11.5px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #59636e; }
+    .zone { font: 600 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #59636e; letter-spacing: .06em; }
+    .line { fill: none; stroke: #59636e; stroke-width: 1.4; }
+    .dash { stroke-dasharray: 5 4; }
+    .head { fill: #59636e; }
+    @media (prefers-color-scheme: dark) {
+      .frame { fill: #151b23; stroke: #3d444d; }
+      .card { fill: #0d1117; stroke: #656c76; }
+      .main { fill: #0c2d4d; stroke: #4493f8; }
+      .store { fill: #2e2507; stroke: #bb8009; }
+      .title { fill: #f0f6fc; }
+      .text, .label, .zone { fill: #9198a1; }
+      .line { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head" d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+
+  <!-- outside the host -->
+  <text class="zone" x="20" y="40">OUTSIDE THE HOST</text>
+  <rect class="card" x="20" y="60" width="210" height="64" rx="8"/>
+  <text class="title" x="34" y="84">Browser</text>
+  <text class="text" x="34" y="103">the page, signed in with</text>
+  <text class="text" x="34" y="117">its password</text>
+
+  <rect class="card" x="20" y="150" width="210" height="64" rx="8"/>
+  <text class="title" x="34" y="174">Deploy script</text>
+  <text class="text" x="34" y="193">stack-ui-client.py,</text>
+  <text class="text" x="34" y="207">with an API token</text>
+
+  <rect class="card" x="20" y="360" width="210" height="64" rx="8"/>
+  <text class="title" x="34" y="384">Image registries</text>
+  <text class="text" x="34" y="403">the update check asks them</text>
+  <text class="text" x="34" y="417">whether a newer image exists</text>
+
+  <!-- the Podman host -->
+  <rect class="frame" x="270" y="18" width="630" height="436" rx="12"/>
+  <text class="zone" x="292" y="40">PODMAN HOST</text>
+
+  <rect class="main" x="295" y="62" width="230" height="134" rx="8"/>
+  <text class="title" x="311" y="88">Stack UI</text>
+  <text class="text" x="311" y="110">one container: the page</text>
+  <text class="text" x="311" y="125">and its API</text>
+  <text class="text" x="311" y="148">one change at a time;</text>
+  <text class="text" x="311" y="163">acts as root through</text>
+  <text class="text" x="311" y="178">the Podman socket</text>
+
+  <rect class="store" x="295" y="250" width="230" height="98" rx="8"/>
+  <text class="title" x="311" y="274">STACK_UI_DATA</text>
+  <text class="text" x="311" y="293">settings, deploy records,</text>
+  <text class="text" x="311" y="307">rollback points, schedule,</text>
+  <text class="text" x="311" y="321">Activity</text>
+  <text class="text" x="311" y="337">only the page reads it</text>
+
+  <rect class="card" x="620" y="62" width="255" height="54" rx="8"/>
+  <text class="title" x="636" y="85">podman-compose</text>
+  <text class="text" x="636" y="104">pull, up, start, stop, down</text>
+
+  <rect class="card" x="620" y="156" width="255" height="54" rx="8"/>
+  <text class="title" x="636" y="179">Podman</text>
+  <text class="text" x="636" y="198">its socket, the libpod REST API</text>
+
+  <rect class="card" x="620" y="250" width="255" height="54" rx="8"/>
+  <text class="title" x="636" y="273">The stacks' containers</text>
+  <text class="text" x="636" y="292">one compose project per stack</text>
+
+  <rect class="store" x="620" y="362" width="255" height="70" rx="8"/>
+  <text class="title" x="636" y="385">STACKS_DIR</text>
+  <text class="text" x="636" y="404">one folder per stack: its compose</text>
+  <text class="text" x="636" y="418">file, env file and other files</text>
+
+  <!-- arrows -->
+  <path class="line" d="M230,92 H295" marker-end="url(#arrow)"/>
+  <text class="label" x="246" y="86">HTTP</text>
+  <path class="line" d="M230,182 H295" marker-end="url(#arrow)"/>
+  <text class="label" x="246" y="176">HTTP</text>
+  <path class="line dash" d="M295,190 H283 V392 H230" marker-end="url(#arrow)"/>
+
+  <path class="line" d="M525,89 H620" marker-end="url(#arrow)"/>
+  <text class="label" x="560" y="83">runs</text>
+  <path class="line" d="M525,120 H590 V183 H620" marker-end="url(#arrow)"/>
+  <text class="label" x="584" y="152" text-anchor="end">libpod API</text>
+  <path class="line" d="M747,116 V156" marker-end="url(#arrow)"/>
+  <path class="line" d="M747,210 V250" marker-end="url(#arrow)"/>
+  <text class="label" x="755" y="234">runs</text>
+
+  <path class="line" d="M410,196 V250" marker-end="url(#arrow)"/>
+  <text class="label" x="418" y="227">its own state</text>
+  <path class="line" d="M525,182 H560 V397 H620" marker-end="url(#arrow)"/>
+  <text class="label" x="552" y="380" text-anchor="end">edits the files</text>
+  <path class="line dash" d="M747,304 V362" marker-end="url(#arrow)"/>
+  <text class="label" x="755" y="338">may mount its folder</text>
+</svg>

@@ -4,22 +4,7 @@ A small web page for the compose stacks of a [Podman](https://podman.io) host. E
 stack; Stack UI runs it with [podman-compose](https://github.com/containers/podman-compose) through the Podman socket.
 One container, Python 3.14 (standard library) + PyYAML, no database.
 
-```mermaid
-flowchart TB
-    browser["Browser: the page<br/>(signed in with the password)"] -->|HTTP| ui
-    script["Deploy script: stack-ui-client.py<br/>(API token)"] -->|HTTP| ui
-    ui -->|is there a newer image?| registries[("Image registries")]
-    subgraph host["Podman host"]
-        ui["Stack UI container"]
-        ui -->|runs| compose["podman-compose"]
-        ui -->|libpod REST API| socket(["Podman socket"])
-        compose --> socket
-        socket --> containers["The stacks' containers"]
-        ui --- stacks[("STACKS_DIR<br/>one folder per stack")]
-        ui --- data[("STACK_UI_DATA: settings, deploy records,<br/>rollback points, schedule, activity")]
-        containers -. may mount their folder .-> stacks
-    end
-```
+<p align="center"><img src="docs/architecture.svg" width="860" alt="A browser and a deploy script reach the Stack UI container over HTTP. On the Podman host Stack UI runs podman-compose and talks to Podman over its socket; Podman runs the stacks' containers. Stack UI keeps its own state in STACK_UI_DATA and edits the stacks' files in STACKS_DIR, which a container may mount. It asks image registries whether a newer image exists."></p>
 
 The page's own state lives in `STACK_UI_DATA`, never in a stack's folder: a container that mounts its folder could
 write it.
