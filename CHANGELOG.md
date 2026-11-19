@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- *Docs.* The README says Python 3.14 is needed for the client and the installer, and how to run the linter and
+- *Docs.* A diagram at the top of the README shows how the parts fit together. The README says Python 3.14 is needed for the client and the installer, and how to run the linter and
   the tests (Node.js for the page's); `compose.example.yaml` shows the registry login for private images
   (`REGISTRY_AUTH_FILE`). The examples, the installer's help and the tests use a documentation address
   (192.0.2.10) instead of a real one.

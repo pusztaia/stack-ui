@@ -4,6 +4,26 @@ A small web page for the compose stacks of a [Podman](https://podman.io) host. E
 stack; Stack UI runs it with [podman-compose](https://github.com/containers/podman-compose) through the Podman socket.
 One container, Python 3.14 (standard library) + PyYAML, no database.
 
+```mermaid
+flowchart TB
+    browser["Browser: the page<br/>(signed in with the password)"] -->|HTTP| ui
+    script["Deploy script: stack-ui-client.py<br/>(API token)"] -->|HTTP| ui
+    ui -->|is there a newer image?| registries[("Image registries")]
+    subgraph host["Podman host"]
+        ui["Stack UI container"]
+        ui -->|runs| compose["podman-compose"]
+        ui -->|libpod REST API| socket(["Podman socket"])
+        compose --> socket
+        socket --> containers["The stacks' containers"]
+        ui --- stacks[("STACKS_DIR<br/>one folder per stack")]
+        ui --- data[("STACK_UI_DATA: settings, deploy records,<br/>rollback points, schedule, activity")]
+        containers -. may mount their folder .-> stacks
+    end
+```
+
+The page's own state lives in `STACK_UI_DATA`, never in a stack's folder: a container that mounts its folder could
+write it.
+
 - **Stacks**: list with state, containers and their healthchecks; edit the compose and env file, or load a new version of them from
   your files (every save keeps the previous version in `.history/`, a save shows its diff first; a running stack is
   updated with every save, restore or file delete on the page, so its folder stays what runs); create, update
