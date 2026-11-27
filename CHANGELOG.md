@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.50
+
+- *Dependencies.* The image has PyYAML 6.0.4 (was 6.0.3); the linter is ruff 0.17.6.
+
 ## 1.0.49
 
 - *Backup.* A backup reads at most 64 MiB of the data folder (was 256 MiB): the archive is built in memory, and
