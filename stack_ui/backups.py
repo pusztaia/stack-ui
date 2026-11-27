@@ -23,7 +23,7 @@ from . import stacks as st
 BACKUP_DIR = os.environ.get('STACK_UI_BACKUP_DIR') or ''        # in the container; '' = only the download
 KEEP = max(1, int(os.environ.get('STACK_UI_BACKUP_KEEP') or 10))
 PARTS = ('settings.json', 'schedule.json', 'activity.jsonl', 'deployed', 'rollback')
-MAX_TOTAL = 256 * 1024 * 1024       # bytes read into one archive at most
+MAX_TOTAL = 64 * 1024 * 1024        # bytes read into one archive at most: it and its packed copy fit mem_limit (192m)
 NAME = re.compile(r'^stack-ui-backup-\d{8}-\d{6}(?:-\d+)?\.tar\.gz$')
 MANIFEST = 'stack-ui-backup.json'
 

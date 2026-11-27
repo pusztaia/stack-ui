@@ -1,14 +1,17 @@
 import http.client
+import importlib.util
 import io
 import json
 import os
+import re
 import tarfile
 import threading
 import unittest
 from datetime import datetime
 from http.server import ThreadingHTTPServer
 
-from tests.support import Base, fresh_server
+from stack_ui import backups
+from tests.support import ROOT, Base, fresh_server
 
 
 class BackupBase(Base):
@@ -166,6 +169,19 @@ class RouteTest(BackupBase):
                              ('GET', '/api/backup/download/')):
             self.assertEqual(self.call(method, path, bearer)[0], 403, path)
         self.assertEqual(list(self.folder.iterdir()), [])
+
+
+class BackupFitsTheContainer(unittest.TestCase):
+    def test_the_largest_backup_fits_the_memory_limit(self):
+        """The archive is built in memory: a file's body and the packed buffer at once, plus Python itself."""
+        spec = importlib.util.spec_from_file_location('install_pi', ROOT / 'tools' / 'install-pi.py')
+        pi = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pi)
+        texts = {'compose.example.yaml': (ROOT / 'compose.example.yaml').read_text(encoding='utf-8'),
+                 'install-pi.py': pi.render_compose('example/app:1', '192.0.2.10', 8770, 'localhost', '', True)}
+        for where, text in texts.items():
+            limit = int(re.search(r'mem_limit:\s*(\d+)m', text).group(1)) * 1024 * 1024
+            self.assertLessEqual(2 * backups.MAX_TOTAL + 64 * 1024 * 1024, limit, where)
 
 
 if __name__ == '__main__':

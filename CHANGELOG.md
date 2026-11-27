@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- *Backup.* A backup reads at most 64 MiB of the data folder (was 256 MiB): the archive is built in memory, and
+  the larger one did not fit the container's `mem_limit: 192m`, so a too-large folder killed the page instead of
+  giving the "larger than ... MiB: no backup made" message. A test keeps the limit below the memory limit of
+  `compose.example.yaml` and of the installer's compose file.
+- *Tests.* A test keeps the deploy script's own copy of the file rules (compose file names, the allowed endings,
+  `stack.json`) the same as the page's: a new ending on one side only would leave files out of a script's upload.
 - *Docs.* A diagram at the top of the README shows how the parts fit together. The README says Python 3.14 is needed for the client and the installer, and how to run the linter and
   the tests (Node.js for the page's); `compose.example.yaml` shows the registry login for private images
   (`REGISTRY_AUTH_FILE`). The examples, the installer's help and the tests use a documentation address

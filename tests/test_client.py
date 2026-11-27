@@ -132,3 +132,9 @@ class ClientTest(Base):
         with self.assertRaises(sc.ClientError) as ctx:
             sc.deploy(self.local, pull=False, log=lambda _: None)
         self.assertIn('1 MiB', str(ctx.exception))
+
+    def test_the_file_rules_are_the_servers(self):
+        """The client keeps its own copy (it runs without the package): the same names and endings."""
+        self.assertEqual(sc.COMPOSE_NAMES, self.ui.st.COMPOSE_NAMES)
+        self.assertEqual(sc.UPLOAD_SUFFIXES, self.ui.st.ALLOWED_SUFFIXES)
+        self.assertEqual(sc.MANIFEST, self.ui.st.MANIFEST)
