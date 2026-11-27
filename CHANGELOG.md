@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.49
 
 - *Backup.* A backup reads at most 64 MiB of the data folder (was 256 MiB): the archive is built in memory, and
   the larger one did not fit the container's `mem_limit: 192m`, so a too-large folder killed the page instead of
