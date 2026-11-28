@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- *Sign-in.* A user name besides the password: with `STACK_UI_USERNAME` set the sign-in page asks for it, and a
+  wrong name is refused like a wrong password (the same answer, the same throttle). Without it the password alone
+  signs in, as before. `tools/install-pi.py --username` (the wizard asks too) writes it into the compose file; an
+  update without it keeps the one there.
+- *Activity.* Every sign-in to the page is in the Activity log (*Sign-ins*): right, wrong, and a lock out after
+  five wrong ones (written once per lock out, not for every refused try), with the address it came from (the
+  client behind a trusted proxy). What was typed is never written.
+- *Safari.* The page saved in Safari (Add to Dock, Add to Home Screen, a bookmark) shows the logo: Safari takes no
+  SVG icon, so the page links a 180 px PNG of it (`/apple-touch-icon.png`, also there when signed out) and names
+  itself "Stack UI".
+
 ## 1.0.50
 
 - *Dependencies.* The image has PyYAML 6.0.4 (was 6.0.3); the linter is ruff 0.17.6.

@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stack UI __VERSION__</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Stack UI">
 <style>
   /* Operator console for one Pi: near-black slate, one cyan signal colour, green / amber / red only for state.
      Identifiers, numbers and labels are monospace; headings keep a DIN-like face. A row's state also runs down its
@@ -2319,9 +2321,9 @@ const ACT_KIND = { deploy: 'Deploy', rollback: 'Roll back', 'rollback-discard': 
   restart: 'Restart', container: 'Container', 'image-pull': 'Image pull', 'image-tag': 'Image tag',
   'image-remove': 'Image removed', 'images-remove': 'Images removed', 'images-prune': 'Images removed',
   network: 'Network', volume: 'Volume', secret: 'Secret', backup: 'Backup',
-  'restart-loop': 'Restart loop', oom: 'Out of memory', 'memory-near': 'Memory near limit' };
+  'restart-loop': 'Restart loop', oom: 'Out of memory', 'memory-near': 'Memory near limit', 'sign-in': 'Sign-in' };
 const ACT_RESULT = { ok: 't-ok', updated: 't-ok', ended: 't-ok', skipped: 't-idle', cancelled: 't-warn',
-  'rolled-back': 't-warn', failed: 't-bad', 'rollback-failed': 't-bad', killed: 't-bad', started: 't-bad' };
+  'rolled-back': 't-warn', throttled: 't-warn', failed: 't-bad', 'rollback-failed': 't-bad', killed: 't-bad', started: 't-bad' };
 const ACT_FROM = { page: 'signed in on the page', script: 'the API token (a deploy script)', schedule: 'the daily check' };
 function activityResult(e) {
   const cls = e.kind === 'memory-near' && e.result === 'started' ? 't-warn' : (ACT_RESULT[e.result] || 't-idle');
@@ -2344,12 +2346,12 @@ function activityRows(list) {
 function viewActivity() {
   $('view').innerHTML = `
     <div class="page-head">
-      <div><h1>Activity</h1><p class="sub">What changed (from the page, a script or the daily check) and what happened to the containers, also while no page was open. The newest 2000 entries are kept.</p></div>
+      <div><h1>Activity</h1><p class="sub">What changed (from the page, a script or the daily check), what happened to the containers, also while no page was open, and every sign-in to the page (from which address). The newest 2000 entries are kept.</p></div>
       <div class="head-actions"><button class="icon-btn" id="act-reload" title="Reload" aria-label="Reload">${icon('refresh')}</button></div>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
       <select id="act-show" aria-label="Show" style="width:auto">
-        <option value="all">All</option><option value="changes">Changes</option><option value="warnings">Warnings</option><option value="failed">Failed</option>
+        <option value="all">All</option><option value="changes">Changes</option><option value="warnings">Warnings</option><option value="failed">Failed</option><option value="sign-ins">Sign-ins</option>
       </select>
       <input id="act-stack" type="search" placeholder="Stack name" aria-label="Stack" value="${esc(ROUTE.stack || '')}" style="max-width:220px">
     </div>

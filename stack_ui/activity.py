@@ -31,7 +31,7 @@ READ_MAX = 4 * 1024 * 1024
 MESSAGE_MAX = 500
 AUTOSTART = True           # the tests switch the watcher thread off
 WATCH_EVERY = 60.0         # seconds between two looks
-SHOW = ('all', 'changes', 'warnings', 'failed')
+SHOW = ('all', 'changes', 'warnings', 'failed', 'sign-ins')
 NOT_OK = {'failed', 'cancelled', 'rolled-back', 'rollback-failed'}
 STACK_KINDS = {'deploy', 'rollback', 'rollback-discard', 'auto-update', 'stack-start', 'stack-stop', 'stack-delete'}
 PROJECT_LABELS = ('io.podman.compose.project', 'com.docker.compose.project')
@@ -85,6 +85,12 @@ def _trim() -> None:
     os.replace(tmp, path())
 
 
+def sign_in(client: str, result: str, message: str = '') -> None:
+    """A sign-in to the page: ok, failed or throttled, and from where (never what was typed)."""
+    record({'type': 'login', 'kind': 'sign-in', 'target': client, 'result': result, 'message': message,
+            'source': 'page'})
+
+
 def change(op, exc: BaseException | None) -> None:
     """The entry of a change that held the lock (core.operation): op is its core.Operation, exc what it raised."""
     if exc is not None:
@@ -130,6 +136,8 @@ def listing(query: dict) -> dict:
         rows = [r for r in rows if r.get('type') == 'change']
     elif show == 'warnings':
         rows = [r for r in rows if r.get('type') == 'warning']
+    elif show == 'sign-ins':
+        rows = [r for r in rows if r.get('type') == 'login']
     elif show == 'failed':
         rows = [r for r in rows if r.get('type') == 'change' and r.get('result') in NOT_OK]
     if stack:

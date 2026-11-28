@@ -135,6 +135,14 @@ check('activityResult colours', () => {
      ['t-ok', 't-bad', 't-warn', 't-idle', 't-bad', 't-warn', 't-ok', 't-idle']);
 });
 
+check('a sign-in row: its name, the client, green / red / yellow', () => {
+  const row = (result) => page(`activityRows([{ at: '2026-11-28T06:00:00Z', type: 'login', kind: 'sign-in', target: '203.0.113.7', stack: '', result: '${result}', message: '', seconds: null, source: 'page' }])`);
+  const ok = row('ok');
+  if (!ok.includes('<b>Sign-in</b>') || !ok.includes('203.0.113.7') || !ok.includes('t-ok')) throw new Error(ok);
+  if (!row('failed').includes('t-bad')) throw new Error(row('failed'));
+  if (!row('throttled').includes('t-warn')) throw new Error(row('throttled'));
+});
+
 check('activityRows escapes what a container or an error message says', () => {
   const html = page(`activityRows([{ at: '2026-11-17T06:00:00Z', type: 'change', kind: '<b>x</b>', target: '<img src=x onerror=alert(1)>',
     stack: 'web"x', result: 'failed', message: '<script>alert(1)</script>', seconds: 1.5, source: 'page' }])`);

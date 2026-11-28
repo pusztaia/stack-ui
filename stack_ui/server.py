@@ -10,7 +10,8 @@ stack's way are removed only when the page confirms it), uploads new stacks (*Ad
 what was deployed last, checks the registries for newer images, and shows Containers, Images, Logs, Networks,
 Volumes and Podman Secrets (a secret's value goes in and is never shown again).
 
-Off loopback it needs a password (STACK_UI_PASSWORD_FILE, the hash from --hash-password), a session cookie, the
+Off loopback it needs a password (STACK_UI_PASSWORD_FILE, the hash from --hash-password; with STACK_UI_USERNAME a
+user name too), a session cookie, the
 page's token and an allowed Host header (STACK_UI_ALLOWED_HOSTS), so other web pages cannot use it. Scripts use an
 API token instead (Settings: generated once, only its SHA-256 is kept in STACK_UI_DATA; it opens /api/ except the
 settings, never the page). Env files must not hold secrets: a save or an upload with a non-empty
@@ -62,6 +63,7 @@ from .usage import *  # noqa: F401,F403 - the names the handler and the tests us
 HERE = Path(__file__).resolve().parent
 PAGE = HERE / 'page.html'
 ICON = HERE / 'icon.svg'
+TOUCH_ICON = HERE / 'apple-touch-icon.png'   # Safari (Add to Dock / Home Screen) takes no SVG: icon.svg on a square, 180 px
 MAX_BODY = 1024 * 1024
 MAX_CONNECTIONS = 64     # open connections at once (each is a thread)
 REQUEST_TIMEOUT = 30
@@ -71,6 +73,7 @@ SESSION_HOURS = 12
 
 class Config:
     password_hash = ''        # empty: no login (workstation mode)
+    username = ''             # STACK_UI_USERNAME: when set, the sign-in asks for it too
     allowed_hosts: set[str] = {'127.0.0.1', 'localhost'}
     trusted_proxies: list = []   # networks whose X-Forwarded-For is believed (STACK_UI_TRUSTED_PROXIES)
     local_token = secrets.token_urlsafe(24)
@@ -87,6 +90,10 @@ FAILURES: dict[str, list[float]] = {}          # client address -> recent failed
 LOGIN_LOCK = threading.Lock()
 LOGIN_WINDOW = 300     # seconds a failed login counts
 LOGIN_TRIES = 5
+LOCKOUT_NOTED: dict[str, float] = {}           # client address -> when its lock out was written to the Activity log
+
+
+USERNAME = re.compile(r'^[A-Za-z0-9._-]{1,64}$')
 
 
 def parse_proxies(text: str) -> list:
@@ -107,6 +114,8 @@ def new_session() -> tuple[str, str]:
 LOGIN_PAGE = '''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Stack UI</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Stack UI">
 <style>:root{--bg:#17222d;--panel:#1f2d3a;--text:#e8eef3;--muted:#a3b3c2;--line:#34485a;--accent:#2b73d8;--bad:#f26b6b;color-scheme:dark}
 @media (prefers-color-scheme:light){:root{--bg:#f2f5f7;--panel:#fff;--text:#14212c;--muted:#50626f;--line:#d3dde5;--accent:#1f6fd1;--bad:#c93a3a;color-scheme:light}}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,sans-serif}
@@ -115,15 +124,26 @@ h1{margin:0 0 4px;font:600 24px/1.15 Bahnschrift,"DIN Alternate",system-ui,sans-
 input,button{font:inherit;width:100%;box-sizing:border-box;padding:9px 11px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
 button{margin-top:12px;background:var(--accent);border-color:var(--accent);color:#fff;cursor:pointer}#err{color:var(--bad);font-size:13px;min-height:18px;margin-top:8px}</style>
 </head><body><form id="f"><img src="/icon.svg" alt=""><h1>Stack UI</h1><p>Compose stacks on this host</p>
-<input type="password" id="pw" autocomplete="current-password" placeholder="Password" autofocus required>
+__USER_FIELD__<input type="password" id="pw" autocomplete="current-password" placeholder="Password" required>
 <button>Sign in</button><div id="err"></div></form>
 <script>document.getElementById('f').addEventListener('submit',async(e)=>{e.preventDefault();
-const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value})});
+const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:(document.getElementById('user')||{}).value||'',password:document.getElementById('pw').value})});
 if(!r.ok){const d=await r.json().catch(()=>({}));document.getElementById('err').textContent=d.error||'Sign-in failed';return;}
 const s=await fetch('/session').then((x)=>x.json()).catch(()=>({}));
 if(s.signedIn){location.replace('/');}else{document.getElementById('err').textContent=
-'The password is right, but this browser did not keep the sign-in cookie. Allow cookies for this address (in Brave: Shields, cookies) and try again.';}});</script>
+'The sign-in is right, but this browser did not keep the sign-in cookie. Allow cookies for this address (in Brave: Shields, cookies) and try again.';}});</script>
 </body></html>'''
+
+
+USER_FIELD = '<input id="user" autocomplete="username" placeholder="User name" autocapitalize="none" spellcheck="false" required>'
+
+
+def login_page() -> str:
+    """The sign-in page: a user name field when STACK_UI_USERNAME is set; the first field has the focus."""
+    field = USER_FIELD if Config.username else ''
+    page = LOGIN_PAGE.replace('__USER_FIELD__', field)
+    return page.replace('placeholder="User name"' if field else 'placeholder="Password"',
+                        ('placeholder="User name"' if field else 'placeholder="Password"') + ' autofocus', 1)
 
 
 class Route(NamedTuple):
@@ -389,12 +409,19 @@ class Handler(BaseHTTPRequestHandler):
             for k in [k for k, v in FAILURES.items() if not v or v[-1] < now - LOGIN_WINDOW]:
                 del FAILURES[k]
             recent = [t for t in FAILURES.get(ip, []) if now - t < LOGIN_WINDOW]
+            for k in [k for k, at in LOCKOUT_NOTED.items() if at < now - LOGIN_WINDOW]:
+                del LOCKOUT_NOTED[k]
             if len(recent) >= LOGIN_TRIES:
                 FAILURES[ip] = recent
+                noted = LOCKOUT_NOTED.get(ip, 0) > recent[-1]   # this lock out (since its last failure) is written
+                if not noted:
+                    LOCKOUT_NOTED[ip] = now
                 recent = None
             else:
                 FAILURES[ip] = [*recent, now]
         if recent is None:
+            if not noted:
+                activity.sign_in(ip, 'throttled', f'{LOGIN_TRIES} wrong sign-ins within {LOGIN_WINDOW // 60} minutes')
             return self.json(429, {'error': 'too many attempts: wait a few minutes'})
         try:
             body = json.loads(raw or b'{}')
@@ -402,13 +429,20 @@ class Handler(BaseHTTPRequestHandler):
             body = {}
         password = body.get('password') if isinstance(body, dict) else ''   # a body that is no object: no password
         password = password if isinstance(password, str) else ''
-        if not check_password(password, Config.password_hash):
+        user = body.get('username') if isinstance(body, dict) else ''
+        user = user if isinstance(user, str) else ''
+        right = check_password(password, Config.password_hash)   # always checked: the time says nothing about the name
+        if Config.username:
+            right = secrets.compare_digest(user.encode('utf-8'), Config.username.encode('utf-8')) and right
+        if not right:
+            activity.sign_in(ip, 'failed')    # not what was typed: a password typed into the name field stays out
             time.sleep(1)
-            return self.json(401, {'error': 'wrong password'})
+            return self.json(401, {'error': 'wrong user name or password' if Config.username else 'wrong password'})
         with LOGIN_LOCK:  # a right password does not count against the address
             if now in FAILURES.get(ip, []):
                 FAILURES[ip].remove(now)
         sid, _ = new_session()
+        activity.sign_in(ip, 'ok')
         cookie = f'{COOKIE}={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_HOURS * 3600}{self.secure_cookie()}'
         return self.json(200, {'ok': True}, {'Set-Cookie': cookie})
 
@@ -441,9 +475,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(200, {'signedIn': token is not None})
         if method == 'GET' and path in ('/icon.svg', '/favicon.ico'):  # public: the sign-in page shows it too
             return self.send(200, ICON.read_bytes(), 'image/svg+xml')
+        if method == 'GET' and path in ('/apple-touch-icon.png', '/apple-touch-icon-precomposed.png'):  # public too
+            return self.send(200, TOUCH_ICON.read_bytes(), 'image/png')
         if method == 'GET' and path in ('/', '/index.html'):
             if token is None:
-                return self.send(200, LOGIN_PAGE.encode('utf-8'), 'text/html; charset=utf-8')
+                return self.send(200, login_page().encode('utf-8'), 'text/html; charset=utf-8')
             page = (PAGE.read_text(encoding='utf-8').replace('__UI_TOKEN__', token)
                     .replace('__AUTH__', 'true' if Config.password_hash else 'false').replace('__SOURCE__', core.SOURCE)
                     .replace('__VERSION__', __version__))
@@ -523,6 +559,8 @@ def main(argv: list[str] | None = None) -> int:
     default_password = env('STACK_UI_PASSWORD_FILE', '/run/secrets/stack-ui-password')
     parser.add_argument('--password-file', default=default_password if Path(default_password).is_file() else '',
                         help='file with the password hash (--hash-password); required off loopback')
+    parser.add_argument('--username', default=env('STACK_UI_USERNAME', ''),
+                        help='a user name the sign-in asks for besides the password (optional)')
     parser.add_argument('--source-name', default=env('STACK_UI_SOURCE_NAME', 'host'))
     parser.add_argument('--no-browser', action='store_true')
     parser.add_argument('--hash-password', action='store_true', help='ask for a password and print its hash line')
@@ -546,6 +584,10 @@ def main(argv: list[str] | None = None) -> int:
         Config.password_hash = read_password_hash(Path(args.password_file))
         if not Config.password_hash:
             print(f'ERROR: {args.password_file} does not hold a hash from --hash-password', file=sys.stderr)
+            return 1
+        Config.username = args.username.strip()
+        if Config.username and not USERNAME.match(Config.username):
+            print('ERROR: STACK_UI_USERNAME: letters, digits and . _ - only, at most 64', file=sys.stderr)
             return 1
     elif not loopback(args.bind):
         print('ERROR: listening beyond this computer needs a password (--password-file / STACK_UI_PASSWORD_FILE)',

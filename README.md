@@ -168,7 +168,9 @@ devices or ports below 1024 — and then remember that this page is as powerful 
 - Whoever controls the page controls your containers: with a rootful socket that is root on the host.
 - Off loopback the page needs a password (its PBKDF2 hash in the `stack-ui-password` Podman secret), a session
   cookie (HttpOnly, SameSite=Strict, 12 h; Secure behind a trusted https proxy), the page's token, and an allowed Host header
-  (`STACK_UI_ALLOWED_HOSTS`). Five wrong passwords lock an address out for a few minutes.
+  (`STACK_UI_ALLOWED_HOSTS`). With `STACK_UI_USERNAME` set it asks for that user name too. Five wrong sign-ins
+  lock an address out for a few minutes. Every sign-in (right, wrong, locked out) is in the Activity log with the
+  address it came from, never with what was typed.
 - The port binds to `127.0.0.1` by default. Use HTTPS (a reverse proxy) when you open it on a network.
 - Env files must not hold secrets: a save or an upload with a non-empty `*TOKEN` / `*PASSWORD` / `*SECRET` /
   `*API_KEY` variable is refused. Give a stack a secret as a Podman secret: in its compose file
@@ -186,6 +188,7 @@ devices or ports below 1024 — and then remember that this page is as powerful 
 | `STACKS_DIR` | — (required) | the stacks folder; mount it at the same path in the container |
 | `STACK_UI_ALLOWED_HOSTS` | `127.0.0.1,localhost` | the host names / addresses the page answers to |
 | `STACK_UI_PASSWORD_FILE` | `/run/secrets/stack-ui-password` | the password hash (`--hash-password`) |
+| `STACK_UI_USERNAME` | (none) | a user name the sign-in asks for besides the password (letters, digits, `. _ -`, at most 64) |
 | `STACK_UI_SELF` | the container's `HOSTNAME` | this page's container name (protected) |
 | `STACK_UI_PROTECTED` | — | more containers or compose projects that are never stopped or removed |
 | `STACK_UI_PROTECTED_NETWORKS` | `podman` | networks that are never removed |

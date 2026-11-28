@@ -43,6 +43,21 @@ class ServerErrorsTest(Base):
         self.assertEqual(self.call('GET', '/nope', headers={})[:2], (404, {'error': 'not found'}))
         self.assertEqual(self.call('GET', '/api/nope')[:2], (404, {'error': 'not found'}))
 
+    def test_safari_finds_a_png_icon_also_when_signed_out(self):
+        # Safari (Add to Dock / Home Screen, bookmarks) takes no SVG: a 180x180 PNG, linked and at the names it asks for
+        self.ui.Config.password_hash = self.ui.hash_password('right-password', 1000)
+        self.addCleanup(setattr, self.ui.Config, 'password_hash', '')
+        for path in ('/apple-touch-icon.png', '/apple-touch-icon-precomposed.png'):
+            code, body, resp = self.call('GET', path, headers={})
+            self.assertEqual((code, resp.getheader('Content-Type')), (200, 'image/png'), path)
+            self.assertEqual(body[:8], bytes.fromhex('89504e470d0a1a0a'), path)
+            self.assertEqual((int.from_bytes(body[16:20]), int.from_bytes(body[20:24])), (180, 180), path)
+        login = self.call('GET', '/', headers={})[1].decode()
+        page = (self.ui.HERE / 'page.html').read_text(encoding='utf-8')
+        for html in (login, page):
+            self.assertIn('<link rel="apple-touch-icon" href="/apple-touch-icon.png">', html)
+            self.assertIn('<meta name="apple-mobile-web-app-title" content="Stack UI">', html)
+
     def test_a_body_that_is_not_a_json_object(self):
         for raw in ('[1, 2]', '"text"', '{not json'):
             code, body, _ = self.call('POST', '/api/stacks', raw=raw)

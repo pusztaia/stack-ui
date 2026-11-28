@@ -38,6 +38,7 @@ IMAGE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,254}$')
 HOSTS = re.compile(r'^[A-Za-z0-9._:,\[\]-]+$')
 NETWORKS = re.compile(r'^[A-Za-z0-9._:,/\[\]-]+$')   # also CIDR networks
 PATH = re.compile(r'^(/|\$HOME/)[A-Za-z0-9._/-]*$')
+USERNAME = re.compile(r'^[A-Za-z0-9._-]{1,64}$')   # what Stack UI accepts as STACK_UI_USERNAME
 
 
 class InstallError(Exception):
@@ -65,6 +66,7 @@ services:
       STACKS_DIR: @STACKS_DIR@
       STACK_UI_ALLOWED_HOSTS: {hosts}
       STACK_UI_SELF: stack-ui
+      STACK_UI_USERNAME: "@USERNAME@"
 '''
     if proxies:
         text += f'      STACK_UI_TRUSTED_PROXIES: {proxies}\n'
@@ -118,6 +120,7 @@ UPDATE=__UPDATE__
 BIND=__BIND__
 PORT=__PORT__
 IMAGE=__IMAGE__
+SUI_USER=__USERNAME__
 : "${STACKS_DIR:=$HOME/stacks}"
 : "${INSTALL_DIR:=$HOME/stack-ui}"
 case "$STACKS_DIR" in '$HOME/'*) STACKS_DIR="$HOME/${STACKS_DIR#'$HOME/'}" ;; esac
@@ -167,6 +170,9 @@ else
   echo "kept the existing secret stack-ui-password"
 fi
 say "Compose file"
+if [ -z "$SUI_USER" ] && [ -f "$INSTALL_DIR/compose.yaml" ]; then   # not given: keep the one the page has now
+  SUI_USER=$(sed -n 's/^ *STACK_UI_USERNAME: *"\{0,1\}\([A-Za-z0-9._-]*\)"\{0,1\} *$/\1/p' "$INSTALL_DIR/compose.yaml" | head -n 1)
+fi
 if [ -f "$INSTALL_DIR/compose.yaml" ]; then cp "$INSTALL_DIR/compose.yaml" "$INSTALL_DIR/compose.yaml.bak-$(date +%Y%m%d%H%M%S)"; fi
 cat > "$INSTALL_DIR/compose.yaml" <<COMPOSE_EOF
 __COMPOSE__
@@ -202,13 +208,13 @@ def build_remote_script(args, pwhash: str, compose: str) -> str:
         '__MODE__': args.mode, '__STACKS_DIR__': shlex.quote(args.stacks_dir or ''),
         '__INSTALL_DIR__': shlex.quote(args.install_dir or ''), '__PWHASH__': shlex.quote(pwhash),
         '__BUILD__': '1' if args.build else '0', '__UPDATE__': '1' if args.update else '0',
-        '__BIND__': shlex.quote(args.bind), '__PORT__': str(args.port), '__IMAGE__': shlex.quote(args.image),
+        '__USERNAME__': shlex.quote(args.username), '__BIND__': shlex.quote(args.bind), '__PORT__': str(args.port), '__IMAGE__': shlex.quote(args.image),
     }
     script = REMOTE_TEMPLATE
     for key, value in values.items():
         script = script.replace(key, value)
     # the compose text goes in last: it holds no shell syntax of its own except the two values the host fills in
-    compose = compose.replace('@SOCK@', '$SOCK').replace('@STACKS_DIR@', '$STACKS_DIR')
+    compose = compose.replace('@SOCK@', '$SOCK').replace('@STACKS_DIR@', '$STACKS_DIR').replace('@USERNAME@', '$SUI_USER')
     return script.replace('__COMPOSE__', compose.rstrip('\n'))
 
 
@@ -227,6 +233,8 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument('--bind', help='the host address the page listens on (default: the host of the target)')
     p.add_argument('--loopback', action='store_true', help='listen on 127.0.0.1 only (use an SSH tunnel or a proxy)')
     p.add_argument('--port', type=int, default=8770)
+    p.add_argument('--username', default='', help='a user name the page asks for besides the password '
+                                                  '(an update without it keeps the current one)')
     p.add_argument('--allowed-hosts', default='', help='more names the page is opened as (comma separated)')
     p.add_argument('--trusted-proxies', default='', help='reverse proxy addresses / networks (STACK_UI_TRUSTED_PROXIES)')
     p.add_argument('--no-hardening', action='store_true', help='leave out cap_drop / read_only / tmpfs')
@@ -249,6 +257,8 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     for name, pattern in (('allowed_hosts', HOSTS), ('trusted_proxies', NETWORKS)):
         if getattr(args, name) and not pattern.match(getattr(args, name)):
             raise InstallError(f'--{name.replace("_", "-")}: only names, addresses (networks) and commas')
+    if args.username and not USERNAME.match(args.username):
+        raise InstallError('--username: letters, digits and . _ - only, at most 64')
     for name in ('stacks_dir', 'install_dir'):
         if getattr(args, name) and not PATH.match(getattr(args, name)):
             raise InstallError(f'--{name.replace("_", "-")} must be an absolute path (or start with $HOME/)')
@@ -324,6 +334,11 @@ def interactive_argv() -> list[str]:
         last['port'] = port
         if port != '8770':
             argv.append(f'--port={port}')
+        username = _ask('User name for the page besides the password (empty = password only; an update keeps the '
+                        'current one)', last.get('username', ''))
+        last['username'] = username
+        if username:
+            argv.append(f'--username={username}')
 
         if _yes('\nBuild the image on the host from the GitHub repository instead of pulling the published one?', False):
             argv.append('--build')

@@ -75,6 +75,11 @@ class InstallPiTest(Base):
                     ['--stacks-dir', 'relative/dir'], ['--stacks-dir', '/a b'], ['--port', '0'], ['--bind', 'a;b']):
             with self.assertRaises(ip.InstallError, msg=bad):
                 self.args(*bad)
+        self.assertEqual(self.args('--username', 'admin').username, 'admin')
+        self.assertEqual(self.args().username, '')
+        for bad in (['--username', 'a b'], ['--username', '$(id)'], ['--username', 'x' * 65]):
+            with self.assertRaises(ip.InstallError, msg=bad):
+                self.args(*bad)
         for target in ('nohost', 'a b@c', 'u@h;x', '@h'):
             with self.assertRaises(ip.InstallError, msg=target):
                 ip.parse([target])
@@ -87,15 +92,15 @@ class InstallPiTest(Base):
 
     def test_interactive_defaults_make_a_plain_install(self):
         # user, host, install, auto mode, LAN address, port, no build, no advanced settings, no dry run
-        argv, out = self.answers('', '192.0.2.10', '', '', '', '', '', '', '', '')
+        argv, out = self.answers('', '192.0.2.10', '', '', '', '', '', '', '', '', '')
         self.assertEqual(argv, ['ubuntu@192.0.2.10'])
         self.assertEqual(ip.parse(argv).bind, '192.0.2.10')
         self.assertIn('Same as: python tools', out)
 
     def test_interactive_asks_every_option(self):
-        argv, _ = self.answers('pi', 'raspberrypi.local', '2', '3', '2', '8771', 'y', 'y',
+        argv, _ = self.answers('pi', 'raspberrypi.local', '2', '3', '2', '8771', 'admin', 'y', 'y',
                                'localhost/stack-ui:dev', '$HOME/s', '', 'stackui.lan', '172.18.0.0/16', 'n', 'y')
-        self.assertEqual(argv, ['pi@raspberrypi.local', '--update', '--rootless', '--loopback', '--port=8771', '--build',
+        self.assertEqual(argv, ['pi@raspberrypi.local', '--update', '--rootless', '--loopback', '--port=8771', '--username=admin', '--build',
                                 '--image=localhost/stack-ui:dev', '--stacks-dir=$HOME/s', '--allowed-hosts=stackui.lan',
                                 '--trusted-proxies=172.18.0.0/16', '--no-hardening', '--dry-run'])
         a = ip.parse(argv)
@@ -103,8 +108,8 @@ class InstallPiTest(Base):
 
     def test_interactive_asks_again_after_a_mistake_and_a_bad_number(self):
         # a bad host first (the whole round is repeated), a letter where a number is wanted, a port out of range
-        argv, out = self.answers('ubuntu', 'bad host', '99', '', '', '', '70000', '', '', '', '',
-                                 'ubuntu', 'good-host', '', '', '', '', '', '', '')
+        argv, out = self.answers('ubuntu', 'bad host', '99', '', '', '', '70000', '', '', '', '', '',
+                                 'ubuntu', 'good-host', '', '', '', '', '', '', '', '')
         self.assertEqual(argv, ['ubuntu@good-host'])
         self.assertIn('ERROR', out)
         self.assertIn('Type a number', out)
@@ -200,6 +205,22 @@ class RemoteScriptTest(Base):
         self.assertIn('compose -f compose.yaml pull', log)
         self.assertIn('compose -f compose.yaml up -d', log)
         self.assertIn('systemctl enable --now podman.socket', log)
+
+    def test_the_user_name_goes_into_the_compose_file_and_an_update_keeps_it(self):
+        r = self.run_script('--rootless', '--username', 'admin')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        compose = self.home / 'stack-ui' / 'compose.yaml'
+        self.assertIn('STACK_UI_USERNAME: "admin"', compose.read_text(encoding='utf-8'))
+        r = self.run_script('--rootless', '--update')   # not given again: the one in the compose file stays
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('STACK_UI_USERNAME: "admin"', compose.read_text(encoding='utf-8'))
+
+    def test_without_a_user_name_the_value_is_empty(self):
+        r = self.run_script('--rootless')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        text = (self.home / 'stack-ui' / 'compose.yaml').read_text(encoding='utf-8')
+        self.assertIn('STACK_UI_USERNAME: ""', text)
+        self.assertEqual(yaml.safe_load(text)['services']['stack-ui']['environment']['STACK_UI_USERNAME'], '')
 
     def test_a_local_image_is_not_pulled(self):
         r = self.run_script('--rootless', '--image', 'localhost/stack-ui:mine')
