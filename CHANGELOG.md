@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.51
 
 - *Sign-in.* A user name besides the password: with `STACK_UI_USERNAME` set the sign-in page asks for it, and a
   wrong name is refused like a wrong password (the same answer, the same throttle). Without it the password alone
